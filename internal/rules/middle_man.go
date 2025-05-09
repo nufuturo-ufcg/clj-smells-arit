@@ -42,7 +42,7 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 		for _, bNode := range bodyNodes {
 			if bNode.Type != reader.NodeComment && bNode.Type != reader.NodeNewline {
 				if significantBodyNode != nil {
-					significantBodyNode = nil // Reset if more than one significant node
+					significantBodyNode = nil
 					break
 				}
 				significantBodyNode = bNode
@@ -64,17 +64,15 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 		if innerFuncNameNode.Type != reader.NodeSymbol {
 			return nil
 		}
-		// innerFuncNameStr := innerFuncNameNode.Value // REMOVED Unused variable
 
 		numOuter := len(outerParams)
 		numInner := len(innerArgs)
 
-		// Revised Logic: Check if the LAST numOuter arguments of inner call match outer params, and numOuter > 0
 		if numOuter > 0 && numInner >= numOuter {
 			match := true
 			for i := 0; i < numOuter; i++ {
 				outerParam := outerParams[i]
-				// Compare with the i-th element FROM THE END of innerArgs
+
 				innerArgIndex := numInner - numOuter + i
 				innerArg := innerArgs[innerArgIndex]
 				outerParamDef := outerParam.ResolvedDefinition
@@ -89,7 +87,6 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 				}
 			}
 
-			// Additional Check: Ensure none of the prefix arguments are outer parameters
 			if match && numInner > numOuter {
 				prefixLen := numInner - numOuter
 				for k := 0; k < prefixLen; k++ {
@@ -97,13 +94,13 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 					if prefixArg.Type == reader.NodeSymbol && prefixArg.ResolvedDefinition != nil {
 						for _, outerParam := range outerParams {
 							if outerParam.ResolvedDefinition != nil && prefixArg.ResolvedDefinition == outerParam.ResolvedDefinition {
-								match = false // Prefix arg is an outer param, not a simple delegation
-								break         // Break inner loop (outerParams)
+								match = false
+								break
 							}
 						}
 					}
 					if !match {
-						break // Break outer loop (prefixArgs)
+						break
 					}
 				}
 			}
@@ -126,17 +123,6 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 	}
 	return nil
 }
-
-/* // REMOVED Helper function for logging
-// Helper function to get values from nodes for logging
-func nodeValues(nodes []*reader.RichNode) []string {
-	vals := make([]string, len(nodes))
-	for i, n := range nodes {
-		vals[i] = n.Value
-	}
-	return vals
-}
-*/
 
 func init() {
 	RegisterRule(&MiddleManRule{
