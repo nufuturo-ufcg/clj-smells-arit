@@ -148,11 +148,11 @@ func main() {
 				}
 			}()
 
-			fmt.Fprintf(os.Stderr, "[DEBUG Main Goroutine - ENTRY VIA FPRINTF] Goroutine started. FilePath raw: %s\n", filePath)
+			//	fmt.Fprintf(os.Stderr, "[DEBUG Main Goroutine - ENTRY VIA FPRINTF] Goroutine started. FilePath raw: %s\n", filePath)
 
 			isTargetFileForGoroutineLog := strings.HasSuffix(filePath, "smells/long_function.clj")
 
-			fmt.Fprintf(os.Stderr, "[DEBUG Main Goroutine - PRE-PARSE VIA FPRINTF] About to call ParseFile for: %s\n", filePath)
+			//	fmt.Fprintf(os.Stderr, "[DEBUG Main Goroutine - PRE-PARSE VIA FPRINTF] About to call ParseFile for: %s\n", filePath)
 
 			rawTree, err := reader.ParseFile(filePath)
 			if err != nil {
@@ -160,7 +160,7 @@ func main() {
 				return
 			}
 			if rawTree == nil && isTargetFileForGoroutineLog {
-				log.Printf("[DEBUG Main Goroutine - CHECK] ParseFile returned a nil rawTree for: '%s'", filePath)
+				//	log.Printf("[DEBUG Main Goroutine - CHECK] ParseFile returned a nil rawTree for: '%s'", filePath)
 			}
 
 			if isTargetFileForGoroutineLog {

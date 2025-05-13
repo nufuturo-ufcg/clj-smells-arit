@@ -2,8 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"log"
-
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
@@ -179,11 +177,11 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 		funcNameStr = "function literal (fn ...)"
 	} else if funcArgNode.Type == reader.NodeSymbol {
 		funcNameStr = fmt.Sprintf("symbol '%s'", funcArgNode.Value)
-		log.Printf("[DEBUG LazySideEffectsRule] Checking symbol: '%s' for lazy function '%s'", funcArgNode.Value, lazyFuncName)
-		log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is nil: %t", funcArgNode.Value, funcArgNode.ResolvedDefinition == nil)
+		//log.Printf("[DEBUG LazySideEffectsRule] Checking symbol: '%s' for lazy function '%s'", funcArgNode.Value, lazyFuncName)
+		//log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is nil: %t", funcArgNode.Value, funcArgNode.ResolvedDefinition == nil)
 		if funcArgNode.ResolvedDefinition != nil {
 			bodyToAnalyze = funcArgNode.ResolvedDefinition
-			log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is type: %s", funcArgNode.Value, funcArgNode.ResolvedDefinition.Type)
+			//log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is type: %s", funcArgNode.Value, funcArgNode.ResolvedDefinition.Type)
 		} else {
 
 			if _, isDirectSideEffect := r.SideEffectFuncs[funcArgNode.Value]; isDirectSideEffect {

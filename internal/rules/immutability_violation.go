@@ -2,7 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"os"
+	//"os"
+
+	//"os"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -29,8 +31,8 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 	if len(nodeValForLog) > 60 {
 		nodeValForLog = nodeValForLog[:60] + "..."
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG ImmutabilityRule INGRESS] Node Type: %s, Value: '%s', Children: %d, File: %s, Location: %s\n",
-		node.Type, nodeValForLog, len(node.Children), filepath, node.Location)
+	//fmt.Fprintf(os.Stderr, "[DEBUG ImmutabilityRule INGRESS] Node Type: %s, Value: '%s', Children: %d, File: %s, Location: %s\n",
+	//	node.Type, nodeValForLog, len(node.Children), filepath, node.Location)
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 		calledFunc := node.Children[0].Value
@@ -52,7 +54,7 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 	}
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "def" {
-		fmt.Fprintf(os.Stderr, "[DEBUG ImmutabilityRule] Found (def ...) node at %s:%s. isInsideFunction context: %t\n", filepath, node.Location, isInsideFunc)
+		//fmt.Fprintf(os.Stderr, "[DEBUG ImmutabilityRule] Found (def ...) node at %s:%s. isInsideFunction context: %t\n", filepath, node.Location, isInsideFunc)
 		if isInsideFunc {
 			return &Finding{
 				RuleID:   r.ID,

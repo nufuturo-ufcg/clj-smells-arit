@@ -90,6 +90,7 @@ A flag `--format` controla o formato do relatório:
 *   [x] **Comments:** Implementada (`internal/rules/comments.go`).
 *   [ ] **Mixed paradigms:** Não implementada.
 *   [ ] **Library locker:** Não implementada.
+*   **Pode ser necessário criar "sub smells" (Analisar)***
 *   [ ] **Data Class:** Não implementada (Ver `Primitive Obsession`).
 *   [ ] **Feature Envy:** Não implementada (Ver `Inappropriate Intimacy` / `Middle Man`).
 *   [ ] **Large Class:** Não implementada (Ver `Long Function` / `Divergent Change`).
@@ -104,10 +105,10 @@ A flag `--format` controla o formato do relatório:
 *   [ ] **Premature optimization:** Não implementada.
 *   [x] **Lazy side effects:** Implementada (`internal/rules/lazy_side_effects.go`).
 *   [x] **Immutability violation:** Implementada (`internal/rules/immutability_violation.go`).
-*   [ ] **External data coupling:** Não implementada.
+*   [x] **External data coupling:** Não implementada.
 *   [x] **Inefficient Filtering:** Implementada (`internal/rules/inefficient_filtering.go`).
 *   [x] **Overabstracted Composition:** Implementada (`internal/rules/overabstracted_composition.go`).
-*   [x] **Unnecessary Abstraction:** Implementada (`internal/rules/unnecessary_abstraction.go`).
+*   [x] **Unnecessary Abstraction:** Implementada (Verificar "agressividade" da regra (`internal/rules/unnecessary_abstraction.go`).
 *   [x] **Potentially Inefficient Generator:** Implementada (`internal/rules/potentially_inefficient_generator.go`). (Sub-regra de `Inefficient Filtering`).
 *   [x] **String Map Keys:** Implementada (`internal/rules/string_map_keys.go`). (Não listada explicitamente no documento, mas implementada. Smell de teste).
 
