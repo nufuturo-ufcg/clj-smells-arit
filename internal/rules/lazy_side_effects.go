@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
@@ -65,7 +66,12 @@ func (r *LazySideEffectsRule) Meta() Rule {
 	}
 }
 
-func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool, sideEffects map[string]bool) bool {
+const maxRecursionDepth = 50 // Definir profundidade máxima de recursão
+
+func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool, sideEffects map[string]bool, currentDepth int, maxDepth int) bool {
+	if currentDepth > maxDepth {
+		return false
+	}
 	if node == nil || visited[node] {
 		return false
 	}
@@ -92,7 +98,7 @@ func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool
 				for _, bodyNode := range bodyNodesToAnalyze {
 
 					newVisited := make(map[*reader.RichNode]bool)
-					if containsSideEffect(bodyNode, newVisited, sideEffects) {
+					if containsSideEffect(bodyNode, newVisited, sideEffects, currentDepth+1, maxDepth) {
 						return true
 					}
 				}
@@ -102,7 +108,7 @@ func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool
 
 	for _, child := range node.Children {
 
-		if containsSideEffect(child, visited, sideEffects) {
+		if containsSideEffect(child, visited, sideEffects, currentDepth+1, maxDepth) {
 			return true
 		}
 	}
@@ -140,7 +146,7 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 			for i := 2; i < len(node.Children); i++ {
 				bodyExpr := node.Children[i]
 				visited := make(map[*reader.RichNode]bool)
-				if containsSideEffect(bodyExpr, visited, r.SideEffectFuncs) {
+				if containsSideEffect(bodyExpr, visited, r.SideEffectFuncs, 0, maxRecursionDepth) {
 
 					return r.createFinding(node, lazyFuncName, "body expression", filepath, isInEagerCtx)
 				}
@@ -151,7 +157,7 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 			for i := 1; i < len(node.Children); i++ {
 				bodyExpr := node.Children[i]
 				visited := make(map[*reader.RichNode]bool)
-				if containsSideEffect(bodyExpr, visited, r.SideEffectFuncs) {
+				if containsSideEffect(bodyExpr, visited, r.SideEffectFuncs, 0, maxRecursionDepth) {
 					return r.createFinding(node, lazyFuncName, "body expression", filepath, isInEagerCtx)
 				}
 			}
@@ -181,7 +187,7 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 		//log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is nil: %t", funcArgNode.Value, funcArgNode.ResolvedDefinition == nil)
 		if funcArgNode.ResolvedDefinition != nil {
 			bodyToAnalyze = funcArgNode.ResolvedDefinition
-			//log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is type: %s", funcArgNode.Value, funcArgNode.ResolvedDefinition.Type)
+			// log.Printf("[DEBUG LazySideEffectsRule] ResolvedDefinition for '%s' is type: %s", funcArgNode.Value, funcArgNode.ResolvedDefinition.Type)
 		} else {
 
 			if _, isDirectSideEffect := r.SideEffectFuncs[funcArgNode.Value]; isDirectSideEffect {
@@ -195,7 +201,7 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 
 	if bodyToAnalyze != nil {
 		visited := make(map[*reader.RichNode]bool)
-		if containsSideEffect(bodyToAnalyze, visited, r.SideEffectFuncs) {
+		if containsSideEffect(bodyToAnalyze, visited, r.SideEffectFuncs, 0, maxRecursionDepth) {
 			return r.createFinding(node, lazyFuncName, funcNameStr, filepath, isInEagerCtx)
 		}
 	}

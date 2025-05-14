@@ -76,7 +76,7 @@ func init() {
 			ID:          "immutability-violation",
 			Name:        "Immutability Violation",
 			Description: "Detects direct state mutation (e.g., reset!, swap!, set!) or definition of global variables (`def`) inside functions. Both practices can lead to side effects and violate functional purity.",
-			Severity:    SeverityError,
+			Severity:    SeverityWarning,
 		},
 	}
 

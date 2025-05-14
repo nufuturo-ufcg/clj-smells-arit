@@ -189,6 +189,8 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 		if evalExpr := buildRichNode(n.Node, ignoreComments); evalExpr != nil {
 			rNode.Children = []*RichNode{evalExpr}
 		}
+	case *parse.MetadataNode:
+		return buildRichNode(n.Node, ignoreComments)
 
 	default:
 		if !ignoreComments {
