@@ -84,7 +84,7 @@ type EnrichedFinding struct {
 }
 
 func getProblemCode(finding *rules.Finding) (template.HTML, error) {
-	const contextLines = 2 //LINHAS DE CONTEXTO ACIMA E ABAIXO
+	const contextLines = 4 //LINHAS DE CONTEXTO ACIMA E ABAIXO
 
 	if finding.Location == nil || finding.Filepath == "" {
 		return "", nil

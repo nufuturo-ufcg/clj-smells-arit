@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -40,6 +41,14 @@ func isPrimitiveLike(paramNode *reader.RichNode) bool {
 	return false
 }
 
+func isPotentialTypeNameRule(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	firstChar := rune(s[0])
+	return unicode.IsUpper(firstChar)
+}
+
 type PrimitiveObsessionParamsRule struct {
 	MinConsecutivePrimitives int
 }
@@ -65,7 +74,9 @@ func (r *PrimitiveObsessionParamsRule) Check(node *reader.RichNode, context map[
 		return nil
 	}
 	fnSymbol := node.Children[0]
-	if fnSymbol.Type != reader.NodeSymbol || (fnSymbol.Value != "defn" && fnSymbol.Value != "defn-") {
+
+	isRelevantForm := fnSymbol.Value == "defn" || fnSymbol.Value == "defn-" || fnSymbol.Value == "defrecord"
+	if fnSymbol.Type != reader.NodeSymbol || !isRelevantForm {
 		return nil
 	}
 
@@ -107,20 +118,53 @@ func (r *PrimitiveObsessionParamsRule) Check(node *reader.RichNode, context map[
 		minConsecutive = 3
 	}
 
-	params := paramsVector.Children
+	actualParams := paramsVector.Children
 
-	if len(params) == 2 {
-		param1 := params[0]
-		param2 := params[1]
-		if isPrimitiveLike(param1) && isPrimitiveLike(param2) {
+	var effectiveParams []*reader.RichNode
 
-			meta := r.Meta()
-			return &Finding{
-				RuleID:   meta.ID,
-				Message:  fmt.Sprintf("Function '%s' takes exactly two primitive-like parameters ('%s', '%s'). Consider using a dedicated record or map to represent this concept.", funcName, param1.Value, param2.Value),
-				Filepath: filepath,
-				Location: param1.Location,
-				Severity: meta.Severity,
+	if len(actualParams) == 2 &&
+		actualParams[0] != nil && actualParams[0].Type == reader.NodeSymbol && isPotentialTypeNameRule(actualParams[0].Value) &&
+		actualParams[1] != nil && actualParams[1].Type == reader.NodeSymbol && !isPotentialTypeNameRule(actualParams[1].Value) {
+
+		paramNameNode := actualParams[1]
+
+		if paramNameNode.TypeHint == "" {
+			paramNameNode.TypeHint = actualParams[0].Value
+		}
+		effectiveParams = []*reader.RichNode{paramNameNode}
+
+	} else if len(actualParams) == 2 &&
+		actualParams[0] != nil && actualParams[0].Type == reader.NodeTag &&
+		actualParams[1] != nil && actualParams[1].Type == reader.NodeSymbol {
+
+		paramNameNode := actualParams[1]
+
+		if paramNameNode.TypeHint == "" && actualParams[0].Value != "" {
+			paramNameNode.TypeHint = actualParams[0].Value
+		}
+		effectiveParams = []*reader.RichNode{paramNameNode}
+	} else if len(actualParams) == 1 && actualParams[0] != nil && actualParams[0].Type == reader.NodeSymbol {
+
+		effectiveParams = actualParams
+	} else {
+		effectiveParams = actualParams
+	}
+
+	if len(effectiveParams) == 2 {
+		if fnSymbol.Value == "defn" || fnSymbol.Value == "defn-" {
+			param1Node := effectiveParams[0]
+			param2Node := effectiveParams[1]
+
+			if param1Node != nil && param2Node != nil && isPrimitiveLike(param1Node) && isPrimitiveLike(param2Node) {
+
+				meta := r.Meta()
+				return &Finding{
+					RuleID:   meta.ID,
+					Message:  fmt.Sprintf("Function '%s' takes exactly two primitive-like parameters ('%s', '%s'). Consider using a dedicated record or map to represent this concept.", funcName, param1Node.Value, param2Node.Value),
+					Filepath: filepath,
+					Location: param1Node.Location,
+					Severity: meta.Severity,
+				}
 			}
 		}
 	}
@@ -128,7 +172,10 @@ func (r *PrimitiveObsessionParamsRule) Check(node *reader.RichNode, context map[
 	consecutiveCount := 0
 	var firstPrimitiveParam *reader.RichNode
 
-	for _, paramNode := range params {
+	for _, paramNode := range effectiveParams {
+		if paramNode == nil {
+			continue
+		}
 		if isPrimitiveLike(paramNode) {
 			if consecutiveCount == 0 {
 				firstPrimitiveParam = paramNode
@@ -138,11 +185,19 @@ func (r *PrimitiveObsessionParamsRule) Check(node *reader.RichNode, context map[
 
 			if consecutiveCount >= minConsecutive {
 				meta := r.Meta()
+
+				paramNameForMessage := "<unknown>"
+				var locationForFinding *reader.Location
+				if firstPrimitiveParam != nil {
+					paramNameForMessage = firstPrimitiveParam.Value
+					locationForFinding = firstPrimitiveParam.Location
+				}
+
 				return &Finding{
 					RuleID:   meta.ID,
-					Message:  fmt.Sprintf("Function '%s' has %d consecutive primitive or untyped parameters starting at '%s'. Consider grouping them into a map or record.", funcName, consecutiveCount, firstPrimitiveParam.Value),
+					Message:  fmt.Sprintf("Function '%s' has %d consecutive primitive or untyped parameters starting at '%s'. Consider grouping them into a map or record.", funcName, consecutiveCount, paramNameForMessage),
 					Filepath: filepath,
-					Location: firstPrimitiveParam.Location,
+					Location: locationForFinding,
 					Severity: meta.Severity,
 				}
 			}
@@ -154,11 +209,19 @@ func (r *PrimitiveObsessionParamsRule) Check(node *reader.RichNode, context map[
 
 	if consecutiveCount >= minConsecutive {
 		meta := r.Meta()
+
+		paramNameForMessage := "<unknown>"
+		var locationForFinding *reader.Location
+		if firstPrimitiveParam != nil {
+			paramNameForMessage = firstPrimitiveParam.Value
+			locationForFinding = firstPrimitiveParam.Location
+		}
+
 		return &Finding{
 			RuleID:   meta.ID,
-			Message:  fmt.Sprintf("Function '%s' has %d consecutive primitive or untyped parameters starting at '%s'. Consider grouping them into a map or record.", funcName, consecutiveCount, firstPrimitiveParam.Value),
+			Message:  fmt.Sprintf("Function '%s' has %d consecutive primitive or untyped parameters starting at '%s'. Consider grouping them into a map or record.", funcName, consecutiveCount, paramNameForMessage),
 			Filepath: filepath,
-			Location: firstPrimitiveParam.Location,
+			Location: locationForFinding,
 			Severity: meta.Severity,
 		}
 	}

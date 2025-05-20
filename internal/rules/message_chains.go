@@ -172,7 +172,7 @@ func init() {
 			Description: "Avoid long chains of method calls or accesses (e.g., using '->', 'get-in', or nested keyword access). This increases coupling and violates the Law of Demeter.",
 			Severity:    SeverityWarning,
 		},
-		MaxLength: 3,
+		MaxLength: 5,
 	}
 
 	RegisterRule(defaultRule)

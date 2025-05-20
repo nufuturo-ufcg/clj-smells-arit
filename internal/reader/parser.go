@@ -2,6 +2,7 @@ package reader
 
 import (
 	"fmt"
+	"unicode"
 
 	"github.com/cespare/goclj/parse"
 )
@@ -189,16 +190,70 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 		if evalExpr := buildRichNode(n.Node, ignoreComments); evalExpr != nil {
 			rNode.Children = []*RichNode{evalExpr}
 		}
+
 	case *parse.MetadataNode:
-		return buildRichNode(n.Node, ignoreComments)
+		children := n.Children()
+
+		var metaHintNodeRaw parse.Node
+		var actualNodeRaw parse.Node
+
+		if len(children) == 2 {
+			metaHintNodeRaw = children[0]
+			actualNodeRaw = children[1]
+
+			if actualNodeRaw != n.Node {
+
+			}
+		} else if n.Node != nil {
+
+			actualNodeRaw = n.Node
+		} else {
+			return nil
+		}
+
+		richActualNode := buildRichNode(actualNodeRaw, ignoreComments)
+		if richActualNode == nil {
+			return nil
+		}
+
+		if metaHintNodeRaw == nil {
+			return richActualNode
+		}
+
+		var typeHintFromMeta string
+		switch meta := metaHintNodeRaw.(type) {
+		case *parse.SymbolNode:
+			typeHintFromMeta = meta.Val
+		case *parse.TagNode:
+			typeHintFromMeta = meta.Val
+		case *parse.KeywordNode:
+
+			break
+		case *parse.MapNode:
+
+			for i := 0; i+1 < len(meta.Nodes); i += 2 {
+				keyNode, okKey := meta.Nodes[i].(*parse.KeywordNode)
+				valueNode, okVal := meta.Nodes[i+1].(*parse.SymbolNode)
+				if okKey && keyNode.Val == ":tag" && okVal {
+					typeHintFromMeta = valueNode.Val
+					break
+				}
+			}
+		}
+
+		if typeHintFromMeta != "" && richActualNode.Type == NodeSymbol {
+			richActualNode.TypeHint = typeHintFromMeta
+		}
+
+		return richActualNode
 
 	default:
 		if !ignoreComments {
 			rNode.Type = NodeUnknown
-			fmt.Printf("Warning: Unknown node type encountered during RichNode build: %T\n", n)
+
 		} else {
 			rNode.Type = NodeUnknown
-			fmt.Printf("Warning: Unknown node type encountered (ignoreComments=true): %T\n", n)
+
 		}
 	}
 
@@ -249,44 +304,16 @@ func FindTopLevelDefns(tree *parse.Tree) []*parse.ListNode {
 	return defns
 }
 
+func isPotentialTypeName(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+
+	firstChar := rune(s[0])
+	return unicode.IsUpper(firstChar)
+
+}
+
 func ApplyTypeHints(nodes []*RichNode) {
-	if nodes == nil {
-		return
-	}
-	for _, node := range nodes {
-		if node == nil {
-			continue
-		}
-		if node.Children == nil {
-		} else if len(node.Children) > 0 {
-			var newChildren []*RichNode
-			i := 0
-			for i < len(node.Children) {
-				child := node.Children[i]
-				if child == nil {
-					newChildren = append(newChildren, nil)
-					i++
-					continue
-				}
-				if child.Type == NodeTag && i+1 < len(node.Children) {
-					nextNode := node.Children[i+1]
-					if nextNode != nil {
-						nextNode.TypeHint = child.Value
-						newChildren = append(newChildren, child)
-					} else {
-						newChildren = append(newChildren, child)
-					}
-					i++
-				} else {
-					newChildren = append(newChildren, child)
-					i++
-				}
-			}
-			node.Children = newChildren
-			if node.Children == nil {
-				node.Children = []*RichNode{}
-			}
-			ApplyTypeHints(node.Children)
-		}
-	}
+
 }

@@ -5,7 +5,7 @@ import "github.com/thlaurentino/arit/internal/reader"
 type Severity string
 
 const (
-	SeverityError   Severity = "ERROR"
+	//SeverityError   Severity = "ERROR"
 	SeverityWarning Severity = "WARNING"
 	SeverityInfo    Severity = "INFO"
 	SeverityHint    Severity = "HINT"

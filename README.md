@@ -14,7 +14,7 @@
 Para construir o executável a partir do código-fonte, navegue até a raiz do projeto e execute:
 
 ```bash
-go build -o arit_analyzer ./cmd/arit
+go build -o arit
 ```
 
 Isso criará um executável chamado `arit_analyzer` (ou `arit_analyzer.exe` no Windows) no diretório atual.
@@ -25,16 +25,16 @@ Após a compilação, você pode executar `arit_analyzer` a partir da linha de c
 
 ```bash
 # Analisar um arquivo específico
-./arit_analyzer caminho/para/seu/arquivo.clj
+./arit caminho/para/seu/arquivo.clj
 
 # Analisar múltiplos arquivos
-./arit_analyzer arquivo1.clj arquivo2.cljs
+./arit arquivo1.clj arquivo2.cljs
 
 # Analisar todos os arquivos Clojure em um diretório (e subdiretórios)
-./arit_analyzer caminho/para/seu/projeto/
+./arit caminho/para/seu/projeto/
 
 # Especificar o formato de saída (por exemplo, HTML, redirecionando para um arquivo)
-./arit_analyzer --format=html caminho/para/seu/projeto/ > report.html
+./arit_analyzer -f html caminho/para/seu/projeto/ > report.html
 ```
 
 Alternativamente, se você tiver Go configurado corretamente e o diretório `$GOPATH/bin` (ou `$HOME/go/bin`) no seu PATH, você pode instalar o `arit` globalmente com:
@@ -65,10 +65,11 @@ A flag `--format` controla o formato do relatório:
 *   `json`
 *   `html`
 *   `markdown`
+*   `sarif`
 
 ## Estrutura do Projeto
 
-*   `cmd/arit/`: Ponto de entrada da aplicação (`main.go`).
+*   `main.go`: Ponto de entrada da aplicação (`main.go`).
 *   `internal/`: Contém os pacotes `analyzer`, `config`, `reader`, `reporter`, `rules`.
 *   `go.mod`, `go.sum`: Dependências do Go.
 *   `.gitignore`: Arquivos ignorados pelo Git.
@@ -102,7 +103,7 @@ A flag `--format` controla o formato do relatório:
 *   [x] **Deeply-nested call stacks:** Implementada (`internal/rules/deeply_nested.go`).
 *   [x] **Inappropriate Collection:** Implementada (`internal/rules/inappropriate_collection.go`, também `linear_collection_scan.go`).
 *   [x] **Underutilizing clojure features:** Implementada (`internal/rules/underutilizing_features.go`).
-*   [ ] **Premature optimization:** Não implementada.
+*   [x] **Premature optimization:** Não implementada.
 *   [x] **Lazy side effects:** Implementada (`internal/rules/lazy_side_effects.go`).
 *   [x] **Immutability violation:** Implementada (`internal/rules/immutability_violation.go`).
 *   [x] **External data coupling:** Não implementada.
