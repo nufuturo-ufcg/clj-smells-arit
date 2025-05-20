@@ -34,7 +34,7 @@ Após a compilação, você pode executar `arit_analyzer` a partir da linha de c
 ./arit caminho/para/seu/projeto/
 
 # Especificar o formato de saída (por exemplo, HTML, redirecionando para um arquivo)
-./arit_analyzer -f html caminho/para/seu/projeto/ > report.html
+./arit -f html caminho/para/seu/projeto/ > report.html
 ```
 
 Alternativamente, se você tiver Go configurado corretamente e o diretório `$GOPATH/bin` (ou `$HOME/go/bin`) no seu PATH, você pode instalar o `arit` globalmente com:
