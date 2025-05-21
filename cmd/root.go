@@ -32,7 +32,7 @@ var rootCmd = &cobra.Command{
       
 ###############
 
-Arit analyzes Clojure and ClojureScript files for potential issues,
+Arit analyzes Clojure files for potential issues,
 style violations, and opportunities for improvement.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
