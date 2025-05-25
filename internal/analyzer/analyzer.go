@@ -467,7 +467,7 @@ func isNodeEagerConsumer(node *reader.RichNode) bool {
 	return isEager
 }
 
-func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, _ []*reader.RichNode, globalScope *Scope) []*rules.Finding {
+func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, comments []*reader.RichNode, globalScope *Scope) []*rules.Finding {
 
 	var findingsMutex sync.Mutex
 	allFindings := []*rules.Finding{}
@@ -498,6 +498,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, _ 
 		for k, v := range currentContext {
 			childContext[k] = v
 		}
+		childContext["parent"] = node
 
 		isParentEager, _ := currentContext["isInEagerContext"].(bool)
 		childContext["isInEagerContext"] = isParentEager || isNodeEagerConsumer(node)
@@ -570,9 +571,28 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, _ 
 		"isInsideFunction": false,
 	}
 
+	// Processar nós principais
 	for _, rootNode := range richRootNodes {
 		traverseAndAnalyze(rootNode, initialContext, globalScope)
 	}
+
+	// Processar comentários separadamente
+	for _, commentNode := range comments {
+		for _, rule := range a.Rules {
+			ruleContext := make(map[string]interface{})
+			for k, v := range initialContext {
+				ruleContext[k] = v
+			}
+			ruleContext["scope"] = globalScope
+
+			if finding := rule.Check(commentNode, ruleContext, filepath); finding != nil {
+				findingsMutex.Lock()
+				allFindings = append(allFindings, finding)
+				findingsMutex.Unlock()
+			}
+		}
+	}
+
 	return allFindings
 }
 
