@@ -8,7 +8,7 @@ import (
 )
 
 func ParseFile(filepath string) (*parse.Tree, error) {
-	var opts parse.ParseOpts
+	opts := parse.IncludeNonSemantic // Include comments and newlines
 	tree, err := parse.File(filepath, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse file %s: %w", filepath, err)
