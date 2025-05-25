@@ -68,42 +68,10 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 		numOuter := len(outerParams)
 		numInner := len(innerArgs)
 
+		
+		
 		if numOuter > 0 && numInner >= numOuter {
-			match := true
-			for i := 0; i < numOuter; i++ {
-				outerParam := outerParams[i]
-
-				innerArgIndex := numInner - numOuter + i
-				innerArg := innerArgs[innerArgIndex]
-				outerParamDef := outerParam.ResolvedDefinition
-				innerArgDef := innerArg.ResolvedDefinition
-
-				if !(outerParam.Type == reader.NodeSymbol &&
-					innerArg.Type == reader.NodeSymbol &&
-					outerParamDef != nil &&
-					innerArgDef == outerParamDef) {
-					match = false
-					break
-				}
-			}
-
-			if match && numInner > numOuter {
-				prefixLen := numInner - numOuter
-				for k := 0; k < prefixLen; k++ {
-					prefixArg := innerArgs[k]
-					if prefixArg.Type == reader.NodeSymbol && prefixArg.ResolvedDefinition != nil {
-						for _, outerParam := range outerParams {
-							if outerParam.ResolvedDefinition != nil && prefixArg.ResolvedDefinition == outerParam.ResolvedDefinition {
-								match = false
-								break
-							}
-						}
-					}
-					if !match {
-						break
-					}
-				}
-			}
+			match := r.checkParameterMatch(outerParams, innerArgs, numOuter, numInner)
 
 			if match {
 				funcName := "?"
@@ -122,6 +90,56 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 		}
 	}
 	return nil
+}
+
+
+func (r *MiddleManRule) checkParameterMatch(outerParams, innerArgs []*reader.RichNode, numOuter, numInner int) bool {
+	
+	for i := 0; i < numOuter; i++ {
+		outerParam := outerParams[i]
+		innerArgIndex := numInner - numOuter + i
+		innerArg := innerArgs[innerArgIndex]
+
+		if !r.symbolsMatch(outerParam, innerArg) {
+			return false
+		}
+	}
+
+	
+	
+	if numInner > numOuter {
+		prefixLen := numInner - numOuter
+		for k := 0; k < prefixLen; k++ {
+			prefixArg := innerArgs[k]
+			if prefixArg.Type == reader.NodeSymbol {
+				
+				for _, outerParam := range outerParams {
+					if r.symbolsMatch(prefixArg, outerParam) {
+						return false 
+					}
+				}
+			}
+		}
+	}
+
+	return true
+}
+
+
+
+func (r *MiddleManRule) symbolsMatch(sym1, sym2 *reader.RichNode) bool {
+	if sym1.Type != reader.NodeSymbol || sym2.Type != reader.NodeSymbol {
+		return false
+	}
+
+	
+	if sym1.ResolvedDefinition != nil && sym2.ResolvedDefinition != nil {
+		return sym1.ResolvedDefinition == sym2.ResolvedDefinition
+	}
+
+	
+	
+	return sym1.Value == sym2.Value && sym1.Value != "" && sym2.Value != ""
 }
 
 func init() {
