@@ -6,6 +6,9 @@
 # Binários compilados
 *.exe           # Executáveis Windows
 arit            # Binário principal do projeto (Linux/macOS)
+*.md            # Arquivos markdown
+*.clj           # Código Clojure
+*.html          # Html
 
 # Arquivos temporários
 *.tmp
