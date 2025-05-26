@@ -1,3 +1,5 @@
+// Package reporter implementa diferentes formatos de relatório para os findings da análise
+// Suporta JSON, texto simples, HTML e Markdown para flexibilidade na apresentação dos resultados
 package reporter
 
 import (
@@ -13,24 +15,29 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
+// ReportFormat define os formatos de relatório disponíveis
 type ReportFormat string
 
 const (
-	FormatJSON     ReportFormat = "json"
-	FormatText     ReportFormat = "text"
-	FormatHTML     ReportFormat = "html"
-	FormatMarkdown ReportFormat = "markdown"
+	FormatJSON     ReportFormat = "json"     // Formato JSON estruturado
+	FormatText     ReportFormat = "text"     // Texto simples legível
+	FormatHTML     ReportFormat = "html"     // HTML com formatação rica
+	FormatMarkdown ReportFormat = "markdown" // Markdown para documentação
 )
 
+// Reporter interface comum para todos os tipos de relatório
+// Permite implementações diferentes mantendo a mesma API
 type Reporter interface {
 	Report(findings []*rules.Finding, writer io.Writer) error
 }
 
+// JSONReporter gera relatórios em formato JSON estruturado
+// Útil para integração com outras ferramentas e processamento automatizado
 type JSONReporter struct{}
 
 func (jr *JSONReporter) Report(findings []*rules.Finding, writer io.Writer) error {
 	encoder := json.NewEncoder(writer)
-	encoder.SetIndent("", "  ")
+	encoder.SetIndent("", "  ") // Formatação legível com indentação
 	err := encoder.Encode(findings)
 	if err != nil {
 		return fmt.Errorf("error encoding findings to JSON: %w", err)
@@ -38,6 +45,8 @@ func (jr *JSONReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 	return nil
 }
 
+// TextReporter gera relatórios em texto simples
+// Formato conciso ideal para terminal e logs
 type TextReporter struct{}
 
 func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) error {
@@ -47,13 +56,16 @@ func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 	}
 
 	for _, finding := range findings {
+		// Formata a localização do problema
 		loc := "(file-level)"
 		if finding.Location != nil {
-
+			// Inclui linha e coluna específicas se disponíveis
 			loc = fmt.Sprintf("%s:%d:%d", finding.Filepath, finding.Location.StartLine, finding.Location.StartColumn)
 		} else {
 			loc = finding.Filepath
 		}
+
+		// Formato: [SEVERIDADE] REGRA: MENSAGEM [LOCALIZAÇÃO]
 		line := fmt.Sprintf("[%s] %s: %s [%s]\n",
 			finding.Severity,
 			finding.RuleID,
@@ -62,29 +74,35 @@ func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 
 		_, err := fmt.Fprint(writer, line)
 		if err != nil {
-
+			// Propaga erros de escrita
 			return fmt.Errorf("error writing finding: %w", err)
 		}
 	}
 	return nil
 }
 
+// HTMLReporter gera relatórios em HTML com formatação rica
+// Inclui código contextual e estilos para melhor visualização
 type HTMLReporter struct{}
 
+// HTMLReportData estrutura os dados para o template HTML
 type HTMLReportData struct {
-	TotalFilesAnalyzed int
-	TotalFindings      int
-	Findings           []*EnrichedFinding
+	TotalFilesAnalyzed int                // Número de arquivos analisados
+	TotalFindings      int                // Total de problemas encontrados
+	Findings           []*EnrichedFinding // Findings enriquecidos com contexto
 }
 
+// EnrichedFinding estende Finding com informações adicionais para HTML
 type EnrichedFinding struct {
 	*rules.Finding
-	ProblemCode  template.HTML
-	FormattedLoc string
+	ProblemCode  template.HTML // Código HTML com destaque do problema
+	FormattedLoc string        // Localização formatada para exibição
 }
 
+// getProblemCode extrai o código fonte ao redor do problema para contexto
+// Inclui linhas antes e depois para melhor compreensão do issue
 func getProblemCode(finding *rules.Finding) (template.HTML, error) {
-	const contextLines = 4 //LINHAS DE CONTEXTO ACIMA E ABAIXO
+	const contextLines = 4 // Linhas de contexto acima e abaixo
 
 	if finding.Location == nil || finding.Filepath == "" {
 		return "", nil
@@ -99,6 +117,8 @@ func getProblemCode(finding *rules.Finding) (template.HTML, error) {
 	var outputLines []string
 	scanner := bufio.NewScanner(file)
 	currentLine := 1
+
+	// Calcula o range de linhas para mostrar
 	startContextLine := finding.Location.StartLine - contextLines
 	if startContextLine < 1 {
 		startContextLine = 1
@@ -109,15 +129,20 @@ func getProblemCode(finding *rules.Finding) (template.HTML, error) {
 		if currentLine >= startContextLine && currentLine <= endContextLine {
 			lineText := scanner.Text()
 
+			// Verifica se a linha está dentro do range do problema
 			isWithinFindingRange := currentLine >= finding.Location.StartLine && currentLine <= finding.Location.EndLine
+
+			// Pula linhas vazias fora do range do problema
 			if strings.TrimSpace(lineText) == "" && !isWithinFindingRange {
 				currentLine++
 				continue
 			}
 
+			// Escapa HTML e adiciona número da linha
 			escapedLineText := template.HTMLEscapeString(lineText)
 			lineWithNumber := fmt.Sprintf("%5d: %s", currentLine, escapedLineText)
 
+			// Destaca linhas que contêm o problema
 			if currentLine >= finding.Location.StartLine && currentLine <= finding.Location.EndLine {
 				outputLines = append(outputLines, fmt.Sprintf("<span class=\"highlight-finding\">%s</span>", lineWithNumber))
 			} else {
@@ -140,6 +165,8 @@ func getProblemCode(finding *rules.Finding) (template.HTML, error) {
 	return template.HTML(strings.Join(outputLines, "<br>")), nil
 }
 
+// htmlTemplate define o template HTML para o relatório
+// Inclui CSS para formatação e estrutura de tabela responsiva
 const htmlTemplate = `
 <!DOCTYPE html>
 <html>
