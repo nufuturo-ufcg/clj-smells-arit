@@ -7,17 +7,14 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-// ExplicitRecursionRule detecta uso desnecessário de recursão explícita
-// quando funções de alta ordem seriam mais apropriadas
 type ExplicitRecursionRule struct {
 	Rule
 }
 
-// RecursionPattern representa um padrão de recursão detectado
 type RecursionPattern struct {
-	Type        string // "accumulator", "transformation", "filtering", "counting"
-	Suggestion  string // Sugestão de refatoração
-	Confidence  string // "high", "medium", "low"
+	Type        string
+	Suggestion  string
+	Confidence  string
 	Description string
 }
 
@@ -36,7 +33,7 @@ func (r *ExplicitRecursionRule) Check(node *reader.RichNode, context map[string]
 		severity = SeverityWarning
 	}
 
-	message := fmt.Sprintf("Explicit recursion detected (%s pattern). %s. Suggestion: %s", 
+	message := fmt.Sprintf("Explicit recursion detected (%s pattern). %s. Suggestion: %s",
 		pattern.Type, pattern.Description, pattern.Suggestion)
 
 	return &Finding{
@@ -48,7 +45,6 @@ func (r *ExplicitRecursionRule) Check(node *reader.RichNode, context map[string]
 	}
 }
 
-// isLoopRecurForm verifica se é uma forma loop/recur
 func (r *ExplicitRecursionRule) isLoopRecurForm(node *reader.RichNode) bool {
 	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return false
@@ -59,11 +55,9 @@ func (r *ExplicitRecursionRule) isLoopRecurForm(node *reader.RichNode) bool {
 		return false
 	}
 
-	// Verifica se há pelo menos um recur no corpo
 	return r.hasRecurInBody(node)
 }
 
-// hasRecurInBody verifica se há chamadas recur no corpo do loop
 func (r *ExplicitRecursionRule) hasRecurInBody(node *reader.RichNode) bool {
 	for _, child := range node.Children {
 		if r.containsRecur(child) {
@@ -73,7 +67,6 @@ func (r *ExplicitRecursionRule) hasRecurInBody(node *reader.RichNode) bool {
 	return false
 }
 
-// containsRecur verifica recursivamente se um nó contém recur
 func (r *ExplicitRecursionRule) containsRecur(node *reader.RichNode) bool {
 	if node == nil {
 		return false
@@ -92,17 +85,14 @@ func (r *ExplicitRecursionRule) containsRecur(node *reader.RichNode) bool {
 	return false
 }
 
-// analyzeRecursionPattern analisa o padrão de recursão e sugere alternativas
 func (r *ExplicitRecursionRule) analyzeRecursionPattern(node *reader.RichNode) *RecursionPattern {
 	if len(node.Children) < 3 {
 		return nil
 	}
 
-	// Extrai bindings e corpo
 	bindings := node.Children[1]
 	body := node.Children[2:]
 
-	// Analisa diferentes padrões
 	if pattern := r.detectAccumulatorPattern(bindings, body); pattern != nil {
 		return pattern
 	}
@@ -126,13 +116,11 @@ func (r *ExplicitRecursionRule) analyzeRecursionPattern(node *reader.RichNode) *
 	return nil
 }
 
-// detectAccumulatorPattern detecta padrão de acumulação (reduce)
 func (r *ExplicitRecursionRule) detectAccumulatorPattern(bindings *reader.RichNode, body []*reader.RichNode) *RecursionPattern {
 	if !r.hasAccumulatorBindings(bindings) {
 		return nil
 	}
 
-	// Procura por padrões típicos de reduce
 	for _, bodyNode := range body {
 		if r.hasAccumulatorUpdate(bodyNode) {
 			confidence := "medium"
@@ -152,7 +140,6 @@ func (r *ExplicitRecursionRule) detectAccumulatorPattern(bindings *reader.RichNo
 	return nil
 }
 
-// detectTransformationPattern detecta padrão de transformação (map)
 func (r *ExplicitRecursionRule) detectTransformationPattern(bindings *reader.RichNode, body []*reader.RichNode) *RecursionPattern {
 	if !r.hasCollectionBinding(bindings) {
 		return nil
@@ -172,7 +159,6 @@ func (r *ExplicitRecursionRule) detectTransformationPattern(bindings *reader.Ric
 	return nil
 }
 
-// detectFilteringPattern detecta padrão de filtro (filter)
 func (r *ExplicitRecursionRule) detectFilteringPattern(bindings *reader.RichNode, body []*reader.RichNode) *RecursionPattern {
 	if !r.hasCollectionBinding(bindings) {
 		return nil
@@ -192,7 +178,6 @@ func (r *ExplicitRecursionRule) detectFilteringPattern(bindings *reader.RichNode
 	return nil
 }
 
-// detectCountingPattern detecta padrão de contagem (count, frequencies)
 func (r *ExplicitRecursionRule) detectCountingPattern(bindings *reader.RichNode, body []*reader.RichNode) *RecursionPattern {
 	if !r.hasCounterBinding(bindings) {
 		return nil
@@ -212,7 +197,6 @@ func (r *ExplicitRecursionRule) detectCountingPattern(bindings *reader.RichNode,
 	return nil
 }
 
-// detectIterationPattern detecta padrão de iteração simples (doseq, dotimes)
 func (r *ExplicitRecursionRule) detectIterationPattern(bindings *reader.RichNode, body []*reader.RichNode) *RecursionPattern {
 	if !r.hasSimpleIteration(bindings, body) {
 		return nil
@@ -226,19 +210,17 @@ func (r *ExplicitRecursionRule) detectIterationPattern(bindings *reader.RichNode
 	}
 }
 
-// hasAccumulatorBindings verifica se há bindings típicos de acumulador
 func (r *ExplicitRecursionRule) hasAccumulatorBindings(bindings *reader.RichNode) bool {
 	if bindings.Type != reader.NodeVector || len(bindings.Children) < 4 {
 		return false
 	}
 
-	// Procura por padrões como [acc init-val coll items]
 	for i := 0; i < len(bindings.Children)-1; i += 2 {
 		binding := bindings.Children[i]
 		if binding.Type == reader.NodeSymbol {
 			name := strings.ToLower(binding.Value)
-			if strings.Contains(name, "acc") || strings.Contains(name, "result") || 
-			   strings.Contains(name, "sum") || strings.Contains(name, "total") {
+			if strings.Contains(name, "acc") || strings.Contains(name, "result") ||
+				strings.Contains(name, "sum") || strings.Contains(name, "total") {
 				return true
 			}
 		}
@@ -247,7 +229,6 @@ func (r *ExplicitRecursionRule) hasAccumulatorBindings(bindings *reader.RichNode
 	return false
 }
 
-// hasCollectionBinding verifica se há binding de coleção
 func (r *ExplicitRecursionRule) hasCollectionBinding(bindings *reader.RichNode) bool {
 	if bindings.Type != reader.NodeVector || len(bindings.Children) < 2 {
 		return false
@@ -257,8 +238,8 @@ func (r *ExplicitRecursionRule) hasCollectionBinding(bindings *reader.RichNode) 
 		binding := bindings.Children[i]
 		if binding.Type == reader.NodeSymbol {
 			name := strings.ToLower(binding.Value)
-			if strings.Contains(name, "coll") || strings.Contains(name, "items") || 
-			   strings.Contains(name, "list") || strings.Contains(name, "seq") {
+			if strings.Contains(name, "coll") || strings.Contains(name, "items") ||
+				strings.Contains(name, "list") || strings.Contains(name, "seq") {
 				return true
 			}
 		}
@@ -267,7 +248,6 @@ func (r *ExplicitRecursionRule) hasCollectionBinding(bindings *reader.RichNode) 
 	return false
 }
 
-// hasCounterBinding verifica se há binding de contador
 func (r *ExplicitRecursionRule) hasCounterBinding(bindings *reader.RichNode) bool {
 	if bindings.Type != reader.NodeVector || len(bindings.Children) < 2 {
 		return false
@@ -277,8 +257,8 @@ func (r *ExplicitRecursionRule) hasCounterBinding(bindings *reader.RichNode) boo
 		binding := bindings.Children[i]
 		if binding.Type == reader.NodeSymbol {
 			name := strings.ToLower(binding.Value)
-			if strings.Contains(name, "count") || strings.Contains(name, "cnt") || 
-			   strings.Contains(name, "n") || strings.Contains(name, "i") {
+			if strings.Contains(name, "count") || strings.Contains(name, "cnt") ||
+				strings.Contains(name, "n") || strings.Contains(name, "i") {
 				return true
 			}
 		}
@@ -287,22 +267,19 @@ func (r *ExplicitRecursionRule) hasCounterBinding(bindings *reader.RichNode) boo
 	return false
 }
 
-// hasAccumulatorUpdate verifica se há atualização de acumulador
 func (r *ExplicitRecursionRule) hasAccumulatorUpdate(node *reader.RichNode) bool {
 	return r.containsFunction(node, []string{"conj", "cons", "+", "*", "merge", "into", "assoc"})
 }
 
-// hasSimpleAccumulation verifica se é uma acumulação simples
 func (r *ExplicitRecursionRule) hasSimpleAccumulation(node *reader.RichNode) bool {
 	return r.containsFunction(node, []string{"+", "*", "conj", "cons"})
 }
 
-// hasElementTransformation verifica se há transformação de elementos
 func (r *ExplicitRecursionRule) hasElementTransformation(node *reader.RichNode) bool {
-	// Procura por padrões como (conj result (transform item))
+
 	if node.Type == reader.NodeList && len(node.Children) >= 3 {
 		if r.isFunction(node.Children[0], "conj") {
-			// Verifica se o terceiro argumento é uma transformação
+
 			if len(node.Children) > 2 {
 				thirdArg := node.Children[2]
 				return r.isTransformationCall(thirdArg)
@@ -319,11 +296,10 @@ func (r *ExplicitRecursionRule) hasElementTransformation(node *reader.RichNode) 
 	return false
 }
 
-// hasConditionalAccumulation verifica se há acumulação condicional
 func (r *ExplicitRecursionRule) hasConditionalAccumulation(node *reader.RichNode) bool {
 	if node.Type == reader.NodeList && len(node.Children) >= 2 {
 		if r.isFunction(node.Children[0], "if") || r.isFunction(node.Children[0], "when") {
-			// Verifica se há conj ou similar dentro da condição
+
 			for _, child := range node.Children[1:] {
 				if r.containsFunction(child, []string{"conj", "cons"}) {
 					return true
@@ -341,21 +317,18 @@ func (r *ExplicitRecursionRule) hasConditionalAccumulation(node *reader.RichNode
 	return false
 }
 
-// hasCounterIncrement verifica se há incremento de contador
 func (r *ExplicitRecursionRule) hasCounterIncrement(node *reader.RichNode) bool {
 	return r.containsFunction(node, []string{"inc", "+", "-"})
 }
 
-// hasSimpleIteration verifica se é uma iteração simples
 func (r *ExplicitRecursionRule) hasSimpleIteration(bindings *reader.RichNode, body []*reader.RichNode) bool {
-	// Verifica se não há acumulação complexa
+
 	for _, bodyNode := range body {
 		if r.hasAccumulatorUpdate(bodyNode) {
 			return false
 		}
 	}
 
-	// Verifica se há efeitos colaterais simples
 	for _, bodyNode := range body {
 		if r.containsFunction(bodyNode, []string{"println", "print", "prn", "swap!", "reset!"}) {
 			return true
@@ -365,7 +338,6 @@ func (r *ExplicitRecursionRule) hasSimpleIteration(bindings *reader.RichNode, bo
 	return false
 }
 
-// containsFunction verifica se um nó contém chamadas para funções específicas
 func (r *ExplicitRecursionRule) containsFunction(node *reader.RichNode, functions []string) bool {
 	if node == nil {
 		return false
@@ -391,12 +363,10 @@ func (r *ExplicitRecursionRule) containsFunction(node *reader.RichNode, function
 	return false
 }
 
-// isFunction verifica se um nó é uma função específica
 func (r *ExplicitRecursionRule) isFunction(node *reader.RichNode, function string) bool {
 	return node != nil && node.Type == reader.NodeSymbol && node.Value == function
 }
 
-// isTransformationCall verifica se é uma chamada de transformação
 func (r *ExplicitRecursionRule) isTransformationCall(node *reader.RichNode) bool {
 	if node.Type != reader.NodeList || len(node.Children) == 0 {
 		return false
@@ -407,7 +377,6 @@ func (r *ExplicitRecursionRule) isTransformationCall(node *reader.RichNode) bool
 		return false
 	}
 
-	// Lista de funções comuns de transformação
 	transformFunctions := []string{
 		"str", "keyword", "name", "inc", "dec", "+", "-", "*", "/",
 		"upper-case", "lower-case", "trim", "reverse", "sort",
@@ -438,4 +407,4 @@ func init() {
 	}
 
 	RegisterRule(rule)
-} 
+}

@@ -6,24 +6,18 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-// PositionalReturnValuesRule detecta funções que retornam coleções sequenciais
-// onde o significado dos elementos é implícito por sua posição.
 type PositionalReturnValuesRule struct {
 	Rule
 }
 
-// Meta retorna os metadados da regra.
 func (r *PositionalReturnValuesRule) Meta() Rule {
 	return r.Rule
 }
 
-// isLiteralVector verifica se o nó é um vetor literal com múltiplos elementos.
 func isLiteralVector(node *reader.RichNode) bool {
 	return node.Type == reader.NodeVector && len(node.Children) >= 2
 }
 
-// isLiteralList verifica se o nó é uma lista literal (não uma chamada de função) com múltiplos elementos.
-// Uma lista literal tipicamente começa com um valor literal ao invés de um símbolo que poderia ser uma função.
 func isLiteralList(node *reader.RichNode) bool {
 	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return false
@@ -37,12 +31,10 @@ func isLiteralList(node *reader.RichNode) bool {
 		firstChild.Type == reader.NodeNil
 }
 
-// isPositionalCollection verifica se uma coleção contém múltiplos valores que poderiam ser posicionais.
 func isPositionalCollection(node *reader.RichNode) bool {
 	return (isLiteralVector(node) || isLiteralList(node)) && len(node.Children) >= 2
 }
 
-// findFunctionBody localiza o índice de início do corpo para definições de função.
 func (r *PositionalReturnValuesRule) findFunctionBody(node *reader.RichNode, fnType string) int {
 	if fnType == "defn" {
 		if len(node.Children) < 3 {
@@ -74,7 +66,6 @@ func (r *PositionalReturnValuesRule) findFunctionBody(node *reader.RichNode, fnT
 	return -1
 }
 
-// Check executa a verificação da regra para valores de retorno posicionais.
 func (r *PositionalReturnValuesRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
 	if node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
@@ -106,7 +97,6 @@ func (r *PositionalReturnValuesRule) Check(node *reader.RichNode, context map[st
 		}
 	}
 
-	// Verifica retornos posicionais dentro de expressões let
 	if lastBodyForm.Type == reader.NodeList && len(lastBodyForm.Children) > 0 &&
 		lastBodyForm.Children[0].Type == reader.NodeSymbol && lastBodyForm.Children[0].Value == "let" {
 		if len(lastBodyForm.Children) >= 3 {

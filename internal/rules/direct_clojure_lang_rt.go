@@ -1,5 +1,3 @@
-// Package rules implementa regra para detectar uso direto de clojure.lang.RT
-// Esta regra identifica uso da API interna clojure.lang.RT que deveria ser evitado
 package rules
 
 import (
@@ -9,44 +7,36 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-// DirectClojureLangRTRule detecta uso direto da API interna clojure.lang.RT
-// O uso direto de clojure.lang.RT é desencorajado pois é uma API interna
 type DirectClojureLangRTRule struct {
 	Rule
-	AllowedFunctions []string `json:"allowed_functions" yaml:"allowed_functions"` // Funções RT permitidas (se alguma)
+	AllowedFunctions []string `json:"allowed_functions" yaml:"allowed_functions"`
 }
 
 func (r *DirectClojureLangRTRule) Meta() Rule {
 	return r.Rule
 }
 
-// Check analisa nós procurando por chamadas de clojure.lang.RT
 func (r *DirectClojureLangRTRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-	// Verifica se é uma chamada de função
+
 	if node.Type != reader.NodeList || len(node.Children) < 1 {
 		return nil
 	}
 
-	// Verifica se o primeiro elemento é um símbolo
 	firstChild := node.Children[0]
 	if firstChild.Type != reader.NodeSymbol {
 		return nil
 	}
 
-	// Verifica se é uma chamada de clojure.lang.RT
 	if !r.isClojureLangRTCall(firstChild.Value) {
 		return nil
 	}
 
-	// Extrai a função RT sendo chamada
 	rtFunction := r.extractRTFunction(firstChild.Value)
 
-	// Verifica se é uma função permitida (se configurada)
 	if r.isAllowedFunction(rtFunction) {
 		return nil
 	}
 
-	// Gera sugestões baseadas na função específica
 	suggestion := r.getSuggestionForFunction(rtFunction)
 
 	message := fmt.Sprintf(
@@ -65,37 +55,30 @@ func (r *DirectClojureLangRTRule) Check(node *reader.RichNode, context map[strin
 	}
 }
 
-// isClojureLangRTCall verifica se o símbolo é uma chamada de clojure.lang.RT
 func (r *DirectClojureLangRTRule) isClojureLangRTCall(symbol string) bool {
-	// Verifica padrões como:
-	// - clojure.lang.RT/function
-	// - RT/function (se RT for importado/aliased)
 
 	if strings.HasPrefix(symbol, "clojure.lang.RT/") {
 		return true
 	}
 
-	// Verifica se é uma referência curta (RT/function)
 	if strings.HasPrefix(symbol, "RT/") {
-		// Pode ser um alias ou import direto - consideramos suspeito
+
 		return true
 	}
 
 	return false
 }
 
-// extractRTFunction extrai o nome da função RT sendo chamada
 func (r *DirectClojureLangRTRule) extractRTFunction(symbol string) string {
 	if strings.Contains(symbol, "/") {
 		parts := strings.Split(symbol, "/")
 		if len(parts) >= 2 {
-			return parts[len(parts)-1] // Última parte após "/"
+			return parts[len(parts)-1]
 		}
 	}
 	return symbol
 }
 
-// isAllowedFunction verifica se a função RT está na lista de permitidas
 func (r *DirectClojureLangRTRule) isAllowedFunction(function string) bool {
 	for _, allowed := range r.AllowedFunctions {
 		if function == allowed {
@@ -105,7 +88,6 @@ func (r *DirectClojureLangRTRule) isAllowedFunction(function string) bool {
 	return false
 }
 
-// getSuggestionForFunction retorna sugestões específicas para funções RT comuns
 func (r *DirectClojureLangRTRule) getSuggestionForFunction(function string) string {
 	suggestions := map[string]string{
 		"iter":      "Consider using (seq coll) or direct iteration with doseq/for instead of RT/iter.",
@@ -134,7 +116,6 @@ func (r *DirectClojureLangRTRule) getSuggestionForFunction(function string) stri
 	return "Prefer using Clojure's standard library functions instead of accessing RT directly."
 }
 
-// init registra a regra de uso direto de clojure.lang.RT
 func init() {
 	defaultRule := &DirectClojureLangRTRule{
 		Rule: Rule{
@@ -143,7 +124,7 @@ func init() {
 			Description: "Detects direct usage of clojure.lang.RT internal API. Direct usage of clojure.lang.RT should be avoided as it's an internal implementation detail that may change between Clojure versions. Use the standard library functions instead.",
 			Severity:    SeverityWarning,
 		},
-		AllowedFunctions: []string{}, // Por padrão, nenhuma função RT é permitida
+		AllowedFunctions: []string{},
 	}
 
 	RegisterRule(defaultRule)

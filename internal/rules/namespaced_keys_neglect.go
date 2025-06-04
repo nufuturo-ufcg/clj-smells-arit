@@ -8,22 +8,18 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-// NamespacedKeysNeglectRule detecta negligência no uso de namespaced keys
-// Identifica keywords que deveriam usar namespaces para evitar colisões e melhorar clareza
 type NamespacedKeysNeglectRule struct {
 	Rule
 }
 
-// KeywordContext representa o contexto onde uma keyword é usada
 type KeywordContext struct {
-	Type        string // "map-key", "spec-key", "destructuring", "function-call"
-	Scope       string // "local", "api", "database", "global"
+	Type        string
+	Scope       string
 	Suggestion  string
-	Confidence  string // "high", "medium", "low"
+	Confidence  string
 	Description string
 }
 
-// Padrões de keywords que comumente precisam de namespace
 var commonGlobalKeywords = map[string]bool{
 	"id":         true,
 	"name":       true,
@@ -54,7 +50,6 @@ var commonGlobalKeywords = map[string]bool{
 	"request":    true,
 }
 
-// Padrões que indicam uso em APIs ou persistência
 var apiPatterns = []string{
 	"defapi", "defroute", "POST", "GET", "PUT", "DELETE", "PATCH",
 	"defentity", "defschema", "defspec", "s/def",
@@ -77,7 +72,6 @@ func (r *NamespacedKeysNeglectRule) Check(node *reader.RichNode, context map[str
 		return nil
 	}
 
-	// Determina severidade baseada no contexto e confiança
 	severity := r.determineSeverity(keywordContext)
 
 	message := fmt.Sprintf("Non-namespaced keyword '%s' detected in %s context. %s. Suggestion: %s",
@@ -92,28 +86,23 @@ func (r *NamespacedKeysNeglectRule) Check(node *reader.RichNode, context map[str
 	}
 }
 
-// isKeyword verifica se o nó é uma keyword
 func (r *NamespacedKeysNeglectRule) isKeyword(node *reader.RichNode) bool {
 	return node != nil && node.Type == reader.NodeKeyword
 }
 
-// isAlreadyNamespaced verifica se a keyword já tem namespace
 func (r *NamespacedKeysNeglectRule) isAlreadyNamespaced(keyword string) bool {
-	// Remove o : inicial
+
 	if strings.HasPrefix(keyword, ":") {
 		keyword = keyword[1:]
 	}
 
-	// Verifica se contém namespace (formato namespace/name ou namespace.subns/name)
-	return strings.Contains(keyword, "/") || 
-		   (strings.Contains(keyword, ".") && strings.Contains(keyword, "/"))
+	return strings.Contains(keyword, "/") ||
+		(strings.Contains(keyword, ".") && strings.Contains(keyword, "/"))
 }
 
-// analyzeKeywordContext analisa o contexto onde a keyword é usada
 func (r *NamespacedKeysNeglectRule) analyzeKeywordContext(node *reader.RichNode, context map[string]interface{}) *KeywordContext {
 	keywordValue := strings.TrimPrefix(node.Value, ":")
-	
-	// Verifica se é uma keyword comum que deveria ter namespace
+
 	if r.isCommonGlobalKeyword(keywordValue) {
 		return &KeywordContext{
 			Type:        "global-data",
@@ -124,14 +113,12 @@ func (r *NamespacedKeysNeglectRule) analyzeKeywordContext(node *reader.RichNode,
 		}
 	}
 
-	// Analisa o contexto do nó pai
 	parentContext := r.getParentContext(node, context)
-	
+
 	if parentContext != nil {
 		return parentContext
 	}
 
-	// Verifica se está em contexto de spec
 	if r.isInSpecContext(node, context) {
 		return &KeywordContext{
 			Type:        "spec-key",
@@ -142,7 +129,6 @@ func (r *NamespacedKeysNeglectRule) analyzeKeywordContext(node *reader.RichNode,
 		}
 	}
 
-	// Verifica se está em contexto de API
 	if r.isInAPIContext(node, context) {
 		return &KeywordContext{
 			Type:        "api-key",
@@ -153,7 +139,6 @@ func (r *NamespacedKeysNeglectRule) analyzeKeywordContext(node *reader.RichNode,
 		}
 	}
 
-	// Verifica se está em contexto de mapa com múltiplas chaves
 	if r.isInLargeMapContext(node, context) {
 		return &KeywordContext{
 			Type:        "map-key",
@@ -167,21 +152,17 @@ func (r *NamespacedKeysNeglectRule) analyzeKeywordContext(node *reader.RichNode,
 	return nil
 }
 
-// isCommonGlobalKeyword verifica se é uma keyword comum que deveria ter namespace
 func (r *NamespacedKeysNeglectRule) isCommonGlobalKeyword(keyword string) bool {
 	return commonGlobalKeywords[keyword]
 }
 
-// getParentContext analisa o contexto do nó pai
 func (r *NamespacedKeysNeglectRule) getParentContext(node *reader.RichNode, context map[string]interface{}) *KeywordContext {
-	// Esta função seria implementada para analisar o contexto do AST
-	// Por simplicidade, vamos focar nos padrões mais óbvios
+
 	return nil
 }
 
-// isInSpecContext verifica se está em contexto de clojure.spec
 func (r *NamespacedKeysNeglectRule) isInSpecContext(node *reader.RichNode, context map[string]interface{}) bool {
-	// Verifica se há indicadores de spec no contexto
+
 	if contextStr, ok := context["function_name"].(string); ok {
 		specIndicators := []string{"s/def", "defspec", "spec/def", "s/keys", "s/valid?"}
 		for _, indicator := range specIndicators {
@@ -193,7 +174,6 @@ func (r *NamespacedKeysNeglectRule) isInSpecContext(node *reader.RichNode, conte
 	return false
 }
 
-// isInAPIContext verifica se está em contexto de API
 func (r *NamespacedKeysNeglectRule) isInAPIContext(node *reader.RichNode, context map[string]interface{}) bool {
 	if contextStr, ok := context["function_name"].(string); ok {
 		for _, pattern := range apiPatterns {
@@ -202,8 +182,7 @@ func (r *NamespacedKeysNeglectRule) isInAPIContext(node *reader.RichNode, contex
 			}
 		}
 	}
-	
-	// Verifica se está em namespace que sugere API
+
 	if ns, ok := context["namespace"].(string); ok {
 		apiNamespaces := []string{"api", "routes", "handlers", "endpoints", "rest", "graphql"}
 		for _, apiNs := range apiNamespaces {
@@ -212,20 +191,18 @@ func (r *NamespacedKeysNeglectRule) isInAPIContext(node *reader.RichNode, contex
 			}
 		}
 	}
-	
+
 	return false
 }
 
-// isInLargeMapContext verifica se está em um mapa grande
 func (r *NamespacedKeysNeglectRule) isInLargeMapContext(node *reader.RichNode, context map[string]interface{}) bool {
-	// Verifica se o mapa pai tem muitas chaves (indicativo de estrutura complexa)
+
 	if mapSize, ok := context["map_size"].(int); ok {
-		return mapSize >= 5 // Mapas com 5+ chaves podem se beneficiar de namespacing
+		return mapSize >= 5
 	}
 	return false
 }
 
-// determineSeverity determina a severidade baseada no contexto
 func (r *NamespacedKeysNeglectRule) determineSeverity(ctx *KeywordContext) Severity {
 	switch ctx.Confidence {
 	case "high":
@@ -240,9 +217,6 @@ func (r *NamespacedKeysNeglectRule) determineSeverity(ctx *KeywordContext) Sever
 	}
 }
 
-// Funções auxiliares para análise de padrões
-
-// isInDatabaseContext verifica se está em contexto de banco de dados
 func (r *NamespacedKeysNeglectRule) isInDatabaseContext(node *reader.RichNode, context map[string]interface{}) bool {
 	if contextStr, ok := context["function_name"].(string); ok {
 		dbPatterns := []string{
@@ -259,7 +233,6 @@ func (r *NamespacedKeysNeglectRule) isInDatabaseContext(node *reader.RichNode, c
 	return false
 }
 
-// isInConfigContext verifica se está em contexto de configuração
 func (r *NamespacedKeysNeglectRule) isInConfigContext(node *reader.RichNode, context map[string]interface{}) bool {
 	if contextStr, ok := context["function_name"].(string); ok {
 		configPatterns := []string{"config", "settings", "env", "properties"}
@@ -272,30 +245,25 @@ func (r *NamespacedKeysNeglectRule) isInConfigContext(node *reader.RichNode, con
 	return false
 }
 
-// hasSnakeCasePattern verifica se segue o padrão snake_case (mais portável)
 func (r *NamespacedKeysNeglectRule) hasSnakeCasePattern(keyword string) bool {
-	// Remove o : inicial
+
 	keyword = strings.TrimPrefix(keyword, ":")
-	
-	// Verifica se usa snake_case
+
 	snakeCaseRegex := regexp.MustCompile(`^[a-z][a-z0-9_]*[a-z0-9]$`)
 	return snakeCaseRegex.MatchString(keyword)
 }
 
-// hasLispCasePattern verifica se segue o padrão lisp-case (idiomático Clojure)
 func (r *NamespacedKeysNeglectRule) hasLispCasePattern(keyword string) bool {
-	// Remove o : inicial
+
 	keyword = strings.TrimPrefix(keyword, ":")
-	
-	// Verifica se usa lisp-case
+
 	lispCaseRegex := regexp.MustCompile(`^[a-z][a-z0-9\-]*[a-z0-9]$`)
 	return lispCaseRegex.MatchString(keyword)
 }
 
-// suggestNamespacing sugere um namespace apropriado baseado no contexto
 func (r *NamespacedKeysNeglectRule) suggestNamespacing(keyword string, context *KeywordContext) string {
 	keyword = strings.TrimPrefix(keyword, ":")
-	
+
 	switch context.Scope {
 	case "global":
 		return fmt.Sprintf(":myapp.core/%s", keyword)
@@ -325,4 +293,4 @@ func init() {
 	}
 
 	RegisterRule(rule)
-} 
+}

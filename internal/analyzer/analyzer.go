@@ -1,5 +1,3 @@
-// Package analyzer implementa a análise semântica e aplicação de regras para código Clojure
-// Fornece funcionalidades para análise de escopo, resolução de símbolos e detecção de code smells
 package analyzer
 
 import (
@@ -13,68 +11,58 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-// AnalysisResult contém o resultado completo da análise de um arquivo
-// Inclui findings, AST enriquecida, escopo global e informações de namespace
 type AnalysisResult struct {
-	Findings        []rules.Finding    // Problemas encontrados pelas regras
-	RichRoots       []*reader.RichNode // Nós raiz da AST enriquecida
-	GlobalScope     *Scope             // Escopo global com definições
-	Namespace       string             // Nome do namespace do arquivo
-	Aliases         []NamespaceAlias   // Aliases de namespace definidos
-	ReferredSymbols []ReferredSymbol   // Símbolos importados via :refer
+	Findings        []rules.Finding
+	RichRoots       []*reader.RichNode
+	GlobalScope     *Scope
+	Namespace       string
+	Aliases         []NamespaceAlias
+	ReferredSymbols []ReferredSymbol
 }
 
-// Scope representa um escopo de símbolos com hierarquia pai-filho
-// Implementa a resolução de símbolos seguindo as regras de escopo do Clojure
 type Scope struct {
-	parent          *Scope                     // Escopo pai na hierarquia
-	symbols         map[string]*SymbolInfo     // Símbolos definidos neste escopo
-	aliases         map[string]*NamespaceAlias // Aliases de namespace
-	referredSymbols map[string]*ReferredSymbol // Símbolos referidos de outros namespaces
+	parent          *Scope
+	symbols         map[string]*SymbolInfo
+	aliases         map[string]*NamespaceAlias
+	referredSymbols map[string]*ReferredSymbol
 }
 
-// SymbolType categoriza os diferentes tipos de símbolos no código Clojure
 type SymbolType string
 
 const (
-	TypeFunction        SymbolType = "function"          // Funções definidas pelo usuário
-	TypeVariable        SymbolType = "variable"          // Variáveis e constantes
-	TypeParameter       SymbolType = "parameter"         // Parâmetros de função
-	TypeNamespace       SymbolType = "namespace"         // Namespaces
-	TypeReferred        SymbolType = "referred"          // Símbolos importados via :refer
-	TypeJava            SymbolType = "java_class"        // Classes e métodos Java
-	TypeUnknown         SymbolType = "unknown"           // Símbolos não resolvidos
-	TypeCoreFunction    SymbolType = "core-function"     // Funções do clojure.core
-	TypeCoreSpecialForm SymbolType = "core-special-form" // Formas especiais do core
-	TypeAliased         SymbolType = "aliased"           // Símbolos acessados via alias
+	TypeFunction        SymbolType = "function"
+	TypeVariable        SymbolType = "variable"
+	TypeParameter       SymbolType = "parameter"
+	TypeNamespace       SymbolType = "namespace"
+	TypeReferred        SymbolType = "referred"
+	TypeJava            SymbolType = "java_class"
+	TypeUnknown         SymbolType = "unknown"
+	TypeCoreFunction    SymbolType = "core-function"
+	TypeCoreSpecialForm SymbolType = "core-special-form"
+	TypeAliased         SymbolType = "aliased"
 )
 
-// SymbolInfo contém informações detalhadas sobre um símbolo
-// Inclui metadados para análise de uso e origem
 type SymbolInfo struct {
-	Name            string           // Nome do símbolo
-	Definition      *reader.RichNode // Nó onde o símbolo foi definido
-	Type            SymbolType       // Tipo do símbolo
-	IsPrivate       bool             // Se é privado (defn-)
-	IsUsed          bool             // Se foi usado no código
-	OriginNamespace string           // Namespace de origem
+	Name            string
+	Definition      *reader.RichNode
+	Type            SymbolType
+	IsPrivate       bool
+	IsUsed          bool
+	OriginNamespace string
 }
 
-// NamespaceAlias representa um alias de namespace (ex: [clojure.string :as str])
 type NamespaceAlias struct {
-	Alias          string           // Nome curto do alias (ex: "str")
-	FullNamespace  string           // Namespace completo (ex: "clojure.string")
-	DefinitionNode *reader.RichNode // Nó onde foi definido
+	Alias          string
+	FullNamespace  string
+	DefinitionNode *reader.RichNode
 }
 
-// ReferredSymbol representa um símbolo importado via :refer
 type ReferredSymbol struct {
-	SymbolName        string           // Nome do símbolo referido
-	OriginalNamespace string           // Namespace original do símbolo
-	DefinitionNode    *reader.RichNode // Nó onde foi importado
+	SymbolName        string
+	OriginalNamespace string
+	DefinitionNode    *reader.RichNode
 }
 
-// NewScope cria um novo escopo com o escopo pai especificado
 func NewScope(parent *Scope) *Scope {
 	return &Scope{
 		parent:          parent,
@@ -84,17 +72,14 @@ func NewScope(parent *Scope) *Scope {
 	}
 }
 
-// Define adiciona uma nova definição de símbolo ao escopo
-// Retorna false se o símbolo já existir no escopo atual
 func (s *Scope) Define(info *SymbolInfo) bool {
 	if _, exists := s.symbols[info.Name]; exists {
-		return false // Símbolo já definido neste escopo
+		return false
 	}
 	s.symbols[info.Name] = info
 	return true
 }
 
-// DefineAlias adiciona um alias de namespace ao escopo
 func (s *Scope) DefineAlias(alias NamespaceAlias) {
 	if s.aliases == nil {
 		s.aliases = make(map[string]*NamespaceAlias)
@@ -102,7 +87,6 @@ func (s *Scope) DefineAlias(alias NamespaceAlias) {
 	s.aliases[alias.Alias] = &alias
 }
 
-// DefineReferredSymbol adiciona um símbolo referido ao escopo
 func (s *Scope) DefineReferredSymbol(ref ReferredSymbol) {
 	if s.referredSymbols == nil {
 		s.referredSymbols = make(map[string]*ReferredSymbol)
@@ -110,8 +94,6 @@ func (s *Scope) DefineReferredSymbol(ref ReferredSymbol) {
 	s.referredSymbols[ref.SymbolName] = &ref
 }
 
-// findLocalOrParentDef busca uma definição nos escopos locais e pais
-// Usado para verificar se um símbolo está definido na hierarquia de escopos
 func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
 	current := s
 	for current != nil {
@@ -119,14 +101,13 @@ func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
 			return info, true
 		}
 		if _, found := current.referredSymbols[name]; found {
-			// Símbolo referido encontrado, mas não retorna aqui
+
 		}
 		current = current.parent
 	}
 	return nil, false
 }
 
-// findAlias busca um alias de namespace na hierarquia de escopos
 func (s *Scope) findAlias(aliasName string) (*NamespaceAlias, bool) {
 	current := s
 	for current != nil {
@@ -138,10 +119,8 @@ func (s *Scope) findAlias(aliasName string) (*NamespaceAlias, bool) {
 	return nil, false
 }
 
-// CollectDefinitions percorre a AST coletando todas as definições de símbolos
-// Constrói a tabela de símbolos para resolução posterior
 func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
-	// Mapa local para rastrear definições durante a coleta
+
 	localDefs := make(map[*reader.RichNode]*SymbolInfo)
 
 	var visit func(node *reader.RichNode, currentScope *Scope)
@@ -152,34 +131,31 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 
 		nextScope := currentScope
 
-		// Processa diferentes tipos de definições
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			funcNameNode := node.Children[0]
 			switch funcNameNode.Value {
 			case "defn", "defn-":
-				// Definição de função
+
 				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
 					funcSymbolNode := node.Children[1]
 					funcInfo := &SymbolInfo{
 						Name:       funcSymbolNode.Value,
 						Definition: node,
 						Type:       TypeFunction,
-						IsPrivate:  funcNameNode.Value == "defn-", // defn- é privada
+						IsPrivate:  funcNameNode.Value == "defn-",
 						IsUsed:     false,
 					}
 					currentScope.Define(funcInfo)
 
-					// Cria escopo para a função
 					fnScope := NewScope(currentScope)
 					nextScope = fnScope
 
-					// Processa parâmetros da função
 					paramIndex := 2
-					// Pula docstring se presente
+
 					if len(node.Children) > paramIndex && node.Children[paramIndex].Type == reader.NodeString {
 						paramIndex++
 					}
-					// Pula mapa de metadados se presente
+
 					if len(node.Children) > paramIndex && node.Children[paramIndex].Type == reader.NodeMap {
 						paramIndex++
 					}
@@ -187,10 +163,10 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 					if len(node.Children) > paramIndex {
 						paramsNodeCandidate := node.Children[paramIndex]
 						if paramsNodeCandidate.Type == reader.NodeVector {
-							// Função com aridade única
+
 							defineParams(paramsNodeCandidate, fnScope, localDefs)
 						} else if paramsNodeCandidate.Type == reader.NodeList {
-							// Função com múltiplas aridades
+
 							for _, arityForm := range paramsNodeCandidate.Children {
 								if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
 									defineParams(arityForm.Children[0], fnScope, localDefs)
@@ -200,12 +176,11 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 					}
 				}
 			case "fn":
-				// Função anônima
+
 				fnScope := NewScope(currentScope)
 				nextScope = fnScope
 				paramIndex := 1
 
-				// Pula nome da função se presente (fn nomeado)
 				if len(node.Children) > paramIndex && node.Children[paramIndex].Type == reader.NodeSymbol {
 					paramIndex++
 				}
@@ -213,10 +188,10 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 				if len(node.Children) > paramIndex {
 					paramsNodeCandidate := node.Children[paramIndex]
 					if paramsNodeCandidate.Type == reader.NodeVector {
-						// Função com aridade única
+
 						defineParams(paramsNodeCandidate, fnScope, localDefs)
 					} else if paramsNodeCandidate.Type == reader.NodeList {
-						// Função com múltiplas aridades
+
 						for _, arityForm := range paramsNodeCandidate.Children {
 							if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
 								defineParams(arityForm.Children[0], fnScope, localDefs)
@@ -226,13 +201,12 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 				}
 
 			case "let", "loop":
-				// Binding forms (let, loop)
+
 				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeVector {
 					bindingsNode := node.Children[1]
 					letScope := NewScope(currentScope)
 					nextScope = letScope
 
-					// Processa pares de binding (símbolo valor símbolo valor...)
 					for i := 0; i < len(bindingsNode.Children); i += 2 {
 						if i+1 >= len(bindingsNode.Children) {
 							break
@@ -608,12 +582,10 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		"isInsideFunction": false,
 	}
 
-	// Processar nós principais
 	for _, rootNode := range richRootNodes {
 		traverseAndAnalyze(rootNode, initialContext, globalScope)
 	}
 
-	// Processar comentários separadamente
 	for _, commentNode := range comments {
 		for _, rule := range a.Rules {
 			ruleContext := make(map[string]interface{})
@@ -959,7 +931,6 @@ func AnalyzeFile(filepath string, cfg *config.Config) (AnalysisResult, error) {
 		}
 	}
 
-	// Executa análise de código duplicado global
 	globalDuplicatedAnalyzer := rules.GetGlobalDuplicatedCodeAnalyzer()
 	duplicatedFindings := globalDuplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
 	concreteFindings = append(concreteFindings, duplicatedFindings...)

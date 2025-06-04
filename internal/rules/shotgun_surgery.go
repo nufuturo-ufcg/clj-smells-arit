@@ -22,11 +22,10 @@ func NewShotgunSurgeryRule(cfg *config.Config) *ShotgunSurgeryRule {
 			Description: "Detects functions that use many external dependencies, indicating that changes to this function might require changes in many other places. This violates the principle of localized changes and can make maintenance difficult.",
 			Severity:    SeverityWarning,
 		},
-		maxExternalDependencies: 4, // Máximo de 4 dependências externas diferentes
-		maxNamespaceUsage:       6, // Máximo de 6 usos de funções de namespaces externos
+		maxExternalDependencies: 4,
+		maxNamespaceUsage:       6,
 	}
 
-	// Configuração via config se disponível
 	if cfg != nil {
 		rule.maxExternalDependencies = cfg.GetRuleSettingInt("shotgun-surgery", "max-external-dependencies", rule.maxExternalDependencies)
 		rule.maxNamespaceUsage = cfg.GetRuleSettingInt("shotgun-surgery", "max-namespace-usage", rule.maxNamespaceUsage)
@@ -36,7 +35,7 @@ func NewShotgunSurgeryRule(cfg *config.Config) *ShotgunSurgeryRule {
 }
 
 type DependencyAnalysis struct {
-	externalNamespaces map[string]int // namespace -> count of usages
+	externalNamespaces map[string]int
 	totalExternalCalls int
 	functionName       string
 }
@@ -52,7 +51,6 @@ func (r *ShotgunSurgeryRule) Check(node *reader.RichNode, context map[string]int
 
 	analysis := r.analyzeDependencies(node, context, filepath)
 
-	// Verifica se há muitas dependências externas
 	externalNamespaceCount := len(analysis.externalNamespaces)
 
 	if externalNamespaceCount > r.maxExternalDependencies || analysis.totalExternalCalls > r.maxNamespaceUsage {
@@ -84,10 +82,8 @@ func (r *ShotgunSurgeryRule) analyzeDependencies(node *reader.RichNode, context 
 		functionName:       r.getFunctionName(node),
 	}
 
-	// Obtém o namespace atual do contexto ou do filepath
 	currentNamespace := r.getCurrentNamespace(context, filepath)
 
-	// Obtém aliases de require do contexto
 	aliases := r.getNamespaceAliases(context)
 
 	r.visitNode(node, analysis, currentNamespace, aliases)
@@ -100,23 +96,19 @@ func (r *ShotgunSurgeryRule) visitNode(node *reader.RichNode, analysis *Dependen
 		return
 	}
 
-	// Detecta chamadas de funções com namespace
 	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 		funcCall := node.Children[0].Value
 
-		// Verifica se é uma chamada com namespace (alias/função ou namespace.completo/função)
 		if strings.Contains(funcCall, "/") {
 			parts := strings.Split(funcCall, "/")
 			if len(parts) == 2 {
 				namespaceOrAlias := parts[0]
 
-				// Resolve alias para namespace completo
 				actualNamespace := namespaceOrAlias
 				if fullNamespace, exists := aliases[namespaceOrAlias]; exists {
 					actualNamespace = fullNamespace
 				}
 
-				// Verifica se é um namespace externo (não é o namespace atual)
 				if actualNamespace != currentNamespace && !r.isClojureCore(actualNamespace) {
 					analysis.externalNamespaces[actualNamespace]++
 					analysis.totalExternalCalls++
@@ -125,30 +117,26 @@ func (r *ShotgunSurgeryRule) visitNode(node *reader.RichNode, analysis *Dependen
 		}
 	}
 
-	// Visita recursivamente os filhos
 	for _, child := range node.Children {
 		r.visitNode(child, analysis, currentNamespace, aliases)
 	}
 }
 
 func (r *ShotgunSurgeryRule) getCurrentNamespace(context map[string]interface{}, filepath string) string {
-	// Tenta obter do contexto primeiro
+
 	if ns, ok := context["current-namespace"].(string); ok && ns != "" {
 		return ns
 	}
 
-	// Fallback: extrai do filepath
-	// Converte path como "src/myapp/core.clj" para "myapp.core"
 	if strings.Contains(filepath, "/") {
 		parts := strings.Split(filepath, "/")
 		if len(parts) > 1 {
-			// Remove extensão .clj
+
 			lastPart := parts[len(parts)-1]
 			if strings.HasSuffix(lastPart, ".clj") {
 				lastPart = strings.TrimSuffix(lastPart, ".clj")
 			}
 
-			// Reconstrói namespace
 			namespaceParts := append(parts[1:len(parts)-1], lastPart)
 			return strings.Join(namespaceParts, ".")
 		}
@@ -160,12 +148,10 @@ func (r *ShotgunSurgeryRule) getCurrentNamespace(context map[string]interface{},
 func (r *ShotgunSurgeryRule) getNamespaceAliases(context map[string]interface{}) map[string]string {
 	aliases := make(map[string]string)
 
-	// Tenta obter aliases do contexto
 	if aliasMap, ok := context["namespace-aliases"].(map[string]string); ok {
 		return aliasMap
 	}
 
-	// Aliases comuns do Clojure
 	aliases["str"] = "clojure.string"
 	aliases["set"] = "clojure.set"
 	aliases["walk"] = "clojure.walk"
@@ -185,7 +171,7 @@ func (r *ShotgunSurgeryRule) getNamespaceAliases(context map[string]interface{})
 }
 
 func (r *ShotgunSurgeryRule) isClojureCore(namespace string) bool {
-	// Namespaces do core do Clojure que não contam como dependências externas
+
 	coreNamespaces := map[string]bool{
 		"clojure.core": true,
 		"clojure.main": true,

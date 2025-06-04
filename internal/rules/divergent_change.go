@@ -22,11 +22,10 @@ func NewDivergentChangeRule(cfg *config.Config) *DivergentChangeRule {
 			Description: "Detects functions/namespaces that mix multiple unrelated responsibilities, making them change for different reasons.",
 			Severity:    SeverityWarning,
 		},
-		minResponsibilityThreshold: 2,  // Mínimo de 2 tipos diferentes de responsabilidades
-		maxComplexityThreshold:     15, // Limite de complexidade ciclomática
+		minResponsibilityThreshold: 2,
+		maxComplexityThreshold:     15,
 	}
 
-	// Configuração via config se disponível
 	if cfg != nil {
 		rule.minResponsibilityThreshold = cfg.GetRuleSettingInt("divergent-change", "responsibility-threshold", rule.minResponsibilityThreshold)
 		rule.maxComplexityThreshold = cfg.GetRuleSettingInt("divergent-change", "complexity-threshold", rule.maxComplexityThreshold)
@@ -35,7 +34,6 @@ func NewDivergentChangeRule(cfg *config.Config) *DivergentChangeRule {
 	return rule
 }
 
-// ResponsibilityType representa diferentes tipos de responsabilidades
 type ResponsibilityType int
 
 const (
@@ -89,7 +87,7 @@ func (r *DivergentChangeRule) Meta() Rule {
 }
 
 func (r *DivergentChangeRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-	// Analisa tanto funções quanto namespaces
+
 	if r.isFunction(node) {
 		return r.checkFunction(node, filepath)
 	} else if r.isNamespace(node) {
@@ -120,11 +118,10 @@ func (r *DivergentChangeRule) checkFunction(node *reader.RichNode, filepath stri
 
 	analysis := r.analyzeResponsibilities(node)
 
-	// Verifica se há múltiplas responsabilidades não relacionadas
 	responsibilityCount := len(analysis.responsibilities)
 
 	if responsibilityCount >= r.minResponsibilityThreshold {
-		// Verifica se as responsabilidades são realmente divergentes
+
 		if r.areResponsibilitiesDivergent(analysis.responsibilities) {
 			responsibilityNames := r.getResponsibilityNames(analysis.responsibilities)
 
@@ -139,7 +136,6 @@ func (r *DivergentChangeRule) checkFunction(node *reader.RichNode, filepath stri
 		}
 	}
 
-	// Verifica complexidade ciclomática alta como indicador adicional
 	if analysis.cyclomaticComplexity > r.maxComplexityThreshold && responsibilityCount >= 2 {
 		return &Finding{
 			RuleID: r.ID,
@@ -155,17 +151,14 @@ func (r *DivergentChangeRule) checkFunction(node *reader.RichNode, filepath stri
 }
 
 func (r *DivergentChangeRule) checkNamespace(node *reader.RichNode, filepath string) *Finding {
-	// Para namespaces, verifica se há muitas funções com responsabilidades diferentes
-	// Isso pode indicar que o namespace está fazendo muitas coisas diferentes
 
-	// Implementação simplificada - pode ser expandida
 	return nil
 }
 
 func (r *DivergentChangeRule) analyzeResponsibilities(node *reader.RichNode) *ResponsibilityAnalysis {
 	analysis := &ResponsibilityAnalysis{
 		responsibilities:     make(map[ResponsibilityType]int),
-		cyclomaticComplexity: 1, // Começa com 1
+		cyclomaticComplexity: 1,
 	}
 
 	r.visitNode(node, analysis)
@@ -181,66 +174,56 @@ func (r *DivergentChangeRule) visitNode(node *reader.RichNode, analysis *Respons
 	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 		funcName := node.Children[0].Value
 
-		// Identifica tipo de responsabilidade
 		if responsibility := r.identifyResponsibility(funcName); responsibility != ResponsibilityUnknown {
 			analysis.responsibilities[responsibility]++
 			analysis.totalOperations++
 		}
 
-		// Calcula complexidade ciclomática
 		if r.isDecisionPoint(funcName) {
 			analysis.cyclomaticComplexity++
 		}
 	}
 
-	// Visita recursivamente os filhos
 	for _, child := range node.Children {
 		r.visitNode(child, analysis)
 	}
 }
 
 func (r *DivergentChangeRule) identifyResponsibility(funcName string) ResponsibilityType {
-	// I/O Operations
+
 	if r.isIOOperation(funcName) {
 		return ResponsibilityIO
 	}
 
-	// Data Transformation
 	if r.isDataTransformation(funcName) {
 		return ResponsibilityDataTransformation
 	}
 
-	// Validation
 	if r.isValidation(funcName) {
 		return ResponsibilityValidation
 	}
 
-	// Error Handling
 	if r.isErrorHandling(funcName) {
 		return ResponsibilityErrorHandling
 	}
 
-	// Logging
 	if r.isLogging(funcName) {
 		return ResponsibilityLogging
 	}
 
-	// Networking
 	if r.isNetworking(funcName) {
 		return ResponsibilityNetworking
 	}
 
-	// Persistence
 	if r.isPersistence(funcName) {
 		return ResponsibilityPersistence
 	}
 
-	// Configuration
 	if r.isConfiguration(funcName) {
 		return ResponsibilityConfiguration
 	}
 
-	return ResponsibilityUnknown // Não identificado
+	return ResponsibilityUnknown
 }
 
 func (r *DivergentChangeRule) isIOOperation(funcName string) bool {
@@ -332,8 +315,6 @@ func (r *DivergentChangeRule) isDecisionPoint(funcName string) bool {
 }
 
 func (r *DivergentChangeRule) areResponsibilitiesDivergent(responsibilities map[ResponsibilityType]int) bool {
-	// Verifica se as responsabilidades são realmente divergentes
-	// Combinações problemáticas comuns:
 
 	presentResponsibilities := make([]ResponsibilityType, 0, len(responsibilities))
 	for resp := range responsibilities {
@@ -342,16 +323,14 @@ func (r *DivergentChangeRule) areResponsibilitiesDivergent(responsibilities map[
 		}
 	}
 
-	// Combinações de 2 responsabilidades que são divergentes
 	divergentPairs := [][]ResponsibilityType{
-		{ResponsibilityIO, ResponsibilityDataTransformation},       // I/O + transformação de dados
-		{ResponsibilityIO, ResponsibilityValidation},               // I/O + validação
-		{ResponsibilityIO, ResponsibilityPersistence},              // I/O + persistência
-		{ResponsibilityNetworking, ResponsibilityLogging},          // Rede + logging
-		{ResponsibilityConfiguration, ResponsibilityBusinessLogic}, // Config + lógica de negócio
+		{ResponsibilityIO, ResponsibilityDataTransformation},
+		{ResponsibilityIO, ResponsibilityValidation},
+		{ResponsibilityIO, ResponsibilityPersistence},
+		{ResponsibilityNetworking, ResponsibilityLogging},
+		{ResponsibilityConfiguration, ResponsibilityBusinessLogic},
 	}
 
-	// Combinações de 3+ responsabilidades que são sempre divergentes
 	divergentCombinations := [][]ResponsibilityType{
 		{ResponsibilityIO, ResponsibilityDataTransformation, ResponsibilityValidation},
 		{ResponsibilityIO, ResponsibilityBusinessLogic, ResponsibilityPersistence},
@@ -359,30 +338,27 @@ func (r *DivergentChangeRule) areResponsibilitiesDivergent(responsibilities map[
 		{ResponsibilityConfiguration, ResponsibilityBusinessLogic, ResponsibilityIO},
 	}
 
-	// Verifica combinações de 2 responsabilidades
 	if len(presentResponsibilities) == 2 {
 		for _, pair := range divergentPairs {
 			if r.hasAllResponsibilities(presentResponsibilities, pair) {
-				// Para casos de 2 responsabilidades, verifica se há volume significativo
-				// Evita falsos positivos em funções muito simples
+
 				totalOps := 0
 				for _, count := range responsibilities {
 					totalOps += count
 				}
-				// Só considera divergente se há pelo menos 3 operações no total
+
 				return totalOps >= 3
 			}
 		}
 	}
 
-	// Verifica combinações de 3+ responsabilidades
 	if len(presentResponsibilities) >= 3 {
 		for _, combination := range divergentCombinations {
 			if r.hasAllResponsibilities(presentResponsibilities, combination) {
 				return true
 			}
 		}
-		// Se há mais de 3 tipos diferentes, considera divergente
+
 		return len(presentResponsibilities) > 3
 	}
 
