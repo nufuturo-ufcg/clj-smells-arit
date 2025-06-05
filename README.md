@@ -97,7 +97,7 @@ View all available analysis rules:
 
 ## ⚙️ Configuration
 
-ARIT uses a `.arit.yaml` configuration file to customize analysis behavior. The tool automatically searches for this file starting from the analyzed directory and moving up the directory hierarchy.
+ARIT uses a optional `.arit.yaml` configuration file to customize analysis behavior. The tool automatically searches for this file starting from the analyzed directory and moving up the directory hierarchy.
 
 ### Sample Configuration
 
