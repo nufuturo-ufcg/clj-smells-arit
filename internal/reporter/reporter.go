@@ -47,10 +47,8 @@ func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 	}
 
 	for _, finding := range findings {
-
 		loc := "(file-level)"
 		if finding.Location != nil {
-
 			loc = fmt.Sprintf("%s:%d:%d", finding.Filepath, finding.Location.StartLine, finding.Location.StartColumn)
 		} else {
 			loc = finding.Filepath
@@ -64,10 +62,20 @@ func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 
 		_, err := fmt.Fprint(writer, line)
 		if err != nil {
-
 			return fmt.Errorf("error writing finding: %w", err)
 		}
 	}
+
+	// Add summary
+	summary := countSmells(findings)
+	if len(summary) > 0 {
+		_, _ = fmt.Fprintln(writer, "\n---")
+		_, _ = fmt.Fprintln(writer, "Smell Summary:")
+		for ruleID, count := range summary {
+			_, _ = fmt.Fprintf(writer, "- %s: %d\n", ruleID, count)
+		}
+	}
+
 	return nil
 }
 
@@ -77,6 +85,7 @@ type HTMLReportData struct {
 	TotalFilesAnalyzed int
 	TotalFindings      int
 	Findings           []*EnrichedFinding
+	Summary            map[string]int
 }
 
 type EnrichedFinding struct {
@@ -188,8 +197,29 @@ const htmlTemplate = `
   <p><strong>Total Findings:</strong> {{.TotalFindings}}</p>
 </div>
 
+{{if .Summary}}
+<h2>Smell Summary</h2>
+<table id="summary-table">
+  <thead>
+    <tr>
+      <th>Smell Type (Rule ID)</th>
+      <th>Count</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range $ruleID, $count := .Summary}}
+    <tr>
+      <td>{{$ruleID}}</td>
+      <td>{{$count}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
 {{if .Findings}}
-  <table>
+  <h2>All Findings</h2>
+  <table id="findings-table">
     <thead>
       <tr>
         <th class="col-counter">#</th>
@@ -265,18 +295,17 @@ func (hr *HTMLReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 		}
 	}
 
+	totalFilesAnalyzed := len(filePaths)
+	summary := countSmells(findings)
+
 	reportData := HTMLReportData{
-		TotalFilesAnalyzed: len(filePaths),
+		TotalFilesAnalyzed: totalFilesAnalyzed,
 		TotalFindings:      len(findings),
 		Findings:           enrichedFindings,
+		Summary:            summary,
 	}
 
-	currentFuncMap := template.FuncMap{
-		"FormatLocation": formatLocation,
-		"add":            add,
-	}
-
-	tmpl, err := template.New("report").Funcs(currentFuncMap).Parse(htmlTemplate)
+	tmpl, err := template.New("htmlReport").Funcs(funcMap).Parse(htmlTemplate)
 	if err != nil {
 		return fmt.Errorf("error parsing HTML template: %w", err)
 	}
@@ -292,25 +321,23 @@ type MarkdownReporter struct{}
 
 func (md *MarkdownReporter) Report(findings []*rules.Finding, writer io.Writer) error {
 	if len(findings) == 0 {
-		_, err := fmt.Fprintln(writer, "# Arit Analysis Report\n\nNo issues found.")
+		_, err := fmt.Fprintln(writer, "No issues found.")
 		return err
 	}
 
-	_, err := fmt.Fprintln(writer, "# Arit Analysis Report\n")
+	w := bufio.NewWriter(writer)
+
+	_, err := w.WriteString("| Severity | Rule ID | Message | File & Location |\n")
 	if err != nil {
-		return fmt.Errorf("error writing markdown header: %w", err)
+		return err
 	}
-	_, err = fmt.Fprintln(writer, "| Severity | Rule ID | Message | File | Location |")
+	_, err = w.WriteString("|---|---|---|---|\n")
 	if err != nil {
-		return fmt.Errorf("error writing markdown table header: %w", err)
-	}
-	_, err = fmt.Fprintln(writer, "|---|---|---|---|---|")
-	if err != nil {
-		return fmt.Errorf("error writing markdown table separator: %w", err)
+		return err
 	}
 
 	for _, finding := range findings {
-		loc := "(file-level)"
+		var loc string
 		if finding.Location != nil {
 			loc = fmt.Sprintf("`%s:%d:%d`", finding.Filepath, finding.Location.StartLine, finding.Location.StartColumn)
 		} else {
@@ -319,34 +346,44 @@ func (md *MarkdownReporter) Report(findings []*rules.Finding, writer io.Writer) 
 
 		message := strings.ReplaceAll(finding.Message, "|", "\\|")
 
-		line := fmt.Sprintf("| %s | %s | %s | `%s` | %s |",
+		line := fmt.Sprintf("| %s | %s | %s | %s |\n",
 			finding.Severity,
 			finding.RuleID,
 			message,
-			finding.Filepath,
-
 			loc)
 
-		filepathStr := fmt.Sprintf("`%s`", finding.Filepath)
-		locationStr := "(file-level)"
-		if finding.Location != nil {
-			locationStr = fmt.Sprintf("`L%d:%d`", finding.Location.StartLine, finding.Location.StartColumn)
-		}
-
-		line = fmt.Sprintf("| %s | %s | %s | %s | %s |",
-			finding.Severity,
-			finding.RuleID,
-			message,
-			filepathStr,
-			locationStr)
-
-		_, err = fmt.Fprintln(writer, line)
+		_, err := w.WriteString(line)
 		if err != nil {
-			return fmt.Errorf("error writing markdown finding row: %w", err)
+			return err
 		}
 	}
 
-	return nil
+	// Add summary
+	summary := countSmells(findings)
+	if len(summary) > 0 {
+		_, _ = w.WriteString("\n### Smell Summary\n\n")
+		for ruleID, count := range summary {
+			_, _ = w.WriteString(fmt.Sprintf("- **%s**: %d\n", ruleID, count))
+		}
+	}
+
+	return w.Flush()
+}
+
+func countSmells(findings []*rules.Finding) map[string]int {
+	summary := make(map[string]int)
+	for _, finding := range findings {
+		summary[finding.RuleID]++
+	}
+	return summary
+}
+
+func countUniqueFiles(findings []*rules.Finding) int {
+	files := make(map[string]struct{})
+	for _, finding := range findings {
+		files[finding.Filepath] = struct{}{}
+	}
+	return len(files)
 }
 
 func NewReporter(format ReportFormat) (Reporter, error) {
