@@ -84,13 +84,13 @@ func (r *PositionalReturnValuesRule) Check(node *reader.RichNode, context map[st
 	lastBodyForm := node.Children[len(node.Children)-1]
 
 	if isPositionalCollection(lastBodyForm) {
-		collectionType := "vetor"
+		collectionType := "vector"
 		if lastBodyForm.Type == reader.NodeList {
-			collectionType = "lista"
+			collectionType = "list"
 		}
 		return &Finding{
 			RuleID:   r.ID,
-			Message:  fmt.Sprintf("Função retorna um %s literal com múltiplos valores. Considere retornar um mapa com chaves descritivas ao invés de depender de valores posicionais.", collectionType),
+			Message:  fmt.Sprintf("Function returns a literal %s with multiple values. Consider returning a map with descriptive keys instead of relying on positional values.", collectionType),
 			Filepath: filepath,
 			Location: lastBodyForm.Location,
 			Severity: r.Severity,
@@ -102,13 +102,13 @@ func (r *PositionalReturnValuesRule) Check(node *reader.RichNode, context map[st
 		if len(lastBodyForm.Children) >= 3 {
 			lastExprInLet := lastBodyForm.Children[len(lastBodyForm.Children)-1]
 			if isPositionalCollection(lastExprInLet) {
-				collectionType := "vetor"
+				collectionType := "vector"
 				if lastExprInLet.Type == reader.NodeList {
-					collectionType = "lista"
+					collectionType = "list"
 				}
 				return &Finding{
 					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Função retorna um %s literal com múltiplos valores via uma forma `let`. Considere retornar um mapa com chaves descritivas ao invés de valores posicionais.", collectionType),
+					Message:  fmt.Sprintf("Function returns a literal %s with multiple values via a `let` form. Consider returning a map with descriptive keys instead of positional values.", collectionType),
 					Filepath: filepath,
 					Location: lastExprInLet.Location,
 					Severity: r.Severity,
@@ -124,8 +124,8 @@ func init() {
 	RegisterRule(&PositionalReturnValuesRule{
 		Rule: Rule{
 			ID:          "positional-return-values",
-			Name:        "Valores de Retorno Posicionais",
-			Description: "Detecta funções que retornam coleções sequenciais (vetores ou listas) onde o significado dos elementos é implícito por sua posição. Recomenda retornar um mapa com chaves descritivas.",
+			Name:        "Positional Return Values",
+			Description: "Detects functions that return sequential collections (vectors or lists) where the meaning of the elements is implied by their position. It is recommended to return a map with descriptive keys.",
 			Severity:    SeverityWarning,
 		},
 	})

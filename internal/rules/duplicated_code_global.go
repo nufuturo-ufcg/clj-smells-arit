@@ -17,6 +17,9 @@ type GlobalDuplicatedCodeAnalyzer struct {
 	minLines    int
 	minTokens   int
 	initialized bool
+
+	compiledRegexes map[string]*regexp.Regexp
+	regexOnce       sync.Once
 }
 
 type CodeBlockInfo struct {
@@ -33,12 +36,70 @@ type CodeBlockInfo struct {
 
 var globalAnalyzer *GlobalDuplicatedCodeAnalyzer
 
+var (
+	numericLiteralRegex *regexp.Regexp
+	symbolPatterns      map[string]*regexp.Regexp
+	symbolReplacements  map[string]string
+	regexInitOnce       sync.Once
+)
+
+// Regex pré-compiled patterns for symbol normalization
+func initRegexPatterns() {
+	regexInitOnce.Do(func() {
+
+		numericLiteralRegex = regexp.MustCompile(`^-?\d+(?:\.\d+)?$`)
+
+		symbolPatterns = make(map[string]*regexp.Regexp)
+		symbolReplacements = make(map[string]string)
+
+		patterns := []struct {
+			pattern     string
+			replacement string
+		}{
+
+			{`^(?:data|info|result|response|request|payload)$`, "DATA_VAR"},
+			{`^(?:item|element|entry|record)s?$`, "ITEM_VAR"},
+			{`^(?:id|key|index|idx)$`, "ID_VAR"},
+			{`^(?:value|val|amount|total|sum)s?$`, "VALUE_VAR"},
+			{`^(?:name|title|label)$`, "NAME_VAR"},
+			{`^(?:user|customer|person|entity|account)s?$`, "ENTITY_VAR"},
+			{`^(?:config|settings|options|params?)$`, "CONFIG_VAR"},
+
+			{`^get-`, "GET_FUNC"},
+			{`^set-`, "SET_FUNC"},
+			{`^process-`, "PROCESS_FUNC"},
+			{`^create-`, "CREATE_FUNC"},
+			{`^validate-`, "VALIDATE_FUNC"},
+			{`^calculate-`, "CALC_FUNC"},
+			{`^(?:handle|manage|execute)-`, "PROCESS_FUNC"},
+			{`^(?:fetch|retrieve|load)-`, "GET_FUNC"},
+			{`^(?:save|store|persist|update)-`, "SET_FUNC"},
+			{`^(?:check|verify|ensure)-`, "VALIDATE_FUNC"},
+			{`^(?:compute|determine|find)-`, "CALC_FUNC"},
+			{`^(?:make|build|generate)-`, "CREATE_FUNC"},
+			{`^(?:parse|format|transform|convert)-`, "TRANSFORM_FUNC"},
+		}
+
+		for _, p := range patterns {
+
+			optimizedPattern := strings.ReplaceAll(p.pattern, "(?:", "(?>")
+			compiled := regexp.MustCompile(optimizedPattern)
+			symbolPatterns[p.pattern] = compiled
+			symbolReplacements[p.pattern] = p.replacement
+		}
+	})
+}
+
 func GetGlobalDuplicatedCodeAnalyzer() *GlobalDuplicatedCodeAnalyzer {
 	if globalAnalyzer == nil {
+
+		initRegexPatterns()
+
 		globalAnalyzer = &GlobalDuplicatedCodeAnalyzer{
-			codeBlocks: make(map[string][]CodeBlockInfo),
-			minLines:   3,
-			minTokens:  15,
+			codeBlocks:      make(map[string][]CodeBlockInfo),
+			compiledRegexes: make(map[string]*regexp.Regexp),
+			minLines:        3,
+			minTokens:       15,
 		}
 	}
 	return globalAnalyzer
@@ -286,67 +347,74 @@ func (g *GlobalDuplicatedCodeAnalyzer) normalizeAST(node *reader.RichNode) strin
 	return strings.Join(parts, "")
 }
 
+var coreFunctionSet = map[string]bool{
+	"map": true, "filter": true, "reduce": true, "apply": true, "partial": true, "comp": true,
+	"let": true, "when": true, "if": true, "cond": true, "case": true, "defn": true, "def": true,
+	"assoc": true, "dissoc": true, "get": true, "get-in": true, "update": true, "update-in": true,
+	"first": true, "rest": true, "last": true, "count": true, "empty?": true, "seq": true,
+	"+": true, "-": true, "*": true, "/": true, "=": true, "<": true, ">": true, "<=": true, ">=": true, "not=": true,
+}
+
 func (g *GlobalDuplicatedCodeAnalyzer) normalizeSymbol(symbol string) string {
 
-	coreFunction := []string{
-		"map", "filter", "reduce", "apply", "partial", "comp",
-		"let", "when", "if", "cond", "case", "defn", "def",
-		"assoc", "dissoc", "get", "get-in", "update", "update-in",
-		"first", "rest", "last", "count", "empty?", "seq",
-		"+", "-", "*", "/", "=", "<", ">", "<=", ">=", "not=",
+	if coreFunctionSet[symbol] {
+		return symbol
 	}
 
-	for _, core := range coreFunction {
-		if symbol == core {
-			return symbol
-		}
+	if len(symbol) == 0 {
+		return "VAR"
 	}
 
-	patterns := map[string]string{
+	firstChar := symbol[0]
+	switch {
+	case firstChar >= 'a' && firstChar <= 'z':
 
-		`^(data|info|result|response|request|payload)$`: "DATA_VAR",
-		`^(item|element|entry|record)s?$`:               "ITEM_VAR",
-		`^(user|customer|person|entity|account)s?$`:     "ENTITY_VAR",
-		`^(id|key|index|idx)$`:                          "ID_VAR",
-		`^(name|title|label)$`:                          "NAME_VAR",
-		`^(value|val|amount|total|sum)s?$`:              "VALUE_VAR",
-		`^(config|settings|options|params?)$`:           "CONFIG_VAR",
+	case firstChar >= 'A' && firstChar <= 'Z':
 
-		`^(process|handle|manage|execute)-.*`:    "PROCESS_FUNC",
-		`^(get|fetch|retrieve|load)-.*`:          "GET_FUNC",
-		`^(set|save|store|persist|update)-.*`:    "SET_FUNC",
-		`^(validate|check|verify|ensure)-.*`:     "VALIDATE_FUNC",
-		`^(calculate|compute|determine|find)-.*`: "CALC_FUNC",
-		`^(create|make|build|generate)-.*`:       "CREATE_FUNC",
-		`^(parse|format|transform|convert)-.*`:   "TRANSFORM_FUNC",
+		return "VAR"
+	default:
+
+		return "VAR"
 	}
 
-	for pattern, replacement := range patterns {
-		if matched, _ := regexp.MatchString(pattern, symbol); matched {
-			return replacement
+	for pattern, compiled := range symbolPatterns {
+		if compiled.MatchString(symbol) {
+			return symbolReplacements[pattern]
 		}
 	}
 
 	return "VAR"
 }
 
-func (g *GlobalDuplicatedCodeAnalyzer) isImportantKeyword(keyword string) bool {
-	important := []string{
-		"require", "import", "refer", "as", "exclude", "only",
-		"keys", "vals", "strs", "syms",
-	}
+var importantKeywordSet = map[string]bool{
+	"require": true, "import": true, "refer": true, "as": true, "exclude": true, "only": true,
+	"keys": true, "vals": true, "strs": true, "syms": true,
+}
 
-	for _, imp := range important {
-		if keyword == imp {
-			return true
-		}
-	}
-	return false
+func (g *GlobalDuplicatedCodeAnalyzer) isImportantKeyword(keyword string) bool {
+	return importantKeywordSet[keyword]
 }
 
 func (g *GlobalDuplicatedCodeAnalyzer) isNumericLiteral(value string) bool {
-	matched, _ := regexp.MatchString(`^-?\d+(\.\d+)?$`, value)
-	return matched
+
+	if len(value) == 0 {
+		return false
+	}
+
+	for i, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+			continue
+		case r == '-' && i == 0:
+			continue
+		case r == '.' && i > 0:
+			continue
+		default:
+			return false
+		}
+	}
+
+	return numericLiteralRegex.MatchString(value)
 }
 
 func (g *GlobalDuplicatedCodeAnalyzer) calculateLines(node *reader.RichNode) int {

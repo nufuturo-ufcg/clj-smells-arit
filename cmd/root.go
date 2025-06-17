@@ -161,8 +161,8 @@ func Execute() error {
 }
 
 func init() {
-
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", string(reporter.FormatText), "Output format (text, json, html, markdown, sarif)")
+	rootCmd.AddCommand(listRulesCmd)
 }
 
 func findClojureFiles(dir string) ([]string, error) {
