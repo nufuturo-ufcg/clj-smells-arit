@@ -34,7 +34,10 @@ type CodeBlockInfo struct {
 	Context       string
 }
 
-var globalAnalyzer *GlobalDuplicatedCodeAnalyzer
+var (
+	globalAnalyzer     *GlobalDuplicatedCodeAnalyzer
+	globalAnalyzerOnce sync.Once
+)
 
 var (
 	numericLiteralRegex *regexp.Regexp
@@ -43,7 +46,6 @@ var (
 	regexInitOnce       sync.Once
 )
 
-// Regex pré-compiled patterns for symbol normalization
 func initRegexPatterns() {
 	regexInitOnce.Do(func() {
 
@@ -82,8 +84,7 @@ func initRegexPatterns() {
 
 		for _, p := range patterns {
 
-			optimizedPattern := strings.ReplaceAll(p.pattern, "(?:", "(?>")
-			compiled := regexp.MustCompile(optimizedPattern)
+			compiled := regexp.MustCompile(p.pattern)
 			symbolPatterns[p.pattern] = compiled
 			symbolReplacements[p.pattern] = p.replacement
 		}
@@ -91,8 +92,7 @@ func initRegexPatterns() {
 }
 
 func GetGlobalDuplicatedCodeAnalyzer() *GlobalDuplicatedCodeAnalyzer {
-	if globalAnalyzer == nil {
-
+	globalAnalyzerOnce.Do(func() {
 		initRegexPatterns()
 
 		globalAnalyzer = &GlobalDuplicatedCodeAnalyzer{
@@ -101,7 +101,7 @@ func GetGlobalDuplicatedCodeAnalyzer() *GlobalDuplicatedCodeAnalyzer {
 			minLines:        3,
 			minTokens:       15,
 		}
-	}
+	})
 	return globalAnalyzer
 }
 
