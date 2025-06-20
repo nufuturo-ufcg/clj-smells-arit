@@ -43,7 +43,6 @@ var (
 	regexInitOnce       sync.Once
 )
 
-// Regex pré-compiled patterns for symbol normalization
 func initRegexPatterns() {
 	regexInitOnce.Do(func() {
 
