@@ -1,6 +1,10 @@
 package reader
 
-import "github.com/cespare/goclj/parse"
+import (
+	"strings"
+
+	"github.com/cespare/goclj/parse"
+)
 
 type NodeType string
 
@@ -62,4 +66,28 @@ type RichNode struct {
 
 	Scope     interface{}
 	SymbolRef interface{}
+}
+
+func CountFunctionParameters(paramsNode *RichNode) int {
+	if paramsNode == nil || paramsNode.Type != NodeVector {
+		return 0
+	}
+
+	count := 0
+	for _, param := range paramsNode.Children {
+		if param.Type == NodeSymbol {
+
+			if param.Value == "&" || param.Value == "_" ||
+				strings.HasPrefix(param.Value, ".") ||
+				strings.Contains(param.Value, "/") {
+				continue
+			}
+		}
+		count++
+	}
+	return count
+}
+
+func IsVariadicMarker(node *RichNode) bool {
+	return node != nil && node.Type == NodeSymbol && node.Value == "&"
 }

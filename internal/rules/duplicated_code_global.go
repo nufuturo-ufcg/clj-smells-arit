@@ -43,7 +43,6 @@ var (
 	regexInitOnce       sync.Once
 )
 
-// Regex pré-compiled patterns for symbol normalization
 func initRegexPatterns() {
 	regexInitOnce.Do(func() {
 
@@ -82,8 +81,7 @@ func initRegexPatterns() {
 
 		for _, p := range patterns {
 
-			optimizedPattern := strings.ReplaceAll(p.pattern, "(?:", "(?>")
-			compiled := regexp.MustCompile(optimizedPattern)
+			compiled := regexp.MustCompile(p.pattern)
 			symbolPatterns[p.pattern] = compiled
 			symbolReplacements[p.pattern] = p.replacement
 		}

@@ -27,14 +27,17 @@ type ClumpCandidate struct {
 	Similarity  float64
 }
 
-var globalDataClumpsAnalyzer *DataClumpsAnalyzer
+var (
+	globalDataClumpsAnalyzer     *DataClumpsAnalyzer
+	globalDataClumpsAnalyzerOnce sync.Once
+)
 
 func GetGlobalDataClumpsAnalyzer() *DataClumpsAnalyzer {
-	if globalDataClumpsAnalyzer == nil {
+	globalDataClumpsAnalyzerOnce.Do(func() {
 		globalDataClumpsAnalyzer = &DataClumpsAnalyzer{
 			parameterGroups: make([]ParameterGroup, 0),
 		}
-	}
+	})
 	return globalDataClumpsAnalyzer
 }
 

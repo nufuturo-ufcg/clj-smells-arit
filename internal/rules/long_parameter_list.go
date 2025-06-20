@@ -38,7 +38,7 @@ func (r *LongParameterListRule) Check(node *reader.RichNode, context map[string]
 		}
 
 		if argsNode != nil && argsNode.Type == reader.NodeVector {
-			paramCount := len(argsNode.Children)
+			paramCount := reader.CountFunctionParameters(argsNode)
 			if paramCount > r.MaxParameters {
 				return &Finding{
 					RuleID:   r.ID,
