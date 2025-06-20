@@ -34,6 +34,13 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 		paramsNode := node.Children[paramsNodeIndex]
 		outerParams := paramsNode.Children
 
+		var actualOuterParams []*reader.RichNode
+		for _, param := range outerParams {
+			if !reader.IsVariadicMarker(param) {
+				actualOuterParams = append(actualOuterParams, param)
+			}
+		}
+
 		if len(node.Children) <= bodyStartIndex {
 			return nil
 		}
@@ -67,11 +74,11 @@ func (r *MiddleManRule) Check(node *reader.RichNode, context map[string]interfac
 			return nil
 		}
 
-		numOuter := len(outerParams)
+		numOuter := len(actualOuterParams)
 		numInner := len(innerArgs)
 
 		if numOuter > 0 && numInner >= numOuter {
-			match := r.checkParameterMatch(outerParams, innerArgs, numOuter, numInner)
+			match := r.checkParameterMatch(actualOuterParams, innerArgs, numOuter, numInner)
 
 			if match {
 
