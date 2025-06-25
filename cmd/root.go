@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -68,6 +69,8 @@ style violations, and opportunities for improvement.`,
 			fmt.Fprintln(os.Stderr, "No Clojure files found to analyze.")
 			return nil
 		}
+
+		sort.Strings(filesToAnalyze)
 
 		configDir := "."
 		if len(filesToAnalyze) > 0 {
@@ -146,6 +149,25 @@ style violations, and opportunities for improvement.`,
 
 		wg.Wait()
 
+		sort.Slice(allFindings, func(i, j int) bool {
+			if allFindings[i].Filepath != allFindings[j].Filepath {
+				return allFindings[i].Filepath < allFindings[j].Filepath
+			}
+			if allFindings[i].Location != nil && allFindings[j].Location != nil {
+				if allFindings[i].Location.StartLine != allFindings[j].Location.StartLine {
+					return allFindings[i].Location.StartLine < allFindings[j].Location.StartLine
+				}
+				return allFindings[i].Location.StartColumn < allFindings[j].Location.StartColumn
+			}
+			if allFindings[i].Location == nil && allFindings[j].Location != nil {
+				return true
+			}
+			if allFindings[i].Location != nil && allFindings[j].Location == nil {
+				return false
+			}
+			return allFindings[i].RuleID < allFindings[j].RuleID
+		})
+
 		fmt.Fprintf(os.Stderr, "\n--- Analysis Findings (%d) ---\n", len(allFindings))
 		rep, err := reporter.NewReporter(outputFormat)
 		if err != nil {
@@ -192,6 +214,8 @@ func findClojureFiles(dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error walking the path %q: %w", dir, err)
 	}
+
+	sort.Strings(files)
 
 	return files, nil
 }

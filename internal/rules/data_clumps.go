@@ -65,31 +65,8 @@ func (r *DataClumpsRule) Check(node *reader.RichNode, context map[string]interfa
 
 	analyzer := GetGlobalDataClumpsAnalyzer()
 	analyzer.mu.Lock()
-
-	currentGroups := make([]ParameterGroup, len(analyzer.parameterGroups))
-	copy(currentGroups, analyzer.parameterGroups)
-
-	tempGroups := append(currentGroups, *group)
 	analyzer.parameterGroups = append(analyzer.parameterGroups, *group)
 	analyzer.mu.Unlock()
-
-	if len(tempGroups) >= r.MinOccurrences {
-		clumps := r.findDataClumps(tempGroups)
-
-		for _, clump := range clumps {
-			for _, occurrence := range clump.Occurrences {
-				if occurrence.FunctionName == group.FunctionName && occurrence.Filepath == filepath {
-					return &Finding{
-						RuleID:   r.ID,
-						Message:  r.formatClumpMessage(clump),
-						Filepath: filepath,
-						Location: occurrence.Location,
-						Severity: r.Severity,
-					}
-				}
-			}
-		}
-	}
 
 	return nil
 }
@@ -298,6 +275,58 @@ func (r *DataClumpsRule) formatClumpMessage(clump ClumpCandidate) string {
 		len(clump.Occurrences),
 		strings.Join(functionNames, ", "),
 	)
+}
+
+func (d *DataClumpsAnalyzer) Reset() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.parameterGroups = make([]ParameterGroup, 0)
+}
+
+func (d *DataClumpsAnalyzer) GenerateFindings() []*Finding {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if len(d.parameterGroups) < 2 {
+		return nil
+	}
+
+	sort.Slice(d.parameterGroups, func(i, j int) bool {
+		if d.parameterGroups[i].Filepath != d.parameterGroups[j].Filepath {
+			return d.parameterGroups[i].Filepath < d.parameterGroups[j].Filepath
+		}
+		if d.parameterGroups[i].FunctionName != d.parameterGroups[j].FunctionName {
+			return d.parameterGroups[i].FunctionName < d.parameterGroups[j].FunctionName
+		}
+		return strings.Join(d.parameterGroups[i].Parameters, ",") < strings.Join(d.parameterGroups[j].Parameters, ",")
+	})
+
+	rule := &DataClumpsRule{
+		Rule: Rule{
+			ID:       "data-clumps",
+			Severity: SeverityWarning,
+		},
+		MinClumpSize:        3,
+		MinOccurrences:      2,
+		SimilarityThreshold: 0.7,
+	}
+
+	clumps := rule.findDataClumps(d.parameterGroups)
+	var findings []*Finding
+
+	for _, clump := range clumps {
+		for _, occurrence := range clump.Occurrences {
+			findings = append(findings, &Finding{
+				RuleID:   rule.ID,
+				Message:  rule.formatClumpMessage(clump),
+				Filepath: occurrence.Filepath,
+				Location: occurrence.Location,
+				Severity: rule.Severity,
+			})
+		}
+	}
+
+	return findings
 }
 
 func init() {
