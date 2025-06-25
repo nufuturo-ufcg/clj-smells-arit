@@ -9,15 +9,16 @@ import (
 
 type NestedFormsRule struct {
 	Rule
-	MaxDepth       int      `json:"max_depth" yaml:"max_depth"`
-	TrackedForms   []string `json:"tracked_forms" yaml:"tracked_forms"`
-	MinFormsInPath int      `json:"min_forms_in_path" yaml:"min_forms_in_path"`
+	MaxConsecutiveSameForms int      `json:"max_consecutive_same_forms" yaml:"max_consecutive_same_forms"`
+	MaxConditionalDepth     int      `json:"max_conditional_depth" yaml:"max_conditional_depth"`
+	TrackedForms            []string `json:"tracked_forms" yaml:"tracked_forms"`
 }
 
-type NestingPath struct {
-	Forms []string
-	Depth int
-	Nodes []*reader.RichNode
+type NestingPattern struct {
+	Forms       []string
+	Depth       int
+	PatternType string
+	Nodes       []*reader.RichNode
 }
 
 func (r *NestedFormsRule) Meta() Rule {
@@ -25,67 +26,259 @@ func (r *NestedFormsRule) Meta() Rule {
 }
 
 func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+	if !r.isTrackedForm(node) {
+		return nil
+	}
 
-	if r.isTrackedForm(node) {
+	pattern := r.buildNestingPattern(node, context)
 
-		path := r.buildNestingPath(node, context)
+	// Verificar se é um padrão problemático específico
+	if r.isProblematicPattern(pattern) {
+		suggestion := r.getSuggestionForPattern(pattern)
 
-		if r.exceedsLimits(path) {
-			suggestion := r.getSuggestionForPath(path)
+		message := fmt.Sprintf(
+			"Excessive nesting detected (depth: %d, forms: %s). %s",
+			pattern.Depth,
+			strings.Join(pattern.Forms, " → "),
+			suggestion,
+		)
 
-			message := fmt.Sprintf(
-				"Excessive nesting detected (depth: %d, forms: %s). %s",
-				path.Depth,
-				strings.Join(path.Forms, " → "),
-				suggestion,
-			)
-
-			return &Finding{
-				RuleID:   r.ID,
-				Message:  message,
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
-			}
+		return &Finding{
+			RuleID:   r.ID,
+			Message:  message,
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
 		}
 	}
 
 	return nil
 }
 
-func (r *NestedFormsRule) buildNestingPath(node *reader.RichNode, context map[string]interface{}) *NestingPath {
-	path := &NestingPath{
+func (r *NestedFormsRule) buildNestingPattern(node *reader.RichNode, context map[string]interface{}) *NestingPattern {
+	pattern := &NestingPattern{
 		Forms: []string{},
 		Depth: 0,
 		Nodes: []*reader.RichNode{},
 	}
 
-	r.buildPathRecursively(node, context, path)
+	r.collectNestedForms(node, pattern, 0)
+	pattern.PatternType = r.classifyPattern(pattern.Forms)
 
-	return path
+	return pattern
 }
 
-func (r *NestedFormsRule) buildPathRecursively(node *reader.RichNode, context map[string]interface{}, path *NestingPath) {
-
-	if r.isTrackedForm(node) {
-		formName := r.getFormName(node)
-
-		path.Forms = append([]string{formName}, path.Forms...)
-		path.Nodes = append([]*reader.RichNode{node}, path.Nodes...)
-		path.Depth++
+func (r *NestedFormsRule) collectNestedForms(node *reader.RichNode, pattern *NestingPattern, depth int) {
+	if !r.isTrackedForm(node) {
+		return
 	}
 
-	if parent, ok := context["parent"]; ok {
-		if parentNode, ok := parent.(*reader.RichNode); ok {
+	formName := r.getFormName(node)
+	pattern.Forms = append(pattern.Forms, formName)
+	pattern.Nodes = append(pattern.Nodes, node)
+	pattern.Depth = depth + 1
 
-			parentContext := map[string]interface{}{}
-			r.buildPathRecursively(parentNode, parentContext, path)
+	// Procurar por forms aninhados nos filhos
+	for _, child := range node.Children {
+		if r.isTrackedForm(child) {
+			r.collectNestedForms(child, pattern, depth+1)
+			return // Apenas o primeiro nesting direto
+		}
+		// Procurar recursivamente em outros tipos de nós
+		for _, grandchild := range child.Children {
+			if r.isTrackedForm(grandchild) {
+				r.collectNestedForms(grandchild, pattern, depth+1)
+				return
+			}
 		}
 	}
 }
 
-func (r *NestedFormsRule) buildPathFromContext(path *NestingPath, context map[string]interface{}) {
+func (r *NestedFormsRule) isProblematicPattern(pattern *NestingPattern) bool {
+	if len(pattern.Forms) < 2 {
+		return false
+	}
 
+	// 1. Múltiplos let consecutivos (padrão problemático do catálogo)
+	if r.hasConsecutiveSameForms(pattern.Forms, "let", r.MaxConsecutiveSameForms) {
+		return true
+	}
+
+	// 2. Múltiplos doseq aninhados (padrão problemático do bsless)
+	if r.hasConsecutiveSameForms(pattern.Forms, "doseq", 2) {
+		return true
+	}
+
+	// 3. Múltiplos for aninhados
+	if r.hasConsecutiveSameForms(pattern.Forms, "for", 2) {
+		return true
+	}
+
+	// 4. let → when → let (padrão específico do catálogo)
+	if r.hasSpecificPattern(pattern.Forms, []string{"let", "when", "let"}) {
+		return true
+	}
+
+	// 5. let → if → let (similar ao anterior)
+	if r.hasSpecificPattern(pattern.Forms, []string{"let", "if", "let"}) {
+		return true
+	}
+
+	// 6. Condicionais profundamente aninhados (3+ níveis)
+	if r.hasDeepConditionalNesting(pattern.Forms, r.MaxConditionalDepth) {
+		return true
+	}
+
+	// 7. when-let → when-let (pode ser simplificado com some->)
+	if r.hasConsecutiveSameForms(pattern.Forms, "when-let", 2) {
+		return true
+	}
+
+	// NÃO flagar padrões aceitáveis
+	if r.isAcceptablePattern(pattern.Forms) {
+		return false
+	}
+
+	return false
+}
+
+func (r *NestedFormsRule) hasConsecutiveSameForms(forms []string, formName string, minCount int) bool {
+	consecutiveCount := 0
+	for _, form := range forms {
+		if form == formName {
+			consecutiveCount++
+			if consecutiveCount >= minCount {
+				return true
+			}
+		} else {
+			consecutiveCount = 0
+		}
+	}
+	return false
+}
+
+func (r *NestedFormsRule) hasSpecificPattern(forms []string, pattern []string) bool {
+	if len(forms) < len(pattern) {
+		return false
+	}
+
+	for i := 0; i <= len(forms)-len(pattern); i++ {
+		match := true
+		for j, p := range pattern {
+			if forms[i+j] != p {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *NestedFormsRule) hasDeepConditionalNesting(forms []string, maxDepth int) bool {
+	conditionals := map[string]bool{
+		"if": true, "when": true, "if-not": true, "when-not": true,
+		"if-let": true, "when-let": true, "if-some": true, "when-some": true,
+		"cond": true, "case": true,
+	}
+
+	conditionalCount := 0
+	for _, form := range forms {
+		if conditionals[form] {
+			conditionalCount++
+		}
+	}
+
+	return conditionalCount >= maxDepth
+}
+
+func (r *NestedFormsRule) isAcceptablePattern(forms []string) bool {
+	// Padrões que são normais e aceitáveis em Clojure
+	acceptablePatterns := [][]string{
+		{"let", "if"},        // Muito comum e aceitável
+		{"let", "when"},      // Padrão idiomático
+		{"let", "when-not"},  // Aceitável
+		{"loop", "let"},      // Frequentemente necessário
+		{"binding", "let"},   // Aceitável
+		{"with-open", "let"}, // Aceitável
+		{"try", "let"},       // Aceitável
+		{"let", "try"},       // Aceitável
+		{"doseq", "when"},    // Aceitável para filtragem
+		{"doseq", "if"},      // Aceitável para filtragem
+		{"dotimes", "when"},  // Aceitável
+		{"dotimes", "if"},    // Aceitável
+	}
+
+	for _, pattern := range acceptablePatterns {
+		if r.matchesExactPattern(forms, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *NestedFormsRule) matchesExactPattern(forms []string, pattern []string) bool {
+	if len(forms) != len(pattern) {
+		return false
+	}
+
+	for i, form := range forms {
+		if form != pattern[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *NestedFormsRule) classifyPattern(forms []string) string {
+	if r.hasConsecutiveSameForms(forms, "let", 2) {
+		return "consecutive-let"
+	}
+	if r.hasConsecutiveSameForms(forms, "when-let", 2) {
+		return "consecutive-when-let"
+	}
+	if r.hasConsecutiveSameForms(forms, "doseq", 2) {
+		return "nested-iteration"
+	}
+	if r.hasSpecificPattern(forms, []string{"let", "when", "let"}) {
+		return "let-when-let"
+	}
+	return "other"
+}
+
+func (r *NestedFormsRule) getSuggestionForPattern(pattern *NestingPattern) string {
+	switch pattern.PatternType {
+	case "consecutive-let":
+		return "Combine multiple 'let' bindings into a single form: (let [x 1, y 2] ...)"
+
+	case "consecutive-when-let":
+		return "Consider using 'some->' threading macro: (some-> x f1 f2 f3)"
+
+	case "nested-iteration":
+		return "Combine multiple 'doseq' into single form: (doseq [x xs, y ys] ...)"
+
+	case "let-when-let":
+		return "Consider using 'when-let' or 'some->' to flatten the nested structure"
+
+	default:
+		forms := pattern.Forms
+		switch {
+		case r.hasSpecificPattern(forms, []string{"let", "if", "let"}):
+			return "Consider using 'if-let' or restructuring to avoid nested let forms"
+
+		case r.hasDeepConditionalNesting(forms, 3):
+			return "Consider using 'cond' to flatten nested conditional forms"
+
+		case r.hasConsecutiveSameForms(forms, "for", 2):
+			return "Combine multiple 'for' comprehensions: (for [x xs, y ys] ...)"
+
+		default:
+			return "Consider refactoring to reduce nesting complexity. Use 'some->', 'when-let', or combine forms where possible"
+		}
+	}
 }
 
 func (r *NestedFormsRule) isTrackedForm(node *reader.RichNode) bool {
@@ -116,101 +309,20 @@ func (r *NestedFormsRule) getFormName(node *reader.RichNode) string {
 	return "unknown"
 }
 
-func (r *NestedFormsRule) exceedsLimits(path *NestingPath) bool {
-	if path.Depth <= 1 {
-		return false
-	}
-
-	if path.Depth > r.MaxDepth {
-		return true
-	}
-
-	if len(path.Forms) >= r.MinFormsInPath {
-		return true
-	}
-
-	return false
-}
-
-func (r *NestedFormsRule) getSuggestionForPath(path *NestingPath) string {
-	if len(path.Forms) == 0 {
-		return "Consider flattening the nested structure."
-	}
-
-	switch {
-	case r.hasPattern(path.Forms, []string{"let", "when", "let"}):
-		return "Consider using 'when-let' or 'some->' threading macro to flatten nested let/when forms."
-	case r.hasPattern(path.Forms, []string{"let", "if", "let"}):
-		return "Consider using 'if-let' or 'some->' threading macro to flatten nested let/if forms."
-	case r.countOccurrences(path.Forms, "let") >= 3:
-		return "Consider combining multiple 'let' bindings into a single form or using '->' threading macro."
-	case r.countOccurrences(path.Forms, "when") >= 2 && r.countOccurrences(path.Forms, "let") >= 1:
-		return "Consider using 'when-let', 'some->', or 'and' to flatten nested when/let conditions."
-	case r.hasOnlyConditionals(path.Forms):
-		return "Consider using 'cond' to flatten nested conditional forms."
-	default:
-		return fmt.Sprintf("Consider refactoring to reduce nesting depth. Use threading macros (-> or ->>) or combine forms where possible.")
-	}
-}
-
-func (r *NestedFormsRule) hasPattern(forms []string, pattern []string) bool {
-	if len(forms) < len(pattern) {
-		return false
-	}
-
-	for i := 0; i <= len(forms)-len(pattern); i++ {
-		match := true
-		for j, p := range pattern {
-			if forms[i+j] != p {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *NestedFormsRule) countOccurrences(forms []string, form string) int {
-	count := 0
-	for _, f := range forms {
-		if f == form {
-			count++
-		}
-	}
-	return count
-}
-
-func (r *NestedFormsRule) hasOnlyConditionals(forms []string) bool {
-	conditionals := map[string]bool{
-		"if": true, "when": true, "if-not": true, "when-not": true,
-		"if-let": true, "when-let": true, "if-some": true, "when-some": true,
-	}
-
-	for _, form := range forms {
-		if !conditionals[form] {
-			return false
-		}
-	}
-	return len(forms) >= 2
-}
-
 func init() {
 	defaultRule := &NestedFormsRule{
 		Rule: Rule{
 			ID:          "nested-forms",
 			Name:        "Nested Forms",
-			Description: "Detects excessive nesting of forms like let, when, if. Deep nesting makes code harder to read and understand. Consider using threading macros, combining forms, or other refactoring techniques to flatten the structure.",
+			Description: "Detects problematic nesting patterns like multiple consecutive let forms or unnecessary nested binding forms. This smell occurs when multiple binding or iteration forms are unnecessarily nested instead of being combined in a single, flat form, making code harder to read and reason about.",
 			Severity:    SeverityWarning,
 		},
-		MaxDepth:       3,
-		MinFormsInPath: 2,
+		MaxConsecutiveSameForms: 2, // Detectar 2+ let consecutivos
+		MaxConditionalDepth:     3, // Detectar 3+ condicionais aninhados
 		TrackedForms: []string{
 			"let", "when", "if", "when-let", "if-let", "when-some", "if-some",
 			"when-not", "if-not", "loop", "binding", "with-open", "with-local-vars",
-			"doseq", "dotimes", "for",
+			"doseq", "dotimes", "for", "try", "catch", "cond", "case",
 		},
 	}
 
