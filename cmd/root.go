@@ -129,7 +129,14 @@ style violations, and opportunities for improvement.`,
 				mu.Lock()
 				if analysisResult.Findings != nil {
 					for _, finding := range analysisResult.Findings {
-						findingCopy := finding
+
+						findingCopy := rules.Finding{
+							RuleID:   finding.RuleID,
+							Message:  finding.Message,
+							Filepath: finding.Filepath,
+							Location: finding.Location,
+							Severity: finding.Severity,
+						}
 						allFindings = append(allFindings, &findingCopy)
 					}
 				}
