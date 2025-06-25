@@ -32,7 +32,6 @@ func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interf
 
 	pattern := r.buildNestingPattern(node, context)
 
-	// Verificar se é um padrão problemático específico
 	if r.isProblematicPattern(pattern) {
 		suggestion := r.getSuggestionForPattern(pattern)
 
@@ -78,13 +77,12 @@ func (r *NestedFormsRule) collectNestedForms(node *reader.RichNode, pattern *Nes
 	pattern.Nodes = append(pattern.Nodes, node)
 	pattern.Depth = depth + 1
 
-	// Procurar por forms aninhados nos filhos
 	for _, child := range node.Children {
 		if r.isTrackedForm(child) {
 			r.collectNestedForms(child, pattern, depth+1)
-			return // Apenas o primeiro nesting direto
+			return
 		}
-		// Procurar recursivamente em outros tipos de nós
+
 		for _, grandchild := range child.Children {
 			if r.isTrackedForm(grandchild) {
 				r.collectNestedForms(grandchild, pattern, depth+1)
@@ -99,42 +97,34 @@ func (r *NestedFormsRule) isProblematicPattern(pattern *NestingPattern) bool {
 		return false
 	}
 
-	// 1. Múltiplos let consecutivos (padrão problemático do catálogo)
 	if r.hasConsecutiveSameForms(pattern.Forms, "let", r.MaxConsecutiveSameForms) {
 		return true
 	}
 
-	// 2. Múltiplos doseq aninhados (padrão problemático do bsless)
 	if r.hasConsecutiveSameForms(pattern.Forms, "doseq", 2) {
 		return true
 	}
 
-	// 3. Múltiplos for aninhados
 	if r.hasConsecutiveSameForms(pattern.Forms, "for", 2) {
 		return true
 	}
 
-	// 4. let → when → let (padrão específico do catálogo)
 	if r.hasSpecificPattern(pattern.Forms, []string{"let", "when", "let"}) {
 		return true
 	}
 
-	// 5. let → if → let (similar ao anterior)
 	if r.hasSpecificPattern(pattern.Forms, []string{"let", "if", "let"}) {
 		return true
 	}
 
-	// 6. Condicionais profundamente aninhados (3+ níveis)
 	if r.hasDeepConditionalNesting(pattern.Forms, r.MaxConditionalDepth) {
 		return true
 	}
 
-	// 7. when-let → when-let (pode ser simplificado com some->)
 	if r.hasConsecutiveSameForms(pattern.Forms, "when-let", 2) {
 		return true
 	}
 
-	// NÃO flagar padrões aceitáveis
 	if r.isAcceptablePattern(pattern.Forms) {
 		return false
 	}
@@ -195,20 +185,20 @@ func (r *NestedFormsRule) hasDeepConditionalNesting(forms []string, maxDepth int
 }
 
 func (r *NestedFormsRule) isAcceptablePattern(forms []string) bool {
-	// Padrões que são normais e aceitáveis em Clojure
+
 	acceptablePatterns := [][]string{
-		{"let", "if"},        // Muito comum e aceitável
-		{"let", "when"},      // Padrão idiomático
-		{"let", "when-not"},  // Aceitável
-		{"loop", "let"},      // Frequentemente necessário
-		{"binding", "let"},   // Aceitável
-		{"with-open", "let"}, // Aceitável
-		{"try", "let"},       // Aceitável
-		{"let", "try"},       // Aceitável
-		{"doseq", "when"},    // Aceitável para filtragem
-		{"doseq", "if"},      // Aceitável para filtragem
-		{"dotimes", "when"},  // Aceitável
-		{"dotimes", "if"},    // Aceitável
+		{"let", "if"},
+		{"let", "when"},
+		{"let", "when-not"},
+		{"loop", "let"},
+		{"binding", "let"},
+		{"with-open", "let"},
+		{"try", "let"},
+		{"let", "try"},
+		{"doseq", "when"},
+		{"doseq", "if"},
+		{"dotimes", "when"},
+		{"dotimes", "if"},
 	}
 
 	for _, pattern := range acceptablePatterns {
@@ -317,8 +307,8 @@ func init() {
 			Description: "Detects problematic nesting patterns like multiple consecutive let forms or unnecessary nested binding forms. This smell occurs when multiple binding or iteration forms are unnecessarily nested instead of being combined in a single, flat form, making code harder to read and reason about.",
 			Severity:    SeverityWarning,
 		},
-		MaxConsecutiveSameForms: 2, // Detectar 2+ let consecutivos
-		MaxConditionalDepth:     3, // Detectar 3+ condicionais aninhados
+		MaxConsecutiveSameForms: 2,
+		MaxConditionalDepth:     3,
 		TrackedForms: []string{
 			"let", "when", "if", "when-let", "if-let", "when-some", "if-some",
 			"when-not", "if-not", "loop", "binding", "with-open", "with-local-vars",
