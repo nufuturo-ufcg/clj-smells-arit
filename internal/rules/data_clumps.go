@@ -65,11 +65,16 @@ func (r *DataClumpsRule) Check(node *reader.RichNode, context map[string]interfa
 
 	analyzer := GetGlobalDataClumpsAnalyzer()
 	analyzer.mu.Lock()
-	analyzer.parameterGroups = append(analyzer.parameterGroups, *group)
 
-	if len(analyzer.parameterGroups) >= r.MinOccurrences {
-		clumps := r.findDataClumps(analyzer.parameterGroups)
-		analyzer.mu.Unlock()
+	currentGroups := make([]ParameterGroup, len(analyzer.parameterGroups))
+	copy(currentGroups, analyzer.parameterGroups)
+
+	tempGroups := append(currentGroups, *group)
+	analyzer.parameterGroups = append(analyzer.parameterGroups, *group)
+	analyzer.mu.Unlock()
+
+	if len(tempGroups) >= r.MinOccurrences {
+		clumps := r.findDataClumps(tempGroups)
 
 		for _, clump := range clumps {
 			for _, occurrence := range clump.Occurrences {
@@ -84,8 +89,6 @@ func (r *DataClumpsRule) Check(node *reader.RichNode, context map[string]interfa
 				}
 			}
 		}
-	} else {
-		analyzer.mu.Unlock()
 	}
 
 	return nil
