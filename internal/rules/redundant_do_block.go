@@ -11,7 +11,7 @@ type RedundantDoBlockRule struct{}
 func (r *RedundantDoBlockRule) Meta() Rule {
 	return Rule{
 		ID:          "redundant-do-block",
-		Description: "Verifica blocos `do` redundantes dentro de formas que já implicam execução sequencial de seus corpos ou cláusulas.",
+		Description: "Checks for redundant `do` blocks within forms that already imply sequential execution of their body or clauses.",
 		Severity:    SeverityInfo,
 	}
 }
@@ -99,7 +99,7 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 					switch gpSymbol {
 					case "fn", "defn", "defn-", "defmacro", "defmethod", "proxy", "reify", "deftype", "defrecord", "extend-protocol", "extend-type":
 
-						return r.createFinding(node, parent, "lista de aridade", filepath)
+						return r.createFinding(node, parent, "arity list", filepath)
 					}
 				}
 			}
@@ -201,11 +201,11 @@ func (r *RedundantDoBlockRule) createFinding(doNode, parentNode *reader.RichNode
 
 	numDoChildren := len(doNode.Children) - 1
 
-	message := fmt.Sprintf("Bloco `do` redundante encontrado. A forma `%s` circundante já fornece um `do` implícito para suas expressões de corpo.", parentFormName)
+	message := fmt.Sprintf("Redundant `do` block found. The surrounding `%s` form already provides an implicit `do` for its body expressions.", parentFormName)
 	if numDoChildren == 0 {
-		message = fmt.Sprintf("Bloco `do` redundante e vazio encontrado dentro de `%s`. Considere removê-lo completamente.", parentFormName)
+		message = fmt.Sprintf("Redundant empty `do` block found within `%s`. Consider removing it completely.", parentFormName)
 	} else if numDoChildren == 1 {
-		message = fmt.Sprintf("Bloco `do` redundante com uma única expressão encontrado dentro de `%s`. O wrapper `do` é desnecessário aqui.", parentFormName)
+		message = fmt.Sprintf("Redundant `do` block with a single expression found within `%s`. The `do` wrapper is unnecessary here.", parentFormName)
 	}
 
 	return &Finding{
