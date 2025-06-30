@@ -935,6 +935,10 @@ func AnalyzeFile(filepath string, cfg *config.Config) (AnalysisResult, error) {
 	duplicatedFindings := globalDuplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
 	concreteFindings = append(concreteFindings, duplicatedFindings...)
 
+	exactDuplicatedAnalyzer := rules.GetExactDuplicatedCodeAnalyzer()
+	exactDuplicatedFindings := exactDuplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
+	concreteFindings = append(concreteFindings, exactDuplicatedFindings...)
+
 	return AnalysisResult{
 		Findings:        concreteFindings,
 		RichRoots:       richRoots,
