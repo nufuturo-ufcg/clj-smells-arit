@@ -1,113 +1,113 @@
-# Framework de Testes para Regras de Análise
+# Testing Framework for Analysis Rules
 
-Este documento contém a documentação completa do framework de testes personalizado do projeto Arit para criar e executar testes das regras de análise de código Clojure.
+This document contains the complete documentation for the Arit project's custom testing framework for creating and running tests for Clojure code analysis rules.
 
-## Índice
+## Table of Contents
 
-1. [Visão Geral](#visão-geral)
-2. [Estrutura do Framework](#estrutura-do-framework)
-3. [Componentes Principais](#componentes-principais)
-4. [Guia de Início Rápido](#guia-de-início-rápido)
-5. [Como Implementar um Novo Teste](#como-implementar-um-novo-teste)
-6. [Templates Prontos](#templates-prontos)
-7. [Como Descobrir Mensagens Esperadas](#como-descobrir-mensagens-esperadas)
-8. [Exemplo Prático Completo](#exemplo-prático-completo)
-9. [Comandos e Execução](#comandos-e-execução)
-10. [Depuração de Problemas](#depuração-de-problemas)
-11. [Dicas e Boas Práticas](#dicas-e-boas-práticas)
-12. [Referência Técnica](#referência-técnica)
-
----
-
-## Visão Geral
-
-O framework de testes foi desenvolvido para permitir testes automatizados das regras de análise de código. Ele isola regras específicas, executa análises em arquivos de teste e valida se os problemas esperados são detectados nas linhas corretas.
-
-**Principais características:**
-- Isolamento de regras individuais
-- Validação de mensagens e localização
-- Ferramentas de debug integradas
-- Saída estruturada com testify
-- Templates prontos para uso
+1. [Overview](#overview)
+2. [Framework Structure](#framework-structure)
+3. [Main Components](#main-components)
+4. [Quick Start Guide](#quick-start-guide)
+5. [How to Implement a New Test](#how-to-implement-a-new-test)
+6. [Ready-to-Use Templates](#ready-to-use-templates)
+7. [How to Discover Expected Messages](#how-to-discover-expected-messages)
+8. [Complete Practical Example](#complete-practical-example)
+9. [Commands and Execution](#commands-and-execution)
+10. [Problem Debugging](#problem-debugging)
+11. [Tips and Best Practices](#tips-and-best-practices)
+12. [Technical Reference](#technical-reference)
 
 ---
 
-## Estrutura do Framework
+## Overview
+
+The testing framework was developed to enable automated testing of code analysis rules. It isolates specific rules, runs analyses on test files, and validates whether expected problems are detected at the correct lines.
+
+**Main features:**
+- Individual rule isolation
+- Message and location validation
+- Integrated debugging tools
+- Structured output with testify
+- Ready-to-use templates
+
+---
+
+## Framework Structure
 
 ```
 internal/test/
-├── framework/           # Framework base
-│   ├── framework.go    # Estruturas e funções principais
-│   └── framework_debug.go  # Funções de debug
-├── suite/              # Suítes de teste por regra
-│   └── *_test.go      # Arquivos de teste Go
-└── data/               # Arquivos de dados de teste
-    └── *.clj          # Arquivos Clojure com casos de teste
+├── framework/           # Base framework
+│   ├── framework.go    # Main structures and functions
+│   └── framework_debug.go  # Debug functions
+├── suite/              # Test suites by rule
+│   └── *_test.go      # Go test files
+└── data/               # Test data files
+    └── *.clj          # Clojure files with test cases
 ```
 
 ---
 
-## Componentes Principais
+## Main Components
 
-### 1. Estruturas de Dados
+### 1. Data Structures
 
 #### `ExpectedFinding`
-Define o que esperamos que uma regra encontre:
+Defines what we expect a rule to find:
 ```go
 type ExpectedFinding struct {
-    Message   string  // Parte da mensagem esperada
-    StartLine int     // Linha onde o problema deve ser detectado
+    Message   string  // Part of the expected message
+    StartLine int     // Line where the problem should be detected
 }
 ```
 
 #### `RuleTestCase`
-Define um caso de teste completo:
+Defines a complete test case:
 ```go
 type RuleTestCase struct {
-    FileToAnalyze    string             // Nome do arquivo .clj em data/
-    RuleID           string             // ID da regra a ser testada
-    ExpectedFindings []ExpectedFinding  // Lista de problemas esperados
+    FileToAnalyze    string             // Name of the .clj file in data/
+    RuleID           string             // ID of the rule to be tested
+    ExpectedFindings []ExpectedFinding  // List of expected problems
 }
 ```
 
-### 2. Funções Principais
+### 2. Main Functions
 
 #### `RunRuleTest(t *testing.T, tc RuleTestCase)`
-Função principal que executa o teste:
-- Isola apenas a regra sendo testada
-- Analisa o arquivo especificado
-- Compara os resultados com as expectativas
-- Gera subtestes individuais para cada finding
+Main function that runs the test:
+- Isolates only the rule being tested
+- Analyzes the specified file
+- Compares results with expectations
+- Generates individual subtests for each finding
 
 #### `DebugRuleTest(t *testing.T, tc RuleTestCase)`
-Função de debug que mostra todas as mensagens encontradas:
-- Executa a regra no arquivo especificado
-- Imprime todas as mensagens encontradas
-- Sugere código pronto para copiar nos testes
-- Útil para descobrir mensagens quando não as conhece
+Debug function that shows all found messages:
+- Runs the rule on the specified file
+- Prints all found messages
+- Suggests ready-to-copy code for tests
+- Useful for discovering messages when you don't know them
 
 ---
 
-## Guia de Início Rápido
+## Quick Start Guide
 
-**Para desenvolvedores que querem implementar testes rapidamente!**
+**For developers who want to implement tests quickly!**
 
-### Passo 1: Criar o arquivo de dados Clojure
-**Arquivo**: `internal/test/data/minha_regra.clj`
+### Step 1: Create the Clojure data file
+**File**: `internal/test/data/my_rule.clj`
 ```clojure
-(ns minha-regra-test)
+(ns my-rule-test)
 
-;; Código que DEVE ser detectado
-(defn problema-aqui []
-  (+ 1 2 3))  ; <- Linha 4: problema
+;; Code that SHOULD be detected
+(defn problem-here []
+  (+ 1 2 3))  ; <- Line 4: problem
 
-;; Código que NÃO deve ser detectado  
-(defn codigo-ok []
+;; Code that should NOT be detected  
+(defn ok-code []
   (map inc [1 2 3]))
 ```
 
-### Passo 2: Criar o arquivo de teste Go
-**Arquivo**: `internal/test/suite/minha_regra_test.go`
+### Step 2: Create the Go test file
+**File**: `internal/test/suite/my_rule_test.go`
 ```go
 package suite
 
@@ -116,15 +116,15 @@ import (
     "github.com/thlaurentino/arit/internal/test/framework"
 )
 
-func TestMinhaRegra(t *testing.T) {
+func TestMyRule(t *testing.T) {
     testCases := []framework.RuleTestCase{
         {
-            FileToAnalyze: "minha_regra.clj",
-            RuleID:        "minha-regra",  // ID da sua regra
+            FileToAnalyze: "my_rule.clj",
+            RuleID:        "my-rule",  // Your rule ID
             ExpectedFindings: []framework.ExpectedFinding{
                 {
-                    Message:   "texto da mensagem",  // Parte da mensagem esperada
-                    StartLine: 4,                    // Linha do problema
+                    Message:   "message text",  // Part of expected message
+                    StartLine: 4,              // Line of the problem
                 },
             },
         },
@@ -138,68 +138,68 @@ func TestMinhaRegra(t *testing.T) {
 }
 ```
 
-### Passo 3: Executar o teste
+### Step 3: Run the test
 ```bash
-# SEMPRE use -v para saída detalhada!
-go test ./internal/test/suite/ -run TestMinhaRegra -v
+# ALWAYS use -v for detailed output!
+go test ./internal/test/suite/ -run TestMyRule -v
 ```
 
-**Saída esperada:**
+**Expected output:**
 ```
-=== RUN   TestMinhaRegra
-=== RUN   TestMinhaRegra/minha_regra.clj
-=== RUN   TestMinhaRegra/minha_regra.clj/Finding_1_line_4
---- PASS: TestMinhaRegra (0.00s)
-    --- PASS: TestMinhaRegra/minha_regra.clj (0.00s)
-        --- PASS: TestMinhaRegra/minha_regra.clj/Finding_1_line_4 (0.00s)
+=== RUN   TestMyRule
+=== RUN   TestMyRule/my_rule.clj
+=== RUN   TestMyRule/my_rule.clj/Finding_1_line_4
+--- PASS: TestMyRule (0.00s)
+    --- PASS: TestMyRule/my_rule.clj (0.00s)
+        --- PASS: TestMyRule/my_rule.clj/Finding_1_line_4 (0.00s)
 ```
 
-### Checklist Rápido
-- [ ] Arquivo `.clj` criado em `internal/test/data/`
-- [ ] Arquivo `_test.go` criado em `internal/test/suite/`
-- [ ] ID da regra correto
-- [ ] Linhas contadas corretamente (começam em 1)
-- [ ] Mensagem testada manualmente
-- [ ] Teste executado com sucesso
+### Quick Checklist
+- [ ] `.clj` file created in `internal/test/data/`
+- [ ] `_test.go` file created in `internal/test/suite/`
+- [ ] Correct rule ID
+- [ ] Lines counted correctly (start at 1)
+- [ ] Message tested manually
+- [ ] Test runs successfully
 
 ---
 
-## Como Implementar um Novo Teste
+## How to Implement a New Test
 
-### Pré-requisitos
-Antes de começar, certifique-se de que:
-- [ ] A regra já está implementada em `internal/rules/`
-- [ ] A regra está registrada no analisador principal
-- [ ] Você conhece o ID da regra (ex: "minha-regra")
-- [ ] Você tem exemplos de código que a regra deve detectar
+### Prerequisites
+Before starting, make sure that:
+- [ ] The rule is already implemented in `internal/rules/`
+- [ ] The rule is registered in the main analyzer
+- [ ] You know the rule ID (e.g., "my-rule")
+- [ ] You have code examples that the rule should detect
 
-### Passo 1: Criar o Arquivo de Dados (.clj)
+### Step 1: Create the Data File (.clj)
 
-Crie um arquivo em `internal/test/data/` with exemplos de código que sua regra deve detectar:
+Create a file in `internal/test/data/` with code examples that your rule should detect:
 
 ```clojure
-;; Exemplo: data/minha_regra.clj
-(ns minha-regra-test)
+;; Example: data/my_rule.clj
+(ns my-rule-test)
 
-;; Caso 1: Problema que deve ser detectado na linha 4
-(defn funcao-problematica []
-  (+ 1 2 3))  ; <- Linha 4: problema aqui
+;; Case 1: Problem that should be detected on line 4
+(defn problematic-function []
+  (+ 1 2 3))  ; <- Line 4: problem here
 
-;; Caso 2: Outro problema na linha 8  
-(defn outra-funcao []
-  (* 4 5 6))  ; <- Linha 8: outro problema
+;; Case 2: Another problem on line 8  
+(defn another-function []
+  (* 4 5 6))  ; <- Line 8: another problem
 
-;; Caso 3: Código correto que NÃO deve ser detectado
-(defn funcao-correta []
+;; Case 3: Correct code that should NOT be detected
+(defn correct-function []
   (map inc [1 2 3]))
 ```
 
-### Passo 2: Criar o Arquivo de Teste (.go)
+### Step 2: Create the Test File (.go)
 
-Crie um arquivo em `internal/test/suite/` seguindo o padrão:
+Create a file in `internal/test/suite/` following the pattern:
 
 ```go
-// Exemplo: suite/minha_regra_test.go
+// Example: suite/my_rule_test.go
 package suite
 
 import (
@@ -207,19 +207,19 @@ import (
     "github.com/thlaurentino/arit/internal/test/framework"
 )
 
-func TestMinhaRegra(t *testing.T) {
+func TestMyRule(t *testing.T) {
     testCases := []framework.RuleTestCase{
         {
-            FileToAnalyze: "minha_regra.clj",           // Nome do arquivo em data/
-            RuleID:        "minha-regra",               // ID da regra
+            FileToAnalyze: "my_rule.clj",           // File name in data/
+            RuleID:        "my-rule",               // Rule ID
             ExpectedFindings: []framework.ExpectedFinding{
                 {
-                    Message:   "problema detectado",     // Parte da mensagem esperada
-                    StartLine: 4,                       // Linha do primeiro problema
+                    Message:   "problem detected",     // Part of expected message
+                    StartLine: 4,                     // Line of first problem
                 },
                 {
-                    Message:   "outro problema",        // Parte da mensagem do segundo
-                    StartLine: 8,                       // Linha do segundo problema
+                    Message:   "another problem",     // Part of second message
+                    StartLine: 8,                     // Line of second problem
                 },
             },
         },
@@ -233,68 +233,68 @@ func TestMinhaRegra(t *testing.T) {
 }
 ```
 
-### Passo 3: Executar os Testes
+### Step 3: Run the Tests
 
 ```bash
-# Executar todos os testes
+# Run all tests
 go test ./internal/test/suite/...
 
-# Executar com saída detalhada (RECOMENDADO)
+# Run with detailed output (RECOMMENDED)
 go test ./internal/test/suite/... -v
 
-# Executar apenas um teste específico
-go test ./internal/test/suite/ -run TestMinhaRegra -v
+# Run only a specific test
+go test ./internal/test/suite/ -run TestMyRule -v
 
-# Executar com cobertura de código
+# Run with code coverage
 go test ./internal/test/suite/... -cover -v
 
-# Gerar relatório HTML de cobertura
+# Generate HTML coverage report
 go test ./internal/test/suite/... -coverprofile=coverage.out
 go tool cover -html=coverage.out -o coverage.html
 ```
 
 ---
 
-## Templates Prontos
+## Ready-to-Use Templates
 
-### Template: Arquivo de Dados (.clj)
+### Template: Data File (.clj)
 
-**Nome**: `internal/test/data/NOME_DA_REGRA.clj`
+**Name**: `internal/test/data/RULE_NAME.clj`
 
 ```clojure
-(ns NOME-DA-REGRA-test)
+(ns RULE-NAME-test)
 
 ;; ===========================================
-;; CASOS POSITIVOS (devem ser detectados)
+;; POSITIVE CASES (should be detected)
 ;; ===========================================
 
-;; Caso 1: Descrição do problema
-(defn exemplo-problema-1 []
-  ;; Código que deve ser detectado
-  (+ 1 2 3))  ; <- Linha X: descreva o problema aqui
+;; Case 1: Problem description
+(defn example-problem-1 []
+  ;; Code that should be detected
+  (+ 1 2 3))  ; <- Line X: describe the problem here
 
-;; Caso 2: Outro tipo de problema  
-(defn exemplo-problema-2 []
-  ;; Outro código problemático
-  (* 4 5 6))  ; <- Linha Y: outro problema
+;; Case 2: Another type of problem  
+(defn example-problem-2 []
+  ;; Other problematic code
+  (* 4 5 6))  ; <- Line Y: another problem
 
 ;; ===========================================
-;; CASOS NEGATIVOS (NÃO devem ser detectados)
+;; NEGATIVE CASES (should NOT be detected)
 ;; ===========================================
 
-;; Exemplo de código correto
-(defn exemplo-correto []
-  ;; Este código está OK e não deve gerar alertas
+;; Example of correct code
+(defn correct-example []
+  ;; This code is OK and should not generate alerts
   (map inc [1 2 3]))
 
-;; Outro exemplo correto
-(defn outro-exemplo-correto []
+;; Another correct example
+(defn another-correct-example []
   (reduce + [1 2 3 4]))
 ```
 
-### Template: Arquivo de Teste (.go)
+### Template: Test File (.go)
 
-**Nome**: `internal/test/suite/NOME_DA_REGRA_test.go`
+**Name**: `internal/test/suite/RULE_NAME_test.go`
 
 ```go
 package suite
@@ -304,24 +304,24 @@ import (
     "github.com/thlaurentino/arit/internal/test/framework"
 )
 
-func TestNOME_DA_REGRA(t *testing.T) {
+func TestRULE_NAME(t *testing.T) {
     testCases := []framework.RuleTestCase{
         {
-            FileToAnalyze: "NOME_DA_REGRA.clj",
-            RuleID:        "NOME-DA-REGRA",  // ID exato da regra
+            FileToAnalyze: "RULE_NAME.clj",
+            RuleID:        "RULE-NAME",  // Exact rule ID
             ExpectedFindings: []framework.ExpectedFinding{
                 {
-                    Message:   "PARTE_DA_MENSAGEM_ESPERADA",  // Ex: "problema detectado"
-                    StartLine: X,  // Número da linha onde está o problema
+                    Message:   "PART_OF_EXPECTED_MESSAGE",  // E.g., "problem detected"
+                    StartLine: X,  // Line number where the problem is
                 },
                 {
-                    Message:   "OUTRA_PARTE_DA_MENSAGEM",
-                    StartLine: Y,  // Linha do segundo problema
+                    Message:   "ANOTHER_PART_OF_MESSAGE",
+                    StartLine: Y,  // Line of second problem
                 },
-                // Adicione mais findings conforme necessário
+                // Add more findings as needed
             },
         },
-        // Você pode adicionar mais casos de teste aqui se necessário
+        // You can add more test cases here if needed
     }
 
     for _, tc := range testCases {
@@ -334,45 +334,45 @@ func TestNOME_DA_REGRA(t *testing.T) {
 
 ---
 
-## Como Descobrir Mensagens Esperadas
+## How to Discover Expected Messages
 
-### Método 1: Execução Manual (Recomendado)
+### Method 1: Manual Execution (Recommended)
 ```bash
-# Execute a ferramenta no seu arquivo de teste
-./arit internal/test/data/sua_regra.clj
+# Run the tool on your test file
+./arit internal/test/data/your_rule.clj
 
-# A saída mostrará todas as mensagens, copie a parte mais significativa
+# The output will show all messages, copy the most significant part
 ```
 
-### Método 2: Debug Test
-Use `framework.DebugRuleTest()` em vez de `framework.RunRuleTest()`:
+### Method 2: Debug Test
+Use `framework.DebugRuleTest()` instead of `framework.RunRuleTest()`:
 
 ```go
-func TestMinhaRegra(t *testing.T) {
+func TestMyRule(t *testing.T) {
     testCase := framework.RuleTestCase{
-        FileToAnalyze: "minha_regra.clj",
-        RuleID:        "minha-regra",
-        ExpectedFindings: []framework.ExpectedFinding{}, // Vazio primeiro
+        FileToAnalyze: "my_rule.clj",
+        RuleID:        "my-rule",
+        ExpectedFindings: []framework.ExpectedFinding{}, // Empty first
     }
     
-    // Use DebugRuleTest em vez de RunRuleTest
+    // Use DebugRuleTest instead of RunRuleTest
     framework.DebugRuleTest(t, testCase)
 }
 ```
 
-**Execute o debug:**
+**Run the debug:**
 ```bash
-go test ./internal/test/suite/ -run TestMinhaRegra -v
+go test ./internal/test/suite/ -run TestMyRule -v
 ```
 
-**Saída esperada:**
+**Expected output:**
 ```
---- DEBUG: Findings for rule 'minha-regra' ---
+--- DEBUG: Findings for rule 'my-rule' ---
 Total findings: 2
 
 Finding 1:
    Line: 4
-   Message: "Parameter 'b' in function 'funcao-problema' is declared but never used"
+   Message: "Parameter 'b' in function 'problem-function' is declared but never used"
    Suggested for test:
       {Message: "Parameter 'b'", StartLine: 4},
 
@@ -384,24 +384,24 @@ Finding 2:
 --- END DEBUG ---
 ```
 
-**Perfeito!** O debug já sugere o código pronto para copiar!
+**Perfect!** The debug already suggests ready-to-copy code!
 
-### Método 3: Teste Vazio
-Deixe `ExpectedFindings: []` vazio e execute o teste para ver quantos findings existem.
+### Method 3: Empty Test
+Leave `ExpectedFindings: []` empty and run the test to see how many findings exist.
 
-### Dicas para Mensagens
+### Tips for Messages
 
-#### 1. Mensagens muito longas?
-Se a mensagem for muito longa, use apenas a parte mais significativa:
+#### 1. Very long messages?
+If the message is too long, use only the most significant part:
 
 ```
-Mensagem real: "Parameter 'b' in function 'funcao-problema' is declared but never used. Consider removing it or using it."
+Real message: "Parameter 'b' in function 'problem-function' is declared but never used. Consider removing it or using it."
 
-Use apenas: "Parameter 'b'"
+Use only: "Parameter 'b'"
 ```
 
-#### 2. Múltiplas variações?
-Se sua regra gera mensagens ligeiramente diferentes, escolha a parte comum:
+#### 2. Multiple variations?
+If your rule generates slightly different messages, choose the common part:
 
 ```
 "Parameter 'a' is unused"
@@ -412,52 +412,52 @@ Use: "is unused"
 ```
 
 #### 3. Case-sensitive!
-Lembre-se que a comparação é case-sensitive:
+Remember that comparison is case-sensitive:
 
 ```go
-// Vai falhar
+// Will fail
 {Message: "PARAMETER 'b'", StartLine: 4}
 
-// Vai passar  
+// Will pass  
 {Message: "Parameter 'b'", StartLine: 4}
 ```
 
 ---
 
-## Exemplo Prático Completo
+## Complete Practical Example
 
-### Cenário: Nova Regra "unused-variable"
+### Scenario: New Rule "unused-variable"
 
-Imagine que você implementou uma regra que detecta variáveis não utilizadas, mas não sabe exatamente quais mensagens ela gera.
+Imagine you implemented a rule that detects unused variables, but you don't know exactly what messages it generates.
 
-### Passo 1: Criar o arquivo de dados
+### Step 1: Create the data file
 
 ```clojure
 ;; internal/test/data/unused_variable.clj
 (ns unused-variable-test)
 
-;; Caso com variável não usada
-(defn funcao-problema [a b]  ; b não é usado
+;; Case with unused variable
+(defn problem-function [a b]  ; b is not used
   (* a 2))
 
-;; Caso com let e variável não usada  
-(defn outra-funcao []
+;; Case with let and unused variable  
+(defn another-function []
   (let [x 10
-        y 20]  ; y não é usado
+        y 20]  ; y is not used
     x))
 ```
 
-### Passo 2: Execução Manual
+### Step 2: Manual Execution
 
 ```bash
 $ ./arit internal/test/data/unused_variable.clj
-[WARN] unused-variable: Parameter 'b' in function 'funcao-problema' is declared but never used [unused_variable.clj:4:1]
+[WARN] unused-variable: Parameter 'b' in function 'problem-function' is declared but never used [unused_variable.clj:4:1]
 [WARN] unused-variable: Variable 'y' in let binding is declared but never used [unused_variable.clj:9:8]
 ```
 
-**Resultado**: Agora você sabe as mensagens!
+**Result**: Now you know the messages!
 
-### Passo 3: Implementar o teste final
+### Step 3: Implement the final test
 
 ```go
 package suite
@@ -489,42 +489,42 @@ func TestUnusedVariable(t *testing.T) {
 
 ---
 
-## Comandos e Execução
+## Commands and Execution
 
-### Comandos Básicos
+### Basic Commands
 ```bash
-# Executar apenas seu teste
-go test ./internal/test/suite/ -run TestNOME_DA_REGRA
+# Run only your test
+go test ./internal/test/suite/ -run TestRULE_NAME
 
-# Executar com saída detalhada
-go test ./internal/test/suite/ -run TestNOME_DA_REGRA -v
+# Run with detailed output
+go test ./internal/test/suite/ -run TestRULE_NAME -v
 
-# Executar todos os testes
+# Run all tests
 go test ./internal/test/suite/...
 
-# Testar manualmente sua regra
-./arit internal/test/data/NOME_DA_REGRA.clj
+# Test your rule manually
+./arit internal/test/data/RULE_NAME.clj
 ```
 
-### Comandos Avançados
+### Advanced Commands
 ```bash
-# Executar com cobertura
+# Run with coverage
 go test ./internal/test/suite/... -cover -v
 
-# Gerar relatório HTML de cobertura
+# Generate HTML coverage report
 go test ./internal/test/suite/... -coverprofile=coverage.out
 go tool cover -html=coverage.out -o coverage.html
 
-# Executar com timeout
+# Run with timeout
 go test ./internal/test/suite/... -v -timeout=30s
 
-# Executar em paralelo
+# Run in parallel
 go test ./internal/test/suite/... -v -parallel=4
 ```
 
-### Saída dos Testes
+### Test Output
 
-O framework usa a biblioteca testify para gerar saídas estruturadas. Quando executado com `-v`, você verá:
+The framework uses the testify library to generate structured output. When run with `-v`, you'll see:
 
 ```
 === RUN   TestExplicitRecursion
@@ -537,160 +537,160 @@ O framework usa a biblioteca testify para gerar saídas estruturadas. Quando exe
         --- PASS: TestExplicitRecursion/explicit_recursion.clj/Finding_2_line_12 (0.00s)
 ```
 
-Cada finding é testado individualmente como um subteste, permitindo identificar exatamente qual validação falhou.
+Each finding is tested individually as a subtest, allowing you to identify exactly which validation failed.
 
 ---
 
-## Depuração de Problemas
+## Problem Debugging
 
-### Teste Falha: "Expected finding on line X, but none was found"
-**Possíveis causas:**
-- Linha incorreta no teste
-- Regra não detecta o problema esperado
-- Arquivo de dados incorreto
+### Test Fails: "Expected finding on line X, but none was found"
+**Possible causes:**
+- Incorrect line in test
+- Rule doesn't detect expected problem
+- Incorrect data file
 
-**Soluções:**
-- Verifique se a linha está correta (editores mostram números de linha)
-- Execute manualmente: `./arit internal/test/data/seu_arquivo.clj`
-- Use `DebugRuleTest` para ver todos os findings
+**Solutions:**
+- Check if the line is correct (editors show line numbers)
+- Run manually: `./arit internal/test/data/your_file.clj`
+- Use `DebugRuleTest` to see all findings
 
-### Teste Falha: "Finding message does not contain expected text"
-**Possíveis causas:**
-- Mensagem esperada não corresponde à real
+### Test Fails: "Finding message does not contain expected text"
+**Possible causes:**
+- Expected message doesn't match the real one
 - Case-sensitive
-- Mensagem muito específica
+- Message too specific
 
-**Soluções:**
-- Execute manualmente para ver a mensagem real
-- Use apenas parte da mensagem, não a mensagem completa
-- Verifique case-sensitive
+**Solutions:**
+- Run manually to see the real message
+- Use only part of the message, not the complete message
+- Check case-sensitivity
 
-### Teste Falha: "Incorrect number of findings"
-**Possíveis causas:**
-- Casos negativos sendo detectados erroneamente
-- Casos positivos não sendo detectados
-- Contagem incorreta
+### Test Fails: "Incorrect number of findings"
+**Possible causes:**
+- Negative cases being detected erroneously
+- Positive cases not being detected
+- Incorrect count
 
-**Soluções:**
-- Use `DebugRuleTest` para ver quantos findings existem
-- Verifique se há casos negativos sendo detectados erroneamente
-- Confirme se todos os casos positivos estão sendo detectados
+**Solutions:**
+- Use `DebugRuleTest` to see how many findings exist
+- Check if negative cases are being detected erroneously
+- Confirm all positive cases are being detected
 
-### Fluxo de Debug Recomendado
+### Recommended Debug Flow
 
-1. **Crie o arquivo .clj** com casos de teste
-2. **Execute manualmente** `./arit arquivo.clj`
-3. **Se não funcionar**, use `DebugRuleTest()`
-4. **Copie as sugestões** geradas pelo debug
-5. **Substitua por `RunRuleTest()`** no teste final
-6. **Execute o teste** para confirmar que passa
+1. **Create the .clj file** with test cases
+2. **Run manually** `./arit file.clj`
+3. **If it doesn't work**, use `DebugRuleTest()`
+4. **Copy the suggestions** generated by debug
+5. **Replace with `RunRuleTest()`** in the final test
+6. **Run the test** to confirm it passes
 
-### Problemas Comuns
+### Common Problems
 
-| Erro | Solução |
-|------|---------|
-| "Expected finding on line X, but none was found" | Verifique se a linha está correta |
-| "Finding message does not contain expected text" | Execute manualmente e copie parte da mensagem real |
-| "Incorrect number of findings" | Conte quantos problemas sua regra realmente detecta |
+| Error | Solution |
+|-------|----------|
+| "Expected finding on line X, but none was found" | Check if the line is correct |
+| "Finding message does not contain expected text" | Run manually and copy part of the real message |
+| "Incorrect number of findings" | Count how many problems your rule actually detects |
 
 ---
 
-## Dicas e Boas Práticas
+## Tips and Best Practices
 
-### **DO's (Faça)**
+### **DOs**
 
-1. **Nomes descritivos**: Use nomes claros para arquivos e funções
-2. **Comentários explicativos**: Documente cada caso de teste no arquivo .clj
-3. **Casos variados**: Inclua casos positivos (que devem ser detectados) e negativos (que não devem)
-4. **Mensagens específicas**: Use partes específicas da mensagem no `ExpectedFinding.Message`
-5. **Linhas corretas**: Verifique se `StartLine` corresponde à linha real do problema
-6. **Teste primeiro**: Use as estratégias de descoberta antes de escrever os testes
+1. **Descriptive names**: Use clear names for files and functions
+2. **Explanatory comments**: Document each test case in the .clj file
+3. **Varied cases**: Include positive cases (should be detected) and negative ones (shouldn't)
+4. **Specific messages**: Use specific parts of the message in `ExpectedFinding.Message`
+5. **Correct lines**: Verify that `StartLine` corresponds to the real problem line
+6. **Test first**: Use discovery strategies before writing tests
 
-### **DON'Ts (Não faça)**
+### **DON'Ts**
 
-1. **Não use mensagens genéricas**: Evite mensagens muito vagas como "erro"
-2. **Não ignore casos negativos**: Sempre teste que código correto não é detectado
-3. **Não hardcode caminhos**: Use apenas nomes de arquivos relativos
-4. **Não teste múltiplas regras**: Cada teste deve focar em uma regra específica
-5. **Não esqueça de executar**: Sempre execute os testes antes de fazer commit
+1. **Don't use generic messages**: Avoid very vague messages like "error"
+2. **Don't ignore negative cases**: Always test that correct code is not detected
+3. **Don't hardcode paths**: Use only relative file names
+4. **Don't test multiple rules**: Each test should focus on one specific rule
+5. **Don't forget to run**: Always run tests before committing
 
-### Dicas de Implementação
+### Implementation Tips
 
-#### 1. Como descobrir a mensagem exata da regra?
+#### 1. How to discover the exact rule message?
 ```bash
-# Execute a ferramenta no seu arquivo de teste
-./arit internal/test/data/sua_regra.clj
+# Run the tool on your test file
+./arit internal/test/data/your_rule.clj
 
-# A saída mostrará a mensagem real, use parte dela no teste
+# The output will show the real message, use part of it in the test
 ```
 
-#### 2. Como contar as linhas corretamente?
-- Use um editor que mostre números de linha
-- Lembre-se: a primeira linha é 1, não 0
-- Conte a linha onde o PROBLEMA está, não onde começa a função
+#### 2. How to count lines correctly?
+- Use an editor that shows line numbers
+- Remember: the first line is 1, not 0
+- Count the line where the PROBLEM is, not where the function starts
 
-#### 3. Como testar casos sem problemas?
+#### 3. How to test cases without problems?
 ```go
 {
-    FileToAnalyze: "codigo_limpo.clj",
-    RuleID:        "sua-regra",
-    ExpectedFindings: []framework.ExpectedFinding{}, // Lista vazia!
+    FileToAnalyze: "clean_code.clj",
+    RuleID:        "your-rule",
+    ExpectedFindings: []framework.ExpectedFinding{}, // Empty list!
 }
 ```
 
-#### 4. Como debuggar testes que falham?
+#### 4. How to debug failing tests?
 
-1. **Execute manualmente primeiro**:
+1. **Run manually first**:
    ```bash
-   ./arit internal/test/data/seu_arquivo.clj
+   ./arit internal/test/data/your_file.clj
    ```
 
-2. **Compare a saída real com o esperado**:
-    - Mensagem: contém o texto esperado?
-    - Linha: está na linha correta?
+2. **Compare real output with expected**:
+    - Message: contains expected text?
+    - Line: is it on the correct line?
 
-3. **Execute o teste com -v**:
+3. **Run the test with -v**:
    ```bash
-   go test ./internal/test/suite/ -run SeuTeste -v
+   go test ./internal/test/suite/ -run YourTest -v
    ```
 
 4. **Use DebugRuleTest**:
    ```go
-   // Substitua temporariamente RunRuleTest por DebugRuleTest
+   // Temporarily replace RunRuleTest with DebugRuleTest
    framework.DebugRuleTest(t, tc)
    ```
 
-### Erros Comuns
+### Common Errors
 
-1. **Nome do arquivo errado**: Certifique-se de que o nome em `FileToAnalyze` corresponde ao arquivo real
-2. **ID da regra errado**: Use exatamente o mesmo ID definido na implementação da regra
-3. **Linha errada**: Conte as linhas corretamente (editores ajudam!)
-4. **Mensagem muito específica**: Use apenas parte da mensagem, não a mensagem completa
-5. **Esquecer casos negativos**: Sempre teste que código correto não gera alertas
+1. **Wrong file name**: Make sure the name in `FileToAnalyze` matches the real file
+2. **Wrong rule ID**: Use exactly the same ID defined in the rule implementation
+3. **Wrong line**: Count lines correctly (editors help!)
+4. **Message too specific**: Use only part of the message, not the complete message
+5. **Forgetting negative cases**: Always test that correct code doesn't generate alerts
 
 ---
 
-## Referência Técnica
+## Technical Reference
 
-### Funcionalidades Avançadas
+### Advanced Features
 
-#### Múltiplos Casos de Teste
+#### Multiple Test Cases
 ```go
-func TestMinhaRegra(t *testing.T) {
+func TestMyRule(t *testing.T) {
     testCases := []framework.RuleTestCase{
         {
-            FileToAnalyze: "caso_simples.clj",
-            RuleID:        "minha-regra",
+            FileToAnalyze: "simple_case.clj",
+            RuleID:        "my-rule",
             ExpectedFindings: []framework.ExpectedFinding{
-                {Message: "problema simples", StartLine: 3},
+                {Message: "simple problem", StartLine: 3},
             },
         },
         {
-            FileToAnalyze: "caso_complexo.clj",
-            RuleID:        "minha-regra",
+            FileToAnalyze: "complex_case.clj",
+            RuleID:        "my-rule",
             ExpectedFindings: []framework.ExpectedFinding{
-                {Message: "problema complexo", StartLine: 5},
-                {Message: "outro problema", StartLine: 10},
+                {Message: "complex problem", StartLine: 5},
+                {Message: "another problem", StartLine: 10},
             },
         },
     }
@@ -703,44 +703,44 @@ func TestMinhaRegra(t *testing.T) {
 }
 ```
 
-#### Testando Casos Negativos (Sem Problemas)
+#### Testing Negative Cases (No Problems)
 ```go
 {
-    FileToAnalyze: "codigo_limpo.clj",
-    RuleID:        "minha-regra",
-    ExpectedFindings: []framework.ExpectedFinding{}, // Lista vazia
+    FileToAnalyze: "clean_code.clj",
+    RuleID:        "my-rule",
+    ExpectedFindings: []framework.ExpectedFinding{}, // Empty list
 }
 ```
 
-### Estrutura de Validação
+### Validation Structure
 
-O framework valida:
+The framework validates:
 
-1. **Número correto de findings**: Deve corresponder ao número de `ExpectedFindings`
-2. **Linha correta**: Cada finding deve estar na linha especificada
-3. **Mensagem correta**: Deve conter o texto especificado em `Message`
-4. **RuleID correto**: Deve corresponder ao `RuleID` do teste
+1. **Correct number of findings**: Should match the number of `ExpectedFindings`
+2. **Correct line**: Each finding should be on the specified line
+3. **Correct message**: Should contain the text specified in `Message`
+4. **Correct RuleID**: Should match the test's `RuleID`
 
-### Checklist de Debug
+### Debug Checklist
 
-- [ ] Arquivo .clj criado com casos representativos
-- [ ] Execução manual testada
-- [ ] Debug test executado (se necessário)
-- [ ] Mensagens copiadas corretamente
-- [ ] Linhas verificadas (começam em 1)
-- [ ] Teste final executado com sucesso
-- [ ] `DebugRuleTest` removido/comentado
+- [ ] .clj file created with representative cases
+- [ ] Manual execution tested
+- [ ] Debug test executed (if needed)
+- [ ] Messages copied correctly
+- [ ] Lines verified (start at 1)
+- [ ] Final test executed successfully
+- [ ] `DebugRuleTest` removed/commented
 
 ---
 
-## Conclusão
+## Conclusion
 
-Este framework fornece uma maneira estruturada e confiável de testar regras de análise. Use as estratégias de descoberta para encontrar mensagens, implemente casos variados e sempre execute os testes antes de fazer commits.
+This framework provides a structured and reliable way to test analysis rules. Use the discovery strategies to find messages, implement varied cases, and always run tests before committing.
 
-**Lembre-se**:
-- Comece simples e vá incrementando
-- É melhor ter poucos casos bem testados do que muitos casos mal implementados
-- O debug é uma ferramenta temporária - use para descobrir mensagens e depois volte para `RunRuleTest()`
-- Teste tanto casos positivos quanto negativos
+**Remember**:
+- Start simple and incrementally improve
+- It's better to have few well-tested cases than many poorly implemented ones
+- Debug is a temporary tool - use it to discover messages and then return to `RunRuleTest()`
+- Test both positive and negative cases
 
-Para dúvidas ou problemas, consulte os arquivos de exemplo em `internal/test/suite/` ou use as funções de debug disponíveis. 
+For questions or problems, check the example files in `internal/test/suite/` or use the available debug functions. 
