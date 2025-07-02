@@ -22,7 +22,14 @@
 (defn sum-with-logging [nums]
   (reduce log-and-accumulate 0 nums))
 
+;; Example 3: 'filter' with side effect
+(declare filtered-values)
+(defn side-effect-check [x]
+  (println "Checking" x)
+  (even? x))
 
+(defn filtered-values [xs]
+  (filter side-effect-check xs))
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
 (declare greet-users!)

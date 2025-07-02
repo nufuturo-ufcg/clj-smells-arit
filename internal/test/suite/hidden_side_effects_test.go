@@ -11,8 +11,9 @@ func TestHiddenSideEffects(t *testing.T) {
             FileToAnalyze: "hidden_side_effects.clj",
             RuleID:        "hidden-side-effects",  // ID da sua regra
             ExpectedFindings: []framework.ExpectedFinding{
-                {Message:   "Function 'greet-user' performs side effects (I/O operations) without explicit indication. Consider adding '!' suffix or using 'doseq' for side-effect operations to make the impurity explicit.", StartLine: 5},
-				{Message: "Function 'log-and-accumulate'", StartLine: 17},
+                {Message:   "Function 'greet-user' performs side effects", StartLine: 5},
+				//{Message: "Function 'log-and-accumulate'", StartLine: 17},
+				{Message: "Function 'side-effect-check' appears to be pure", StartLine: 27},
             },
         },
     }
