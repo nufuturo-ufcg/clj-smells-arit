@@ -1,6 +1,6 @@
 (ns hidden-side-effects)
 
-;; Example 1: 
+;; Example 1: 'map' with println
 (declare greet-users)
 (defn greet-user [user]
 
@@ -13,7 +13,7 @@
 (let [users [{:name "Alice"} {:name "Bob"} {:name "Carol"}]]
   (greet-users users))
 
-;; Example 2:
+;; Example 2: 'reduce' with side-effect (not detecting)
 (declare sum-with-logging)
 (defn log-and-accumulate [acc x]
   (println "Adding" x)
@@ -22,13 +22,6 @@
 (defn sum-with-logging [nums]
   (reduce log-and-accumulate 0 nums))
 
-(declare filtered-values)
-(defn side-effect-check [x]
-  (println "Checking" x)
-  (even? x))
-
-(defn filtered-values [xs]
-  (filter side-effect-check xs))
 
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
