@@ -12,8 +12,9 @@ func TestHiddenSideEffects(t *testing.T) {
             RuleID:        "hidden-side-effects",  // ID da sua regra
             ExpectedFindings: []framework.ExpectedFinding{
                 {Message:   "Function 'greet-user' performs side effects", StartLine: 5},
-				//{Message: "Function 'log-and-accumulate'", StartLine: 17},
 				{Message: "Function 'side-effect-check' appears to be pure", StartLine: 27},
+				{Message: "Function 'lazy-numbers' performs", StartLine: 35},
+				{Message: "Function 'check-even' appears to be pure", StartLine: 40},
             },
         },
     }
