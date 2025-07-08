@@ -1,6 +1,8 @@
 module github.com/thlaurentino/arit
 
-go 1.21.6
+go 1.23.0
+
+toolchain go1.23.11
 
 require (
 	github.com/cespare/goclj v1.2.3
@@ -21,5 +23,10 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/schollz/progressbar/v3 v3.18.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/term v0.32.0 // indirect
 )

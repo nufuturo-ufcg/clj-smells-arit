@@ -21,6 +21,7 @@ const (
 	FormatText     ReportFormat = "text"
 	FormatHTML     ReportFormat = "html"
 	FormatMarkdown ReportFormat = "markdown"
+	FormatSummary  ReportFormat = "summary"
 )
 
 type Reporter interface {
@@ -374,6 +375,32 @@ func (md *MarkdownReporter) Report(findings []*rules.Finding, writer io.Writer) 
 	return w.Flush()
 }
 
+type SummaryReporter struct{}
+
+func (sr *SummaryReporter) Report(findings []*rules.Finding, writer io.Writer) error {
+	if len(findings) == 0 {
+		_, err := fmt.Fprintln(writer, "No issues found.")
+		return err
+	}
+
+	// Mostrar total de findings
+	_, err := fmt.Fprintf(writer, "Total findings: %d\n\n", len(findings))
+	if err != nil {
+		return err
+	}
+
+	// Mostrar sumário por regra
+	summaryItems := getSortedSummary(findings)
+	if len(summaryItems) > 0 {
+		_, _ = fmt.Fprintln(writer, "Smell Summary:")
+		for _, item := range summaryItems {
+			_, _ = fmt.Fprintf(writer, "- %s: %d\n", item.RuleID, item.Count)
+		}
+	}
+
+	return nil
+}
+
 func getSortedSummary(findings []*rules.Finding) []SummaryItem {
 
 	summary := make(map[string]int)
@@ -424,6 +451,8 @@ func NewReporter(format ReportFormat) (Reporter, error) {
 		return &HTMLReporter{}, nil
 	case FormatMarkdown:
 		return &MarkdownReporter{}, nil
+	case FormatSummary:
+		return &SummaryReporter{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported report format: %s", format)
 	}
