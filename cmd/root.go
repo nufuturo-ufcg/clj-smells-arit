@@ -38,7 +38,7 @@ Arit analyzes Clojure files for potential issues,
 style violations, and opportunities for improvement.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Sempre mostrar logo no stdout (tanto terminal quanto redirecionamento)
+
 		fmt.Print(`
 ###############
     • 
@@ -84,7 +84,6 @@ Arit - Static Analysis for Clojure Code
 
 		sort.Strings(filesToAnalyze)
 
-		// ...existing code for configDir detection...
 		configDir := "."
 		if len(filesToAnalyze) > 0 {
 			firstFileAbs, err := filepath.Abs(filesToAnalyze[0])
@@ -110,7 +109,7 @@ Arit - Static Analysis for Clojure Code
 
 		cfg, err := config.LoadConfig(configDir)
 		if err != nil {
-			// Mostrar warnings de configuração apenas no modo verboso
+
 			if verboseFlag {
 				fmt.Fprintf(os.Stderr, "Warning: Error loading .arit.yaml config from %s: %v. Using default settings.\n", configDir, err)
 			}
@@ -126,22 +125,21 @@ Arit - Static Analysis for Clojure Code
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
-		// Configurar barra de progresso - sempre mostrar no terminal, exceto em modo verboso
 		showProgressBar := !verboseFlag
 
 		var bar *progressbar.ProgressBar
 		if showProgressBar {
-			// Criar barra de progresso sempre (usar stderr para não interferir na saída)
+
 			bar = progressbar.NewOptions(len(filesToAnalyze),
 				progressbar.OptionSetDescription("Analyzing files..."),
 				progressbar.OptionSetWidth(50),
 				progressbar.OptionShowCount(),
 				progressbar.OptionShowIts(),
 				progressbar.OptionSetPredictTime(true),
-				progressbar.OptionSetWriter(os.Stderr), // Sempre usar stderr para não interferir na saída
+				progressbar.OptionSetWriter(os.Stderr),
 			)
 		} else if !verboseFlag {
-			// Se não estamos em terminal mas também não é verboso, mostrar uma mensagem simples
+
 			fmt.Fprintf(os.Stderr, "Analyzing %d files...\n", len(filesToAnalyze))
 		}
 
@@ -185,7 +183,6 @@ Arit - Static Analysis for Clojure Code
 				}
 				mu.Unlock()
 
-				// Atualizar barra de progresso apenas se ela existir
 				if bar != nil {
 					bar.Add(1)
 				}
@@ -221,14 +218,12 @@ Arit - Static Analysis for Clojure Code
 			return allFindings[i].RuleID < allFindings[j].RuleID
 		})
 
-		// Nova linha após a barra de progresso apenas se ela foi exibida
 		if showProgressBar {
 			fmt.Fprint(os.Stderr, "\n\n")
 		} else if !verboseFlag {
 			fmt.Fprint(os.Stderr, "\n")
 		}
 
-		// Mensagem específica baseada no formato (exceto summary)
 		if outputFormat != reporter.FormatSummary {
 			switch outputFormat {
 			case reporter.FormatJSON:

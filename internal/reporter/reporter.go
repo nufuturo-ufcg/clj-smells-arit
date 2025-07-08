@@ -383,13 +383,11 @@ func (sr *SummaryReporter) Report(findings []*rules.Finding, writer io.Writer) e
 		return err
 	}
 
-	// Mostrar total de findings
 	_, err := fmt.Fprintf(writer, "Total findings: %d\n\n", len(findings))
 	if err != nil {
 		return err
 	}
 
-	// Mostrar sumário por regra
 	summaryItems := getSortedSummary(findings)
 	if len(summaryItems) > 0 {
 		_, _ = fmt.Fprintln(writer, "Smell Summary:")
