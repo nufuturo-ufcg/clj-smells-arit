@@ -149,6 +149,14 @@ style violations, and opportunities for improvement.`,
 
 		wg.Wait()
 
+		dataClumpsAnalyzer := rules.GetGlobalDataClumpsAnalyzer()
+		dataClumpsFindings := dataClumpsAnalyzer.GenerateFindings()
+		if dataClumpsFindings != nil {
+			mu.Lock()
+			allFindings = append(allFindings, dataClumpsFindings...)
+			mu.Unlock()
+		}
+
 		sort.Slice(allFindings, func(i, j int) bool {
 			if allFindings[i].Filepath != allFindings[j].Filepath {
 				return allFindings[i].Filepath < allFindings[j].Filepath

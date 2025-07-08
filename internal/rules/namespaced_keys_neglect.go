@@ -8,6 +8,11 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
+var (
+	snakeCaseRegex = regexp.MustCompile(`^[a-z][a-z0-9_]*[a-z0-9]$`)
+	lispCaseRegex  = regexp.MustCompile(`^[a-z][a-z0-9\-]*[a-z0-9]$`)
+)
+
 type NamespacedKeysNeglectRule struct {
 	Rule
 }
@@ -249,7 +254,6 @@ func (r *NamespacedKeysNeglectRule) hasSnakeCasePattern(keyword string) bool {
 
 	keyword = strings.TrimPrefix(keyword, ":")
 
-	snakeCaseRegex := regexp.MustCompile(`^[a-z][a-z0-9_]*[a-z0-9]$`)
 	return snakeCaseRegex.MatchString(keyword)
 }
 
@@ -257,7 +261,6 @@ func (r *NamespacedKeysNeglectRule) hasLispCasePattern(keyword string) bool {
 
 	keyword = strings.TrimPrefix(keyword, ":")
 
-	lispCaseRegex := regexp.MustCompile(`^[a-z][a-z0-9\-]*[a-z0-9]$`)
 	return lispCaseRegex.MatchString(keyword)
 }
 
