@@ -105,10 +105,10 @@ func GetDuplicatedCodeAnalyzer() *DuplicatedCodeAnalyzer {
 
 			enableExact:      true,
 			enableSimilar:    true,
-			exactMinLines:    6,
-			exactMinTokens:   25,
-			similarMinLines:  3,
-			similarMinTokens: 15,
+			exactMinLines:    8,
+			exactMinTokens:   30,
+			similarMinLines:  5,
+			similarMinTokens: 20,
 			maxCacheSize:     10000,
 			maxBlocksPerFile: 1000,
 		}
@@ -139,12 +139,20 @@ func (d *DuplicatedCodeAnalyzer) AnalyzeTree(_ *parse.Tree, richNodes []*reader.
 
 	for _, block := range blocks {
 
+		var exactFound bool
 		if d.enableExact && d.meetsExactThresholds(block) {
-			findings = append(findings, d.processExactDuplicate(block, filepath)...)
+			exactFindings := d.processExactDuplicate(block, filepath)
+			findings = append(findings, exactFindings...)
+
+			exactFound = len(d.exactCodeBlocks[block.Hash]) > 1
 		}
 
-		if d.enableSimilar && d.meetsSimilarThresholds(block) && !d.isExactDuplicate(block) {
-			findings = append(findings, d.processSimilarDuplicate(block, filepath)...)
+		if d.enableSimilar && d.meetsSimilarThresholds(block) {
+
+			if !d.enableExact || !exactFound {
+				findings = append(findings, d.processSimilarDuplicate(block, filepath)...)
+			}
+
 		}
 	}
 
@@ -170,6 +178,7 @@ func (d *DuplicatedCodeAnalyzer) extractAllCodeBlocks(nodes []*reader.RichNode, 
 
 	for _, node := range nodes {
 		if blockCount >= d.maxBlocksPerFile {
+
 			break
 		}
 		d.extractBlocksFromNode(node, filepath, "", &blocks, &blockCount)
@@ -209,21 +218,26 @@ func (d *DuplicatedCodeAnalyzer) extractBlocksFromNode(node *reader.RichNode, fi
 }
 
 func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepath, blockType, context string, blocks *[]CodeBlockInfo, blockCount *int) {
-
 	d.nodeCounter++
 	nodeID := d.nodeCounter
 
 	content := d.extractNodeContent(node)
-
-	exactNormalized := d.normalizeASTWithStrategy(node, true)
-	similarNormalized := d.normalizeASTWithStrategy(node, false)
-
 	lines := d.calculateLines(node)
 	tokens := d.calculateTokens(node)
 
-	if d.meetsAnyThreshold(lines, tokens) {
-		exactHash := fmt.Sprintf("%x", md5.Sum([]byte("exact:"+exactNormalized)))
-		similarHash := fmt.Sprintf("%x", md5.Sum([]byte("similar:"+similarNormalized)))
+	exactMeetsThreshold := d.enableExact && lines >= d.exactMinLines && tokens >= d.exactMinTokens
+	similarMeetsThreshold := d.enableSimilar && lines >= d.similarMinLines && tokens >= d.similarMinTokens
+
+	if !exactMeetsThreshold && !similarMeetsThreshold {
+		return
+	}
+
+	var exactNormalized, similarNormalized string
+	var exactHash, similarHash string
+
+	if exactMeetsThreshold {
+		exactNormalized = d.normalizeASTWithStrategy(node, true)
+		exactHash = fmt.Sprintf("%x", md5.Sum([]byte("exact:"+exactNormalized)))
 
 		block := CodeBlockInfo{
 			Hash:          exactHash,
@@ -238,20 +252,33 @@ func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepa
 			DetectionType: "exact",
 			NodeID:        nodeID,
 		}
-
 		*blocks = append(*blocks, block)
-
-		if similarHash != exactHash {
-			similarBlock := block
-			similarBlock.Hash = similarHash
-			similarBlock.NormalizedAST = similarNormalized
-			similarBlock.DetectionType = "similar"
-			*blocks = append(*blocks, similarBlock)
-		}
-
-		*blockCount++
-		d.totalBlocksProcessed++
 	}
+
+	if similarMeetsThreshold {
+		similarNormalized = d.normalizeASTWithStrategy(node, false)
+		similarHash = fmt.Sprintf("%x", md5.Sum([]byte("similar:"+similarNormalized)))
+
+		if !exactMeetsThreshold || similarHash != exactHash {
+			block := CodeBlockInfo{
+				Hash:          similarHash,
+				Content:       content,
+				NormalizedAST: similarNormalized,
+				File:          filepath,
+				Location:      node.Location,
+				Lines:         lines,
+				Tokens:        tokens,
+				BlockType:     blockType,
+				Context:       context,
+				DetectionType: "similar",
+				NodeID:        nodeID,
+			}
+			*blocks = append(*blocks, block)
+		}
+	}
+
+	*blockCount++
+	d.totalBlocksProcessed++
 }
 
 func (d *DuplicatedCodeAnalyzer) normalizeASTExact(node *reader.RichNode) string {
