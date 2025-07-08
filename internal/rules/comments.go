@@ -70,11 +70,7 @@ func isClojureCode(comment string) bool {
 	}
 
 	parenCount := strings.Count(cleaned, "(") + strings.Count(cleaned, "[") + strings.Count(cleaned, "{")
-	if parenCount >= 2 {
-		return true
-	}
-
-	return false
+	return parenCount >= 2
 }
 
 func isRedundantComment(comment string, nextNode *reader.RichNode) bool {
@@ -202,32 +198,6 @@ func isDeodorantComment(comment string) bool {
 
 	for _, pattern := range deodorantPatterns {
 		if strings.Contains(commentLower, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func shouldHaveDocstring(node *reader.RichNode) bool {
-	if node.Type != reader.NodeList || len(node.Children) < 2 {
-		return false
-	}
-
-	firstChild := node.Children[0]
-	if firstChild.Type != reader.NodeSymbol {
-		return false
-	}
-
-	defTypes := []string{"defn", "defn-", "defmacro", "defprotocol", "defrecord", "deftype"}
-	symbol := firstChild.Value
-
-	for _, defType := range defTypes {
-		if symbol == defType {
-
-			if len(node.Children) >= 3 && node.Children[2].Type == reader.NodeString {
-				return false
-			}
 			return true
 		}
 	}

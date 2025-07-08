@@ -281,19 +281,6 @@ func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepa
 	d.totalBlocksProcessed++
 }
 
-func (d *DuplicatedCodeAnalyzer) normalizeASTExact(node *reader.RichNode) string {
-	return d.normalizeASTWithStrategy(node, true)
-}
-
-func (d *DuplicatedCodeAnalyzer) normalizeASTSimilar(node *reader.RichNode) string {
-	return d.normalizeASTWithStrategy(node, false)
-}
-
-func (d *DuplicatedCodeAnalyzer) getCachedNormalization(_ string, compute func() string) string {
-
-	return compute()
-}
-
 func (d *DuplicatedCodeAnalyzer) normalizeASTWithStrategy(node *reader.RichNode, exact bool) string {
 	if node == nil {
 		return ""
@@ -422,12 +409,6 @@ func (d *DuplicatedCodeAnalyzer) meetsSimilarThresholds(block CodeBlockInfo) boo
 	return block.Lines >= d.similarMinLines && block.Tokens >= d.similarMinTokens
 }
 
-func (d *DuplicatedCodeAnalyzer) meetsAnyThreshold(lines, tokens int) bool {
-	exactOk := d.enableExact && lines >= d.exactMinLines && tokens >= d.exactMinTokens
-	similarOk := d.enableSimilar && lines >= d.similarMinLines && tokens >= d.similarMinTokens
-	return exactOk || similarOk
-}
-
 func (d *DuplicatedCodeAnalyzer) processExactDuplicate(block CodeBlockInfo, filepath string) []Finding {
 	if block.DetectionType != "exact" {
 		return nil
@@ -470,13 +451,6 @@ func (d *DuplicatedCodeAnalyzer) processSimilarDuplicate(block CodeBlockInfo, fi
 	}
 
 	return findings
-}
-
-func (d *DuplicatedCodeAnalyzer) isExactDuplicate(block CodeBlockInfo) bool {
-	if block.DetectionType == "exact" {
-		return len(d.exactCodeBlocks[block.Hash]) > 0
-	}
-	return false
 }
 
 func (d *DuplicatedCodeAnalyzer) isCoreFunctionSymbol(symbol string) bool {
@@ -631,9 +605,6 @@ func (d *DuplicatedCodeAnalyzer) createDuplicationMessage(block CodeBlockInfo, c
 	}
 
 	return message
-}
-
-func (d *DuplicatedCodeAnalyzer) cleanupIfNeeded() {
 }
 
 func (d *DuplicatedCodeAnalyzer) Reset() {

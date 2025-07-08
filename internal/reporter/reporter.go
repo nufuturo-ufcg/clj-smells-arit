@@ -423,35 +423,20 @@ func getSortedSummary(findings []*rules.Finding) []SummaryItem {
 	return summaryItems
 }
 
-func countSmells(findings []*rules.Finding) map[string]int {
-	summary := make(map[string]int)
-	for _, finding := range findings {
-		summary[finding.RuleID]++
-	}
-	return summary
-}
-
-func countUniqueFiles(findings []*rules.Finding) int {
-	files := make(map[string]struct{})
-	for _, finding := range findings {
-		files[finding.Filepath] = struct{}{}
-	}
-	return len(files)
-}
-
-func NewReporter(format ReportFormat) (Reporter, error) {
+func NewReporter(format ReportFormat) Reporter {
 	switch format {
 	case FormatJSON:
-		return &JSONReporter{}, nil
+		return &JSONReporter{}
 	case FormatText:
-		return &TextReporter{}, nil
+		return &TextReporter{}
 	case FormatHTML:
-		return &HTMLReporter{}, nil
+		return &HTMLReporter{}
 	case FormatMarkdown:
-		return &MarkdownReporter{}, nil
+		return &MarkdownReporter{}
 	case FormatSummary:
-		return &SummaryReporter{}, nil
+		return &SummaryReporter{}
 	default:
-		return nil, fmt.Errorf("unsupported report format: %s", format)
+
+		return nil
 	}
 }

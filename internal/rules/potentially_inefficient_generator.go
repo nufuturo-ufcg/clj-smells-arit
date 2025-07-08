@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
@@ -32,7 +30,7 @@ func (r *PotentiallyInefficientGeneratorRule) Check(node *reader.RichNode, conte
 	meta := r.Meta()
 	return &Finding{
 		RuleID:   meta.ID,
-		Message:  fmt.Sprintf("Using `gen/such-that` can be inefficient if the predicate is rarely satisfied by the base generator. Review if this usage might lead to excessive generation attempts."),
+		Message:  "Using `gen/such-that` can be inefficient if the predicate is rarely satisfied by the base generator. Review if this usage might lead to excessive generation attempts.",
 		Filepath: filepath,
 		Location: node.Location,
 		Severity: meta.Severity,

@@ -49,27 +49,6 @@ func (r *PrematureOptimizationRule) Check(node *reader.RichNode, context map[str
 	return nil
 }
 
-func isIoCallRecursive(node *reader.RichNode) bool {
-	fmt.Println("[DEBUG isIoCallRecursive - SIMPLIFIED AND DISABLED] Called, will return false.")
-
-	return false
-}
-
-func isDirectIoCall(node *reader.RichNode) bool {
-	if node.Type == reader.NodeList && len(node.Children) > 0 {
-		funcNode := node.Children[0]
-		if funcNode.Type == reader.NodeSymbol {
-
-			switch funcNode.Value {
-			case "http/get", "clj-http.client/get", "slurp", "clojure.java.io/reader",
-				"get-file-from-network-problematic", "get-another-file-from-network":
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func init() {
 
 	RegisterRule(NewPrematureOptimizationRule())

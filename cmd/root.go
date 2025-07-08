@@ -239,9 +239,9 @@ Arit - Static Analysis for Clojure Code
 			}
 		}
 
-		rep, err := reporter.NewReporter(outputFormat)
-		if err != nil {
-			return fmt.Errorf("error creating reporter: %w", err)
+		rep := reporter.NewReporter(outputFormat)
+		if rep == nil {
+			return fmt.Errorf("unsupported report format: %s", outputFormat)
 		}
 
 		var outputWriter io.Writer = os.Stdout

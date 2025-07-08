@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
@@ -134,13 +135,7 @@ func (r *DirectExternalSchemaUsageRule) findExternalKeyAccessInForm(
 
 				if paramNode.Type == reader.NodeSymbol {
 					accessedParam := paramNode.Value
-					isParamTracked := false
-					for _, pSym := range funcParamSymbols {
-						if pSym == accessedParam {
-							isParamTracked = true
-							break
-						}
-					}
+					isParamTracked := slices.Contains(funcParamSymbols, accessedParam)
 
 					if isParamTracked {
 						var keysToCheck []*reader.RichNode
@@ -252,16 +247,6 @@ func dsrcResolveSymbol(symbolName string, _ map[string]interface{}) string {
 	}
 
 	return symbolName
-}
-
-func dsrcIsCoreSymbol(symbolName string) bool {
-	coreSymbols := map[string]struct{}{
-		"get": {}, "assoc": {}, "dissoc": {}, "merge": {}, "select-keys": {},
-		"map": {}, "filter": {}, "reduce": {}, "fn": {}, "if": {}, "let": {}, "loop": {},
-		"get-in": {},
-	}
-	_, isCore := coreSymbols[symbolName]
-	return isCore
 }
 
 func init() {

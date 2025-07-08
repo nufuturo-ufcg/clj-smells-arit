@@ -24,10 +24,6 @@ func (r *ImmutabilityViolationRule) Meta() Rule {
 }
 
 func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-	nodeValForLog := node.Value
-	if len(nodeValForLog) > 60 {
-		nodeValForLog = nodeValForLog[:60] + "..."
-	}
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 		calledFunc := node.Children[0].Value

@@ -81,7 +81,7 @@ func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool
 		funcNode := node.Children[0]
 		if funcNode.Type == reader.NodeSymbol {
 
-			if isDirectSideEffect, _ := sideEffects[funcNode.Value]; isDirectSideEffect {
+			if isDirectSideEffect := sideEffects[funcNode.Value]; isDirectSideEffect {
 				return true
 			}
 
