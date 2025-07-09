@@ -70,7 +70,8 @@
   (lazy-seq
     (when-let [s (seq s)]
       (println "Yielding" (first s))
-      (cons (first s) (lazy-show-nums)))))
+      (cons (first s) #_{:clj-kondo/ignore [:invalid-arity]}
+                      (lazy-show-nums)))))
 
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
