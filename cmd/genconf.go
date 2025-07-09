@@ -86,86 +86,56 @@ func extractRuleConfig(rule rules.RegisteredRule) map[string]interface{} {
 	}
 
 	ruleType := ruleValue.Type()
-	config := make(map[string]interface{})
+	ruleConfig := make(map[string]interface{})
 
-	if rule.Meta().ID == "duplicated-code-global" {
+	if rule.Meta().ID == "duplicated-code" {
 
-		globalAnalyzer := rules.GetGlobalDuplicatedCodeAnalyzer()
-		if globalAnalyzer != nil {
-			globalValue := reflect.ValueOf(globalAnalyzer).Elem()
-			globalType := globalValue.Type()
+		ruleConfig["enable-exact"] = true
+		ruleConfig["enable-similar"] = true
+		ruleConfig["exact-min-lines"] = 6
+		ruleConfig["exact-min-tokens"] = 25
+		ruleConfig["similar-min-lines"] = 3
+		ruleConfig["similar-min-tokens"] = 15
+		ruleConfig["max-cache-size"] = 10000
+		ruleConfig["max-blocks-per-file"] = 1000
+	} else {
 
-			for i := 0; i < globalValue.NumField(); i++ {
-				field := globalValue.Field(i)
-				fieldType := globalType.Field(i)
+		for i := 0; i < ruleValue.NumField(); i++ {
+			field := ruleValue.Field(i)
+			fieldType := ruleType.Field(i)
 
-				if fieldType.Name == "mu" || fieldType.Name == "codeBlocks" ||
-					fieldType.Name == "processedFiles" || fieldType.Name == "featureCache" ||
-					fieldType.Name == "batchSize" || fieldType.Name == "maxDepth" ||
-					fieldType.Name == "processedCount" {
-					continue
-				}
-
-				yamlTag := fieldType.Tag.Get("yaml")
-				jsonTag := fieldType.Tag.Get("json")
-
-				var configKey string
-				if yamlTag != "" && yamlTag != "-" {
-					configKey = strings.Split(yamlTag, ",")[0]
-				} else if jsonTag != "" && jsonTag != "-" {
-					configKey = strings.Split(jsonTag, ",")[0]
-				}
-
-				if configKey == "" {
-					continue
-				}
-
-				if field.CanInterface() {
-					value := field.Interface()
-					if !isZeroValue(field) {
-						config[configKey] = value
-					}
-				}
+			if fieldType.Name == "Rule" {
+				continue
 			}
-		}
-		return config
-	}
 
-	for i := 0; i < ruleValue.NumField(); i++ {
-		field := ruleValue.Field(i)
-		fieldType := ruleType.Field(i)
+			yamlTag := fieldType.Tag.Get("yaml")
+			jsonTag := fieldType.Tag.Get("json")
 
-		if fieldType.Name == "Rule" {
-			continue
-		}
+			var configKey string
+			if yamlTag != "" && yamlTag != "-" {
+				configKey = strings.Split(yamlTag, ",")[0]
+			} else if jsonTag != "" && jsonTag != "-" {
+				configKey = strings.Split(jsonTag, ",")[0]
+			}
 
-		yamlTag := fieldType.Tag.Get("yaml")
-		jsonTag := fieldType.Tag.Get("json")
+			if configKey == "" {
+				continue
+			}
 
-		var configKey string
-		if yamlTag != "" && yamlTag != "-" {
-			configKey = strings.Split(yamlTag, ",")[0]
-		} else if jsonTag != "" && jsonTag != "-" {
-			configKey = strings.Split(jsonTag, ",")[0]
-		}
-
-		if configKey == "" {
-			continue
-		}
-
-		if field.CanInterface() {
-			value := field.Interface()
-			if !isZeroValue(field) {
-				config[configKey] = value
+			if field.CanInterface() {
+				value := field.Interface()
+				if !isZeroValue(field) {
+					ruleConfig[configKey] = value
+				}
 			}
 		}
 	}
 
-	if len(config) == 0 {
+	if len(ruleConfig) == 0 {
 		return nil
 	}
 
-	return config
+	return ruleConfig
 }
 
 func isZeroValue(v reflect.Value) bool {

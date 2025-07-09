@@ -3,13 +3,13 @@ package cmd
 import (
 	"fmt"
 	io "io"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"github.com/thlaurentino/arit/internal/analyzer"
 	"github.com/thlaurentino/arit/internal/config"
@@ -18,7 +18,8 @@ import (
 )
 
 var (
-	formatFlag string
+	formatFlag  string
+	verboseFlag bool
 )
 
 var rootCmd = &cobra.Command{
@@ -38,6 +39,18 @@ style violations, and opportunities for improvement.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 
+		fmt.Print(`
+###############
+    • 
+┏┓┏┓┓╋
+┗┻┛ ┗┗
+      
+###############
+
+Arit - Static Analysis for Clojure Code
+
+`)
+
 		filesToAnalyze := []string{}
 
 		for _, arg := range args {
@@ -55,7 +68,6 @@ style violations, and opportunities for improvement.`,
 				}
 				filesToAnalyze = append(filesToAnalyze, cljFiles...)
 			} else {
-
 				ext := strings.ToLower(filepath.Ext(arg))
 				if ext == ".clj" || ext == ".cljs" || ext == ".cljc" {
 					filesToAnalyze = append(filesToAnalyze, arg)
@@ -97,8 +109,10 @@ style violations, and opportunities for improvement.`,
 
 		cfg, err := config.LoadConfig(configDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Error loading .arit.yaml config from %s: %v. Using default settings.\n", configDir, err)
 
+			if verboseFlag {
+				fmt.Fprintf(os.Stderr, "Warning: Error loading .arit.yaml config from %s: %v. Using default settings.\n", configDir, err)
+			}
 			cfg = &config.Config{
 				EnabledRules: make(map[string]bool),
 				RuleConfig:   make(map[string]config.RuleSettings),
@@ -111,6 +125,24 @@ style violations, and opportunities for improvement.`,
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
+		showProgressBar := !verboseFlag
+
+		var bar *progressbar.ProgressBar
+		if showProgressBar {
+
+			bar = progressbar.NewOptions(len(filesToAnalyze),
+				progressbar.OptionSetDescription("Analyzing files..."),
+				progressbar.OptionSetWidth(50),
+				progressbar.OptionShowCount(),
+				progressbar.OptionShowIts(),
+				progressbar.OptionSetPredictTime(true),
+				progressbar.OptionSetWriter(os.Stderr),
+			)
+		} else if !verboseFlag {
+
+			fmt.Fprintf(os.Stderr, "Analyzing %d files...\n", len(filesToAnalyze))
+		}
+
 		for _, fileToAnalyze := range filesToAnalyze {
 			wg.Add(1)
 			go func(filePath string) {
@@ -118,21 +150,27 @@ style violations, and opportunities for improvement.`,
 
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[PANIC RECOVERED] in goroutine for file '%s': %v", filePath, r)
+						if verboseFlag {
+							fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] in goroutine for file '%s': %v\n", filePath, r)
+						}
 					}
 				}()
 
-				log.Printf("Analyzing file: %s", filePath)
+				if verboseFlag {
+					fmt.Fprintf(os.Stderr, "Analyzing file: %s\n", filePath)
+				}
+
 				analysisResult, analyzeErr := analyzer.AnalyzeFile(filePath, cfg)
 				if analyzeErr != nil {
-					log.Printf("[ERROR Main Goroutine] Error analyzing file '%s': %v", filePath, analyzeErr)
+					if verboseFlag {
+						fmt.Fprintf(os.Stderr, "[ERROR] Error analyzing file '%s': %v\n", filePath, analyzeErr)
+					}
 					return
 				}
 
 				mu.Lock()
 				if analysisResult.Findings != nil {
 					for _, finding := range analysisResult.Findings {
-
 						findingCopy := rules.Finding{
 							RuleID:   finding.RuleID,
 							Message:  finding.Message,
@@ -144,10 +182,22 @@ style violations, and opportunities for improvement.`,
 					}
 				}
 				mu.Unlock()
+
+				if bar != nil {
+					bar.Add(1)
+				}
 			}(fileToAnalyze)
 		}
 
 		wg.Wait()
+
+		dataClumpsAnalyzer := rules.GetGlobalDataClumpsAnalyzer()
+		dataClumpsFindings := dataClumpsAnalyzer.GenerateFindings()
+		if dataClumpsFindings != nil {
+			mu.Lock()
+			allFindings = append(allFindings, dataClumpsFindings...)
+			mu.Unlock()
+		}
 
 		sort.Slice(allFindings, func(i, j int) bool {
 			if allFindings[i].Filepath != allFindings[j].Filepath {
@@ -168,10 +218,30 @@ style violations, and opportunities for improvement.`,
 			return allFindings[i].RuleID < allFindings[j].RuleID
 		})
 
-		fmt.Fprintf(os.Stderr, "\n--- Analysis Findings (%d) ---\n", len(allFindings))
-		rep, err := reporter.NewReporter(outputFormat)
-		if err != nil {
-			return fmt.Errorf("error creating reporter: %w", err)
+		if showProgressBar {
+			fmt.Fprint(os.Stderr, "\n\n")
+		} else if !verboseFlag {
+			fmt.Fprint(os.Stderr, "\n")
+		}
+
+		if outputFormat != reporter.FormatSummary {
+			switch outputFormat {
+			case reporter.FormatJSON:
+				fmt.Fprintf(os.Stderr, "Report generated in JSON format.\n")
+			case reporter.FormatHTML:
+				fmt.Fprintf(os.Stderr, "Report generated in HTML format.\n")
+			case reporter.FormatMarkdown:
+				fmt.Fprintf(os.Stderr, "Report generated in Markdown format.\n")
+			case reporter.FormatText:
+				fmt.Fprintf(os.Stderr, "Report generated in text format.\n")
+			default:
+				fmt.Fprintf(os.Stderr, "Report generated in %s format.\n", outputFormat)
+			}
+		}
+
+		rep := reporter.NewReporter(outputFormat)
+		if rep == nil {
+			return fmt.Errorf("unsupported report format: %s", outputFormat)
 		}
 
 		var outputWriter io.Writer = os.Stdout
@@ -180,7 +250,6 @@ style violations, and opportunities for improvement.`,
 			return fmt.Errorf("error generating report: %w", err)
 		}
 
-		fmt.Fprintln(os.Stderr, "\nAnalysis complete.")
 		return nil
 	},
 }
@@ -190,7 +259,8 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", string(reporter.FormatText), "Output format (text, json, html, markdown, sarif)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, html, markdown)")
+	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
 	rootCmd.AddCommand(listRulesCmd)
 }
 

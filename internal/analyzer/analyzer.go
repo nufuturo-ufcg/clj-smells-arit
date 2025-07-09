@@ -100,7 +100,8 @@ func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
 		if info, found := current.symbols[name]; found {
 			return info, true
 		}
-		if _, found := current.referredSymbols[name]; found {
+
+		if _ = current.referredSymbols[name]; len(current.referredSymbols) > 0 {
 
 		}
 		current = current.parent
@@ -390,10 +391,7 @@ func NewAnalyzer(cfg *config.Config) *Analyzer {
 
 	for _, ruleInst := range allRuleInstances {
 
-		_, okInst := ruleInst.(rules.CheckerRule)
-		if okInst {
-
-		} else {
+		if _ = ruleInst.(rules.CheckerRule); true {
 
 		}
 	}
@@ -931,13 +929,10 @@ func AnalyzeFile(filepath string, cfg *config.Config) (AnalysisResult, error) {
 		}
 	}
 
-	globalDuplicatedAnalyzer := rules.GetGlobalDuplicatedCodeAnalyzer()
-	duplicatedFindings := globalDuplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
-	concreteFindings = append(concreteFindings, duplicatedFindings...)
+	duplicatedAnalyzer := rules.GetDuplicatedCodeAnalyzer()
 
-	exactDuplicatedAnalyzer := rules.GetExactDuplicatedCodeAnalyzer()
-	exactDuplicatedFindings := exactDuplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
-	concreteFindings = append(concreteFindings, exactDuplicatedFindings...)
+	duplicatedFindings := duplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
+	concreteFindings = append(concreteFindings, duplicatedFindings...)
 
 	return AnalysisResult{
 		Findings:        concreteFindings,

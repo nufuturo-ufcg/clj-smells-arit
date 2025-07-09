@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"fmt"
-
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
@@ -82,9 +80,8 @@ func (r *UnnecessaryIntoRule) checkTypeTransformation(node *reader.RichNode) *Fi
 			if replacement, exists := typeTransformationPatterns[collType]; exists {
 				meta := r.Meta()
 				return &Finding{
-					RuleID: meta.ID,
-					Message: fmt.Sprintf("Unnecessary use of 'into' for type transformation. Use '(%s %s)' instead of '(into %s %s)' for better readability and performance.",
-						replacement, getNodeText(secondArg), collType, getNodeText(secondArg)),
+					RuleID:   meta.ID,
+					Message:  "Unnecessary use of 'into' for type transformation. Use '(" + replacement + " " + getNodeText(secondArg) + ")' instead of '(into " + collType + " " + getNodeText(secondArg) + ")' for better readability and performance.",
 					Filepath: "",
 					Location: node.Location,
 					Severity: meta.Severity,
@@ -111,7 +108,7 @@ func (r *UnnecessaryIntoRule) checkMapMapping(node *reader.RichNode) *Finding {
 						meta := r.Meta()
 						return &Finding{
 							RuleID:   meta.ID,
-							Message:  fmt.Sprintf("Inefficient map mapping with 'into'. Consider using 'reduce-kv' for better performance when transforming map values: (reduce-kv (fn [m k v] (assoc m k (f v))) {} m)"),
+							Message:  "Inefficient map mapping with 'into'. Consider using 'reduce-kv' for better performance when transforming map values: (reduce-kv (fn [m k v] (assoc m k (f v))) {} m)",
 							Filepath: "",
 							Location: node.Location,
 							Severity: meta.Severity,
@@ -137,10 +134,8 @@ func (r *UnnecessaryIntoRule) checkTransducerAPI(node *reader.RichNode) *Finding
 				if isMapFunction(funcName) || isFilterFunction(funcName) {
 					meta := r.Meta()
 					return &Finding{
-						RuleID: meta.ID,
-						Message: fmt.Sprintf("Consider using transducer API for better performance. Use '(into %s (%s %s) %s)' instead of '(into %s (%s %s %s))' to leverage transducers.",
-							getNodeText(firstArg), funcName, getNodeText(secondArg.Children[1]), getNodeText(secondArg.Children[2]),
-							getNodeText(firstArg), funcName, getNodeText(secondArg.Children[1]), getNodeText(secondArg.Children[2])),
+						RuleID:   meta.ID,
+						Message:  "Consider using transducer API for better performance. Use '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + ")' instead of '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + " " + getNodeText(secondArg.Children[3]) + "))' to leverage transducers.",
 						Filepath: "",
 						Location: node.Location,
 						Severity: meta.Severity,
