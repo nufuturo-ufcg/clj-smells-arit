@@ -6,26 +6,62 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-type LinearCollectionScanRule struct {
-}
+type LinearCollectionScanRule struct{}
 
 func (r *LinearCollectionScanRule) Meta() Rule {
 	return Rule{
-		ID:          "inappropriate-collection: linear-collection-scan",
-		Name:        "Inappropriate Collection: Linear Collection Scan",
-		Description: "Detects linear scans (e.g., using 'some' or 'filter' with an equality check on a key) on collections where a map lookup might be more efficient and idiomatic.",
+		ID:          "linear-collection-scan",
+		Name:        "Linear Collection Scan",
+		Description: "Detects inefficient linear scanning patterns in collections, such as using 'some' or 'filter' with key access patterns that could be optimized with maps.",
 		Severity:    SeverityHint,
 	}
 }
 
-func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-	if node.Type != reader.NodeList || len(node.Children) < 3 {
-		return nil
+func isKeyAccessLinearScan(node *reader.RichNode, targetSymbol string) bool {
+	if node == nil {
+		return false
 	}
 
-	funcNode := node.Children[0]
-	if funcNode.Type != reader.NodeSymbol || (funcNode.Value != "some" && funcNode.Value != "filter") {
-		return nil
+	if node.Type == reader.NodeList && len(node.Children) == 2 &&
+		node.Children[0].Type == reader.NodeKeyword &&
+		node.Children[1].Type == reader.NodeSymbol {
+		if node.Children[1].Value == targetSymbol {
+			return true
+		}
+	}
+
+	if node.Type == reader.NodeList && len(node.Children) >= 3 &&
+		node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "get" &&
+		node.Children[1].Type == reader.NodeSymbol {
+		if node.Children[1].Value == targetSymbol {
+			return true
+		}
+	}
+	return false
+}
+
+func getKeyAccessStringLinearScan(keyAccessNode *reader.RichNode) string {
+	if keyAccessNode == nil {
+		return "<unknown key access>"
+	}
+
+	if keyAccessNode.Type == reader.NodeList && len(keyAccessNode.Children) == 2 && keyAccessNode.Children[0].Type == reader.NodeKeyword {
+		return keyAccessNode.Children[0].Value
+	}
+
+	if keyAccessNode.Type == reader.NodeList && len(keyAccessNode.Children) >= 3 && keyAccessNode.Children[0].Type == reader.NodeSymbol && keyAccessNode.Children[0].Value == "get" {
+		keyNode := keyAccessNode.Children[2]
+		if keyNode.Type == reader.NodeKeyword || keyNode.Type == reader.NodeString || keyNode.Type == reader.NodeSymbol {
+			return keyNode.Value
+		}
+	}
+
+	return "<complex key access>"
+}
+
+func (r *LinearCollectionScanRule) checkLinearScan(node *reader.RichNode, funcName string) (string, bool) {
+	if len(node.Children) < 3 {
+		return "", false
 	}
 
 	fnArgNode := node.Children[1]
@@ -49,29 +85,29 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[stri
 			if len(fnArgNode.Children) > paramIndex+1 {
 				fnBodyNode = fnArgNode.Children[len(fnArgNode.Children)-1]
 			} else {
-				return nil
+				return "", false
 			}
 		} else {
-			return nil
+			return "", false
 		}
 	} else {
-		return nil
+		return "", false
 	}
 
 	if fnBodyNode == nil || fnParamSymbol == "" {
-		return nil
+		return "", false
 	}
 
 	if fnBodyNode.Type != reader.NodeFnLiteral && fnBodyNode.Type != reader.NodeList {
-		return nil
+		return "", false
 	}
 	if len(fnBodyNode.Children) != 3 {
-		return nil
+		return "", false
 	}
 
 	eqNode := fnBodyNode.Children[0]
 	if eqNode.Type != reader.NodeSymbol || (eqNode.Value != "=" && eqNode.Value != "==") {
-		return nil
+		return "", false
 	}
 
 	lhs := fnBodyNode.Children[1]
@@ -80,8 +116,8 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[stri
 	var keyAccessNode *reader.RichNode
 	var otherSideNode *reader.RichNode
 
-	lhsIsKeyAccess := isKeyAccess(lhs, fnParamSymbol)
-	rhsIsKeyAccess := isKeyAccess(rhs, fnParamSymbol)
+	lhsIsKeyAccess := isKeyAccessLinearScan(lhs, fnParamSymbol)
+	rhsIsKeyAccess := isKeyAccessLinearScan(rhs, fnParamSymbol)
 
 	if lhsIsKeyAccess && !rhsIsKeyAccess {
 		keyAccessNode = lhs
@@ -90,69 +126,47 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[stri
 		keyAccessNode = rhs
 		otherSideNode = lhs
 	} else {
-		return nil
+		return "", false
 	}
 
 	if otherSideNode.Type == reader.NodeSymbol && otherSideNode.Value == fnParamSymbol {
+		return "", false
+	}
+
+	keyAccessStr := getKeyAccessStringLinearScan(keyAccessNode)
+	message := fmt.Sprintf("Linear scan using '%s' with key access '%s'. Consider using a map for the collection and direct lookup (e.g., using 'get' or 'contains?') for better performance.", funcName, keyAccessStr)
+
+	return message, true
+}
+
+func (r *LinearCollectionScanRule) Check(node *reader.RichNode, _ map[string]interface{}, filepath string) *Finding {
+	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return nil
 	}
 
-	meta := r.Meta()
-	keyAccessStr := getKeyAccessString(keyAccessNode)
-	finding := &Finding{
-		RuleID:   meta.ID,
-		Message:  fmt.Sprintf("Linear scan using '%s' with key access '%s'. Consider using a map for the collection and direct lookup (e.g., using 'get' or 'contains?') for better performance.", funcNode.Value, keyAccessStr),
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: meta.Severity,
-	}
-	return finding
-}
-
-func isKeyAccess(node *reader.RichNode, targetSymbol string) bool {
-	if node == nil {
-		return false
+	funcNode := node.Children[0]
+	if funcNode.Type != reader.NodeSymbol {
+		return nil
 	}
 
-	if node.Type == reader.NodeList && len(node.Children) == 2 &&
-		node.Children[0].Type == reader.NodeKeyword &&
-		node.Children[1].Type == reader.NodeSymbol {
-		if node.Children[1].Value == targetSymbol {
-			return true
+	funcName := funcNode.Value
+
+	if funcName == "some" || funcName == "filter" {
+		if linearMessage, hasLinearScan := r.checkLinearScan(node, funcName); hasLinearScan {
+			meta := r.Meta()
+			return &Finding{
+				RuleID:   meta.ID,
+				Message:  linearMessage,
+				Filepath: filepath,
+				Location: node.Location,
+				Severity: meta.Severity,
+			}
 		}
 	}
 
-	if node.Type == reader.NodeList && len(node.Children) >= 3 &&
-		node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "get" &&
-		node.Children[1].Type == reader.NodeSymbol {
-		if node.Children[1].Value == targetSymbol {
-			return true
-		}
-	}
-	return false
-}
-
-func getKeyAccessString(keyAccessNode *reader.RichNode) string {
-	if keyAccessNode == nil {
-		return "<unknown key access>"
-	}
-
-	if keyAccessNode.Type == reader.NodeList && len(keyAccessNode.Children) == 2 && keyAccessNode.Children[0].Type == reader.NodeKeyword {
-		return keyAccessNode.Children[0].Value
-	}
-
-	if keyAccessNode.Type == reader.NodeList && len(keyAccessNode.Children) >= 3 && keyAccessNode.Children[0].Type == reader.NodeSymbol && keyAccessNode.Children[0].Value == "get" {
-
-		keyNode := keyAccessNode.Children[2]
-		if keyNode.Type == reader.NodeKeyword || keyNode.Type == reader.NodeString || keyNode.Type == reader.NodeSymbol {
-			return keyNode.Value
-		}
-	}
-
-	return "<complex key access>"
+	return nil
 }
 
 func init() {
-
 	RegisterRule(&LinearCollectionScanRule{})
 }

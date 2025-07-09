@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/thlaurentino/arit/internal/analyzer"
 	"github.com/thlaurentino/arit/internal/config"
-	"github.com/thlaurentino/arit/internal/rules"
+	rules "github.com/thlaurentino/arit/internal/rules"
 )
 
 type ExpectedFinding struct {
