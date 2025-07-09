@@ -75,14 +75,90 @@
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
 
+;; = EXAMPLES WITH '!' OR KEYWORDS =
+
+;; Example 1: 'map' with println using '!'
 (defn greet-user! [user]
-  ;; Side effect now explicit and named
   (println "Hello," (:name user)))
 
 (defn greet-users! [users]
-  ;; Use doseq for side effects
   (doseq [user users]
     (greet-user! user)))
 
 (let [users [{:name "Alice"} {:name "Bob"} {:name "Carol"}]]
   (greet-users! users))
+
+;; Example 2: 'reduce' with side-effect using key-word 'log'
+(declare sum)
+(defn log-and-accumulate [acc x]
+  (println "Adding" x)
+  (+ acc x))
+
+(defn sum-with-logging [nums]
+  (reduce accumulate 0 nums))
+
+;; = EXAMPLES WITH REFACTORING =
+
+;; Example 3: 'map' without side effects
+(defn greet-user [user]
+  (str "Greeted " (:name user)))
+
+(defn greet-users [users]
+  (map greet-user users))
+
+(let [users [{:name "Alice"} {:name "Bob"} {:name "Carol"}]]
+  (greet-users users))
+
+;; Example 4: 'reduce' without side-effects
+(declare sum)
+(defn accumulate [acc x]
+  (+ acc x))
+
+(defn sum [nums]
+  (reduce accumulate 0 nums))
+
+;; Example 5: 'filter without side-effects
+(declare filtered-values)
+(defn is-even [x]
+  (even? x))
+
+(defn filtered-values [xs]
+  (filter is-even xs))
+
+;; Example 6: 'lazy-seq' without side effects
+(defn lazy-numbers []
+  (range 5))
+
+;; Example 7: 'filter' without side effects
+(declare filter-evens)
+(defn is-even [x]
+  (even? x))
+
+(defn filter-evens [nums]
+  (filter is-even nums))
+
+;;Example 8: for without-side effects
+(declare amplify-all)
+(defn scale [x]
+  (* 2 x))
+
+(defn amplify-all [nums]
+  (for [n nums]
+    (scale n)))
+
+;; Example 9: 'comp' without side-effects
+(declare process-nums)
+(defn raise [x]
+  (inc x))
+
+(def amplify-after-raise (comp #(* 2 %) raise))
+
+(defn process-nums [nums]
+  (map amplify-after-raise nums))
+
+;; Example 10: 'lazy-seq' without side-effects
+(defn lazy-show-nums [s]
+  (lazy-seq
+    (when-let [s (seq s)]
+      (cons (first s) (lazy-show-nums (rest s))))))
+
