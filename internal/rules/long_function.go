@@ -61,7 +61,7 @@ func findLineSpan(node *reader.RichNode) (int, int) {
 	return minLine, maxLine
 }
 
-func (r *LongFunctionRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+func (r *LongFunctionRule) Check(node *reader.RichNode, _ map[string]interface{}, filepath string) *Finding {
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 &&
 		node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "defn" {
@@ -94,7 +94,7 @@ func init() {
 			Description: "Functions should be kept short and focused. Long functions are harder to understand, test, and maintain.",
 			Severity:    SeverityWarning,
 		},
-		MaxLines: 50,
+		MaxLines: 58,
 	}
 
 	RegisterRule(defaultRule)
