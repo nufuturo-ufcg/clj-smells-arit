@@ -22,12 +22,10 @@ func getCollectionNodeType(node *reader.RichNode) reader.NodeType {
 		return reader.NodeUnknown
 	}
 
-	// Direct literal detection
 	if node.Type == reader.NodeVector || node.Type == reader.NodeList || node.Type == reader.NodeMap || node.Type == reader.NodeSet {
 		return node.Type
 	}
 
-	// Quote detection - '(...) is a list literal
 	if node.Type == reader.NodeList && len(node.Children) > 0 &&
 		node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "quote" {
 		if len(node.Children) > 1 {
@@ -121,9 +119,8 @@ func getCollectionNodeType(node *reader.RichNode) reader.NodeType {
 	return reader.NodeUnknown
 }
 
-// detectQuotedList detecta listas literais com quote syntax '(...)
 func detectQuotedList(node *reader.RichNode) bool {
-	// Para '(...), o parser pode criar diferentes estruturas
+
 	if node.Type == reader.NodeList && len(node.Children) == 2 {
 		if firstChild := node.Children[0]; firstChild.Type == reader.NodeSymbol && firstChild.Value == "quote" {
 			if secondChild := node.Children[1]; secondChild.Type == reader.NodeList {
@@ -132,7 +129,6 @@ func detectQuotedList(node *reader.RichNode) bool {
 		}
 	}
 
-	// Verificar se é uma quote form diretamente (syntax reader pode variar)
 	if node.Type == reader.NodeQuote {
 		if len(node.Children) > 0 && node.Children[0].Type == reader.NodeList {
 			return true
@@ -142,7 +138,7 @@ func detectQuotedList(node *reader.RichNode) bool {
 	return false
 }
 
-func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+func (r *InappropriateCollectionRule) Check(node *reader.RichNode, _ map[string]interface{}, filepath string) *Finding {
 	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return nil
 	}
@@ -166,7 +162,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			report = true
 		}
 	case "nth":
-		// Detectar lista literal '(...)
+
 		if detectQuotedList(collectionNode) {
 			message = "Using 'nth' for random access on a list is inefficient (linear time). Use a vector if random access is needed."
 			report = true
@@ -174,24 +170,23 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			message = "Using 'nth' for random access on a list is inefficient (linear time). Use a vector if random access is needed."
 			report = true
 		} else if collectionNode.Type == reader.NodeQuote {
-			// Detecção direta de quote node
+
 			message = "Using 'nth' for random access on a list is inefficient (linear time). Use a vector if random access is needed."
 			report = true
 		}
 	case "some":
-		// Detectar padrão some #(= % value) collection
+
 		if len(node.Children) >= 3 {
 			predNode := node.Children[1]
 			targetCollectionNode := node.Children[2]
 
-			// Verificar se é fn literal #(= % value) e se collection é vector
 			if predNode.Type == reader.NodeFnLiteral && targetCollectionNode.Type == reader.NodeVector {
 				message = "Using 'some' for membership check on a vector is inefficient. Use a set with 'contains?' for O(1) membership testing."
 				report = true
 			}
 		}
 	case "first":
-		// Detectar first + filter pattern
+
 		if len(node.Children) >= 2 && collectionNode.Type == reader.NodeList && len(collectionNode.Children) >= 2 {
 			if collectionNode.Children[0].Type == reader.NodeSymbol && collectionNode.Children[0].Value == "filter" {
 				message = "Using '(first (filter ...))' is inefficient. Consider using 'some' which stops after the first match."
@@ -199,7 +194,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "empty?":
-		// Detectar empty? + filter pattern
+
 		if len(node.Children) >= 2 && collectionNode.Type == reader.NodeList && len(collectionNode.Children) >= 2 {
 			if collectionNode.Children[0].Type == reader.NodeSymbol && collectionNode.Children[0].Value == "filter" {
 				message = "Using '(empty? (filter ...))' is inefficient. Consider using 'not-any?' for early termination."
@@ -207,7 +202,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "count":
-		// Detectar count + filter pattern
+
 		if len(node.Children) >= 2 && collectionNode.Type == reader.NodeList && len(collectionNode.Children) >= 2 {
 			if collectionNode.Children[0].Type == reader.NodeSymbol && collectionNode.Children[0].Value == "filter" {
 				message = "Using '(count (filter ...))' processes entire collection. Consider 'transduce' with counting reducer for potentially better performance."
@@ -215,7 +210,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "sequence":
-		// Detectar sequence + mapcat pattern (performance issue)
+
 		if len(node.Children) >= 3 {
 			firstArg := node.Children[1]
 			if firstArg.Type == reader.NodeList && len(firstArg.Children) >= 2 {
@@ -236,7 +231,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "reduce":
-		// Detectar reduce acumulando numa lista vazia '()
+
 		if len(node.Children) >= 3 {
 			accumInitNode := node.Children[2]
 			if detectQuotedList(accumInitNode) || accumInitNode.Type == reader.NodeQuote {
@@ -245,7 +240,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "map":
-		// Detectar map aplicado em hash-map (não preserva ordem)
+
 		if len(node.Children) >= 3 {
 			targetCollectionNode := node.Children[len(node.Children)-1]
 			if targetCollectionNode.Type == reader.NodeMap {
@@ -253,7 +248,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 				report = true
 			}
 		}
-		// Detectar map com identity (desnecessário)
+
 		if len(node.Children) >= 2 {
 			funcArg := node.Children[1]
 			if funcArg.Type == reader.NodeSymbol && funcArg.Value == "identity" {
@@ -262,40 +257,36 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "apply":
-		// Detectar apply hash-map em vetor (conversão desnecessária)
 		if len(node.Children) >= 3 {
 			funcAppliedNode := node.Children[1]
-			dataNode := node.Children[2]
-			if funcAppliedNode.Type == reader.NodeSymbol && funcAppliedNode.Value == "hash-map" {
-				// Aceitar tanto vetores literais quanto símbolos (variáveis)
-				if dataNode.Type == reader.NodeVector || dataNode.Type == reader.NodeSymbol {
-					message = "Using 'apply hash-map' on a vector is unnecessary. Use a map literal or proper map construction instead."
+			if funcAppliedNode.Type == reader.NodeSymbol {
+				switch funcAppliedNode.Value {
+				case "hash-map":
+					dataNode := node.Children[2]
+					if dataNode.Type == reader.NodeVector || dataNode.Type == reader.NodeSymbol {
+						message = "Using 'apply hash-map' on a vector is unnecessary. Use a map literal or proper map construction instead."
+						report = true
+					}
+				case "concat":
+					message = "Using 'apply concat' is inefficient. Consider using 'mapcat' or 'reduce into' for better performance."
 					report = true
 				}
 			}
 		}
-		// Detectar apply concat (use mapcat)
-		if len(node.Children) >= 3 {
-			funcAppliedNode := node.Children[1]
-			if funcAppliedNode.Type == reader.NodeSymbol && funcAppliedNode.Value == "concat" {
-				message = "Using 'apply concat' is inefficient. Consider using 'mapcat' or 'reduce into' for better performance."
-				report = true
-			}
-		}
 	case "concat":
-		// Detectar concat excessivo
+
 		if r.hasNestedConcat(node) {
 			message = "Nested 'concat' operations can be inefficient and create deep call stacks. Consider using 'into' with multiple collections or 'transduce' with 'cat'."
 			report = true
 		}
 	case "reverse":
-		// Detectar reverse em lazy sequences
+
 		if len(node.Children) >= 2 {
 			collectionArg := node.Children[1]
 			if collectionArg.Type == reader.NodeList && len(collectionArg.Children) >= 2 {
 				innerFunc := collectionArg.Children[0]
 				if innerFunc.Type == reader.NodeSymbol {
-					// Detectar reverse em map/filter/etc (força realização)
+
 					if innerFunc.Value == "map" || innerFunc.Value == "filter" || innerFunc.Value == "remove" || innerFunc.Value == "take" || innerFunc.Value == "drop" {
 						message = "Using 'reverse' on a lazy sequence forces full realization. Consider alternative approaches or 'into' with reversed accumulator."
 						report = true
@@ -304,13 +295,13 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "merge":
-		// Detectar merge com muitos argumentos pequenos
+
 		if len(node.Children) > 4 {
 			message = "Using 'merge' with many small maps can be inefficient. Consider using 'reduce-kv' or 'into' for better performance."
 			report = true
 		}
 	case "assoc-in":
-		// Detectar assoc-in desnecessário para um nível
+
 		if len(node.Children) >= 4 {
 			keyPathNode := node.Children[2]
 			if keyPathNode.Type == reader.NodeVector && len(keyPathNode.Children) == 1 {
@@ -319,7 +310,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "get-in":
-		// Detectar get-in desnecessário para um nível
+
 		if len(node.Children) >= 3 {
 			keyPathNode := node.Children[2]
 			if keyPathNode.Type == reader.NodeVector && len(keyPathNode.Children) == 1 {
@@ -328,7 +319,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "zipmap":
-		// Detectar zipmap com range (use map-indexed)
+
 		if len(node.Children) >= 3 {
 			keysArg := node.Children[1]
 			if keysArg.Type == reader.NodeList && len(keysArg.Children) >= 1 {
@@ -339,17 +330,17 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "repeatedly":
-		// Detectar repeatedly + take quando range seria melhor
+		// Note: This case is intentionally minimal as most repeatedly usage patterns are acceptable
+		// Could be extended in the future to detect specific anti-patterns
 		if len(node.Children) >= 2 {
-			// Procurar por take aplicado ao repeatedly
 			funcArg := node.Children[1]
 			if funcArg.Type == reader.NodeFnLiteral {
-				// Isso pode ser parte de um pattern (take n (repeatedly f))
-				// Vamos detectar isso no contexto pai
+				// Check for simple cases that could be replaced with other functions
+				// This is a placeholder for future enhancements
 			}
 		}
 	case "take":
-		// Detectar take + repeatedly pattern
+
 		if len(node.Children) >= 3 {
 			collectionArg := node.Children[2]
 			if collectionArg.Type == reader.NodeList && len(collectionArg.Children) >= 2 {
@@ -360,17 +351,17 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "for":
-		// Detectar for trivial quando map seria melhor
+
 		if len(node.Children) >= 3 {
 			bindingNode := node.Children[1]
 			if bindingNode.Type == reader.NodeVector && len(bindingNode.Children) == 2 {
-				// Pattern: (for [x xs] (f x))
+
 				bodyNode := node.Children[2]
 				if bodyNode.Type == reader.NodeList && len(bodyNode.Children) >= 2 {
-					// Verificar se o body é uma simples aplicação de função
+
 					funcInBody := bodyNode.Children[0]
 					if funcInBody.Type == reader.NodeSymbol {
-						// Isso pode ser um for trivial
+
 						message = "Simple 'for' comprehension can be replaced with 'map' for better clarity and performance."
 						report = true
 					}
@@ -378,7 +369,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "filter":
-		// Detectar filter com not quando remove seria melhor
+
 		if len(node.Children) >= 2 {
 			predNode := node.Children[1]
 			if predNode.Type == reader.NodeList && len(predNode.Children) >= 2 {
@@ -387,7 +378,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 					report = true
 				}
 			}
-			// Detectar filter com (comp not predicate) - novo padrão
+
 			if predNode.Type == reader.NodeList && len(predNode.Children) >= 2 {
 				if predNode.Children[0].Type == reader.NodeSymbol && predNode.Children[0].Value == "comp" {
 					if len(predNode.Children) >= 2 && predNode.Children[1].Type == reader.NodeSymbol && predNode.Children[1].Value == "not" {
@@ -399,7 +390,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 		}
 
 	case "remove":
-		// Detectar remove com not (double negation)
+
 		if len(node.Children) >= 2 {
 			predNode := node.Children[1]
 			if predNode.Type == reader.NodeList && len(predNode.Children) >= 2 {
@@ -408,7 +399,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 					report = true
 				}
 			}
-			// Detectar remove com (comp not predicate) - novo padrão
+
 			if predNode.Type == reader.NodeList && len(predNode.Children) >= 2 {
 				if predNode.Children[0].Type == reader.NodeSymbol && predNode.Children[0].Value == "comp" {
 					if len(predNode.Children) >= 2 && predNode.Children[1].Type == reader.NodeSymbol && predNode.Children[1].Value == "not" {
@@ -419,11 +410,11 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "into":
-		// Detectar into [] xs quando vec seria melhor
+
 		if len(node.Children) >= 3 {
 			targetNode := node.Children[1]
 			if targetNode.Type == reader.NodeVector && len(targetNode.Children) == 0 {
-				// Verificar se não é um contexto de transdução (into [] (comp ...) ...)
+
 				isTransduction := false
 				if len(node.Children) >= 3 {
 					secondArg := node.Children[2]
@@ -440,7 +431,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 				}
 			}
 		}
-		// Detectar into #{} xs quando set seria melhor
+
 		if len(node.Children) >= 3 {
 			targetNode := node.Children[1]
 			if targetNode.Type == reader.NodeSet && len(targetNode.Children) == 0 {
@@ -449,7 +440,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "doall":
-		// Detectar doall com map (perigoso em produção)
+
 		if len(node.Children) >= 2 {
 			collectionArg := node.Children[1]
 			if collectionArg.Type == reader.NodeList && len(collectionArg.Children) >= 2 {
@@ -460,7 +451,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "=":
-		// Detectar (= 0 (count coll)) quando empty? seria melhor
+
 		if len(node.Children) >= 3 {
 			firstArg := node.Children[1]
 			secondArg := node.Children[2]
@@ -475,7 +466,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case ">":
-		// Detectar (> (count coll) 0) quando seq seria melhor
+
 		if len(node.Children) >= 3 {
 			firstArg := node.Children[1]
 			secondArg := node.Children[2]
@@ -490,7 +481,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "not":
-		// Detectar (not (empty? coll)) quando seq seria melhor
+
 		if len(node.Children) >= 2 {
 			innerNode := node.Children[1]
 			if innerNode.Type == reader.NodeList && len(innerNode.Children) >= 2 {
@@ -498,7 +489,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 					message = "Using '(not (empty? coll))' is less idiomatic than using 'seq'. The docstring of 'empty?' suggests using 'seq' instead."
 					report = true
 				}
-				// Detectar (not (zero? (count coll))) quando seq seria melhor
+
 				if innerNode.Children[0].Type == reader.NodeSymbol && innerNode.Children[0].Value == "zero?" {
 					if len(innerNode.Children) >= 2 {
 						zeroArg := innerNode.Children[1]
@@ -513,7 +504,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "keys":
-		// Detectar keys + group-by quando distinct seria melhor
+
 		if len(node.Children) >= 2 {
 			collectionArg := node.Children[1]
 			if collectionArg.Type == reader.NodeList && len(collectionArg.Children) >= 2 {
@@ -524,7 +515,7 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 			}
 		}
 	case "seq":
-		// Detectar seq + count quando empty? seria melhor
+
 		if len(node.Children) >= 2 {
 			collectionArg := node.Children[1]
 			if collectionArg.Type == reader.NodeList && len(collectionArg.Children) >= 2 {
@@ -550,14 +541,12 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, context map[s
 	return nil
 }
 
-// hasNestedConcat detecta concat aninhados
 func (r *InappropriateCollectionRule) hasNestedConcat(node *reader.RichNode) bool {
 	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return false
 	}
 
 	if funcNode := node.Children[0]; funcNode.Type == reader.NodeSymbol && funcNode.Value == "concat" {
-		// Verificar se algum argumento é outro concat
 		for i := 1; i < len(node.Children); i++ {
 			arg := node.Children[i]
 			if arg.Type == reader.NodeList && len(arg.Children) > 0 {
@@ -568,40 +557,6 @@ func (r *InappropriateCollectionRule) hasNestedConcat(node *reader.RichNode) boo
 		}
 	}
 	return false
-}
-
-// checkForApplyHashMap verifica recursivamente se há apply hash-map na expressão
-func (r *InappropriateCollectionRule) checkForApplyHashMap(node *reader.RichNode, filepath string) *Finding {
-	if node.Type == reader.NodeList && len(node.Children) >= 3 {
-		if funcNode := node.Children[0]; funcNode.Type == reader.NodeSymbol && funcNode.Value == "apply" {
-			if len(node.Children) >= 3 {
-				funcAppliedNode := node.Children[1]
-				dataNode := node.Children[2]
-				if funcAppliedNode.Type == reader.NodeSymbol && funcAppliedNode.Value == "hash-map" {
-					// Aceitar tanto vetores literais quanto símbolos (variáveis)
-					if dataNode.Type == reader.NodeVector || dataNode.Type == reader.NodeSymbol {
-						meta := r.Meta()
-						return &Finding{
-							RuleID:   meta.ID,
-							Message:  "Using 'apply hash-map' on a vector is unnecessary. Use a map literal or proper map construction instead.",
-							Filepath: filepath,
-							Location: node.Location,
-							Severity: meta.Severity,
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Verificar recursivamente nos filhos
-	for _, child := range node.Children {
-		if finding := r.checkForApplyHashMap(child, filepath); finding != nil {
-			return finding
-		}
-	}
-
-	return nil
 }
 
 func init() {

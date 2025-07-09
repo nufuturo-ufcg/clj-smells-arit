@@ -17,7 +17,6 @@ func (r *LinearCollectionScanRule) Meta() Rule {
 	}
 }
 
-// Funções auxiliares para detecção de linear scan
 func isKeyAccessLinearScan(node *reader.RichNode, targetSymbol string) bool {
 	if node == nil {
 		return false
@@ -140,7 +139,7 @@ func (r *LinearCollectionScanRule) checkLinearScan(node *reader.RichNode, funcNa
 	return message, true
 }
 
-func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+func (r *LinearCollectionScanRule) Check(node *reader.RichNode, _ map[string]interface{}, filepath string) *Finding {
 	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return nil
 	}
@@ -152,22 +151,9 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[stri
 
 	funcName := funcNode.Value
 
-	switch funcName {
-	case "some":
-		// Detectar linear scan com key access
-		if linearMessage, hasLinearScan := r.checkLinearScan(node, "some"); hasLinearScan {
-			meta := r.Meta()
-			return &Finding{
-				RuleID:   meta.ID,
-				Message:  linearMessage,
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: meta.Severity,
-			}
-		}
-	case "filter":
-		// Detectar linear scan com key access
-		if linearMessage, hasLinearScan := r.checkLinearScan(node, "filter"); hasLinearScan {
+	// Check for linear scan patterns in both 'some' and 'filter'
+	if funcName == "some" || funcName == "filter" {
+		if linearMessage, hasLinearScan := r.checkLinearScan(node, funcName); hasLinearScan {
 			meta := r.Meta()
 			return &Finding{
 				RuleID:   meta.ID,
