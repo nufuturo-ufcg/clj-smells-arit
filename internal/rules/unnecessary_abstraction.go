@@ -142,6 +142,9 @@ func (r *UnnecessaryAbstractionRule) checkSimpleDefn(node *reader.RichNode, cont
 		return nil
 	}
 
+	if len(node.Children) <= 3 {
+		return nil
+	}
 	if len(node.Children[3:]) != 1 {
 		return nil
 	}
