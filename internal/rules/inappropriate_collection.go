@@ -330,13 +330,11 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, _ map[string]
 			}
 		}
 	case "repeatedly":
-		// Note: This case is intentionally minimal as most repeatedly usage patterns are acceptable
-		// Could be extended in the future to detect specific anti-patterns
+
 		if len(node.Children) >= 2 {
 			funcArg := node.Children[1]
 			if funcArg.Type == reader.NodeFnLiteral {
-				// Check for simple cases that could be replaced with other functions
-				// This is a placeholder for future enhancements
+
 			}
 		}
 	case "take":

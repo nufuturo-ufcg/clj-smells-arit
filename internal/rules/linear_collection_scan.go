@@ -151,7 +151,6 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, _ map[string]int
 
 	funcName := funcNode.Value
 
-	// Check for linear scan patterns in both 'some' and 'filter'
 	if funcName == "some" || funcName == "filter" {
 		if linearMessage, hasLinearScan := r.checkLinearScan(node, funcName); hasLinearScan {
 			meta := r.Meta()
