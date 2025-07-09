@@ -140,7 +140,7 @@ func init() {
 			Description: "Detects deeply nested function call stacks within a function body. Deep call stacks can make code harder to read, debug, and may increase the risk of stack overflow.",
 			Severity:    SeverityWarning,
 		},
-		MaxDepth: 5,
+		MaxDepth: 15,
 	}
 
 	RegisterRule(defaultRule)

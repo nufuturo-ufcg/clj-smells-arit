@@ -64,7 +64,7 @@ func init() {
 			Description: "Functions should not have an excessive number of parameters. Consider grouping related parameters into a map or record.",
 			Severity:    SeverityWarning,
 		},
-		MaxParameters: 5,
+		MaxParameters: 9,
 	}
 
 	RegisterRule(defaultRule)

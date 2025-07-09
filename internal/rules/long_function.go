@@ -75,7 +75,7 @@ func init() {
 			Description: "Functions should be kept short and focused. Long functions are harder to understand, test, and maintain. Each binding in let blocks counts as a significant line.",
 			Severity:    SeverityWarning,
 		},
-		MaxLines: 50,
+		MaxLines: 58,
 	}
 
 	RegisterRule(defaultRule)
