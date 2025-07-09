@@ -133,9 +133,7 @@ func (r *ShotgunSurgeryRule) getCurrentNamespace(context map[string]interface{},
 		if len(parts) > 1 {
 
 			lastPart := parts[len(parts)-1]
-			if strings.HasSuffix(lastPart, ".clj") {
-				lastPart = strings.TrimSuffix(lastPart, ".clj")
-			}
+			lastPart = strings.TrimSuffix(lastPart, ".clj")
 
 			namespaceParts := append(parts[1:len(parts)-1], lastPart)
 			return strings.Join(namespaceParts, ".")

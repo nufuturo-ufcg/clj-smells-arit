@@ -2,11 +2,12 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
+
+var ()
 
 type NamespacedKeysNeglectRule struct {
 	Rule
@@ -92,9 +93,7 @@ func (r *NamespacedKeysNeglectRule) isKeyword(node *reader.RichNode) bool {
 
 func (r *NamespacedKeysNeglectRule) isAlreadyNamespaced(keyword string) bool {
 
-	if strings.HasPrefix(keyword, ":") {
-		keyword = keyword[1:]
-	}
+	keyword = strings.TrimPrefix(keyword, ":")
 
 	return strings.Contains(keyword, "/") ||
 		(strings.Contains(keyword, ".") && strings.Contains(keyword, "/"))
@@ -214,67 +213,6 @@ func (r *NamespacedKeysNeglectRule) determineSeverity(ctx *KeywordContext) Sever
 		return SeverityInfo
 	default:
 		return SeverityHint
-	}
-}
-
-func (r *NamespacedKeysNeglectRule) isInDatabaseContext(node *reader.RichNode, context map[string]interface{}) bool {
-	if contextStr, ok := context["function_name"].(string); ok {
-		dbPatterns := []string{
-			"insert", "update", "select", "delete", "query",
-			"create-table", "alter-table", "defentity",
-			"jdbc", "sql", "db", "database",
-		}
-		for _, pattern := range dbPatterns {
-			if strings.Contains(strings.ToLower(contextStr), pattern) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (r *NamespacedKeysNeglectRule) isInConfigContext(node *reader.RichNode, context map[string]interface{}) bool {
-	if contextStr, ok := context["function_name"].(string); ok {
-		configPatterns := []string{"config", "settings", "env", "properties"}
-		for _, pattern := range configPatterns {
-			if strings.Contains(strings.ToLower(contextStr), pattern) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (r *NamespacedKeysNeglectRule) hasSnakeCasePattern(keyword string) bool {
-
-	keyword = strings.TrimPrefix(keyword, ":")
-
-	snakeCaseRegex := regexp.MustCompile(`^[a-z][a-z0-9_]*[a-z0-9]$`)
-	return snakeCaseRegex.MatchString(keyword)
-}
-
-func (r *NamespacedKeysNeglectRule) hasLispCasePattern(keyword string) bool {
-
-	keyword = strings.TrimPrefix(keyword, ":")
-
-	lispCaseRegex := regexp.MustCompile(`^[a-z][a-z0-9\-]*[a-z0-9]$`)
-	return lispCaseRegex.MatchString(keyword)
-}
-
-func (r *NamespacedKeysNeglectRule) suggestNamespacing(keyword string, context *KeywordContext) string {
-	keyword = strings.TrimPrefix(keyword, ":")
-
-	switch context.Scope {
-	case "global":
-		return fmt.Sprintf(":myapp.core/%s", keyword)
-	case "api":
-		return fmt.Sprintf(":myapp.api/%s", keyword)
-	case "database":
-		return fmt.Sprintf(":myapp.db/%s", keyword)
-	case "config":
-		return fmt.Sprintf(":myapp.config/%s", keyword)
-	default:
-		return fmt.Sprintf(":myapp.domain/%s", keyword)
 	}
 }
 

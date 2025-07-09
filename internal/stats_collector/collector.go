@@ -286,10 +286,3 @@ func isPrimitiveLike(paramNode *reader.RichNode) bool {
 	}
 	return false
 }
-
-func getFunctionName(fnNode *reader.RichNode) string {
-	if len(fnNode.Children) > 1 && fnNode.Children[1].Type == reader.NodeSymbol {
-		return fnNode.Children[1].Value
-	}
-	return "anonymous"
-}

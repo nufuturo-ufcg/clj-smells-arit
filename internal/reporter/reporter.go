@@ -7,6 +7,7 @@ import (
 	"html/template"
 	io "io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
@@ -20,10 +21,16 @@ const (
 	FormatText     ReportFormat = "text"
 	FormatHTML     ReportFormat = "html"
 	FormatMarkdown ReportFormat = "markdown"
+	FormatSummary  ReportFormat = "summary"
 )
 
 type Reporter interface {
 	Report(findings []*rules.Finding, writer io.Writer) error
+}
+
+type SummaryItem struct {
+	RuleID string
+	Count  int
 }
 
 type JSONReporter struct{}
@@ -66,13 +73,12 @@ func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 		}
 	}
 
-	// Add summary
-	summary := countSmells(findings)
-	if len(summary) > 0 {
+	summaryItems := getSortedSummary(findings)
+	if len(summaryItems) > 0 {
 		_, _ = fmt.Fprintln(writer, "\n---")
 		_, _ = fmt.Fprintln(writer, "Smell Summary:")
-		for ruleID, count := range summary {
-			_, _ = fmt.Fprintf(writer, "- %s: %d\n", ruleID, count)
+		for _, item := range summaryItems {
+			_, _ = fmt.Fprintf(writer, "- %s: %d\n", item.RuleID, item.Count)
 		}
 	}
 
@@ -85,7 +91,7 @@ type HTMLReportData struct {
 	TotalFilesAnalyzed int
 	TotalFindings      int
 	Findings           []*EnrichedFinding
-	Summary            map[string]int
+	SummaryItems       []SummaryItem
 }
 
 type EnrichedFinding struct {
@@ -197,7 +203,7 @@ const htmlTemplate = `
   <p><strong>Total Findings:</strong> {{.TotalFindings}}</p>
 </div>
 
-{{if .Summary}}
+{{if .SummaryItems}}
 <h2>Smell Summary</h2>
 <table id="summary-table">
   <thead>
@@ -207,10 +213,10 @@ const htmlTemplate = `
     </tr>
   </thead>
   <tbody>
-    {{range $ruleID, $count := .Summary}}
+    {{range .SummaryItems}}
     <tr>
-      <td>{{$ruleID}}</td>
-      <td>{{$count}}</td>
+      <td>{{.RuleID}}</td>
+      <td>{{.Count}}</td>
     </tr>
     {{end}}
   </tbody>
@@ -296,13 +302,13 @@ func (hr *HTMLReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 	}
 
 	totalFilesAnalyzed := len(filePaths)
-	summary := countSmells(findings)
+	summaryItems := getSortedSummary(findings)
 
 	reportData := HTMLReportData{
 		TotalFilesAnalyzed: totalFilesAnalyzed,
 		TotalFindings:      len(findings),
 		Findings:           enrichedFindings,
-		Summary:            summary,
+		SummaryItems:       summaryItems,
 	}
 
 	tmpl, err := template.New("htmlReport").Funcs(funcMap).Parse(htmlTemplate)
@@ -358,45 +364,79 @@ func (md *MarkdownReporter) Report(findings []*rules.Finding, writer io.Writer) 
 		}
 	}
 
-	// Add summary
-	summary := countSmells(findings)
-	if len(summary) > 0 {
+	summaryItems := getSortedSummary(findings)
+	if len(summaryItems) > 0 {
 		_, _ = w.WriteString("\n### Smell Summary\n\n")
-		for ruleID, count := range summary {
-			_, _ = w.WriteString(fmt.Sprintf("- **%s**: %d\n", ruleID, count))
+		for _, item := range summaryItems {
+			_, _ = w.WriteString(fmt.Sprintf("- **%s**: %d\n", item.RuleID, item.Count))
 		}
 	}
 
 	return w.Flush()
 }
 
-func countSmells(findings []*rules.Finding) map[string]int {
+type SummaryReporter struct{}
+
+func (sr *SummaryReporter) Report(findings []*rules.Finding, writer io.Writer) error {
+	if len(findings) == 0 {
+		_, err := fmt.Fprintln(writer, "No issues found.")
+		return err
+	}
+
+	_, err := fmt.Fprintf(writer, "Total findings: %d\n\n", len(findings))
+	if err != nil {
+		return err
+	}
+
+	summaryItems := getSortedSummary(findings)
+	if len(summaryItems) > 0 {
+		_, _ = fmt.Fprintln(writer, "Smell Summary:")
+		for _, item := range summaryItems {
+			_, _ = fmt.Fprintf(writer, "- %s: %d\n", item.RuleID, item.Count)
+		}
+	}
+
+	return nil
+}
+
+func getSortedSummary(findings []*rules.Finding) []SummaryItem {
+
 	summary := make(map[string]int)
 	for _, finding := range findings {
 		summary[finding.RuleID]++
 	}
-	return summary
-}
 
-func countUniqueFiles(findings []*rules.Finding) int {
-	files := make(map[string]struct{})
-	for _, finding := range findings {
-		files[finding.Filepath] = struct{}{}
+	var ruleIDs []string
+	for ruleID := range summary {
+		ruleIDs = append(ruleIDs, ruleID)
 	}
-	return len(files)
+	sort.Strings(ruleIDs)
+
+	var summaryItems []SummaryItem
+	for _, ruleID := range ruleIDs {
+		summaryItems = append(summaryItems, SummaryItem{
+			RuleID: ruleID,
+			Count:  summary[ruleID],
+		})
+	}
+
+	return summaryItems
 }
 
-func NewReporter(format ReportFormat) (Reporter, error) {
+func NewReporter(format ReportFormat) Reporter {
 	switch format {
 	case FormatJSON:
-		return &JSONReporter{}, nil
+		return &JSONReporter{}
 	case FormatText:
-		return &TextReporter{}, nil
+		return &TextReporter{}
 	case FormatHTML:
-		return &HTMLReporter{}, nil
+		return &HTMLReporter{}
 	case FormatMarkdown:
-		return &MarkdownReporter{}, nil
+		return &MarkdownReporter{}
+	case FormatSummary:
+		return &SummaryReporter{}
 	default:
-		return nil, fmt.Errorf("unsupported report format: %s", format)
+
+		return nil
 	}
 }

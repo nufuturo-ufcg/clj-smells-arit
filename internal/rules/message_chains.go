@@ -15,54 +15,6 @@ func (r *MessageChainsRule) Meta() Rule {
 	return r.Rule
 }
 
-func checkNestedAccess(node *reader.RichNode) (bool, int) {
-	if node.Type != reader.NodeList || len(node.Children) != 2 {
-		return false, 0
-	}
-	first := node.Children[0]
-	second := node.Children[1]
-
-	isKeywordAccess := first.Type == reader.NodeKeyword
-	isGetAccess := first.Type == reader.NodeSymbol && first.Value == "get" && len(node.Children) >= 3 && (node.Children[2].Type == reader.NodeKeyword || node.Children[2].Type == reader.NodeQuote || node.Children[2].Type == reader.NodeSymbol)
-
-	if isKeywordAccess || isGetAccess {
-		var nestedExpr *reader.RichNode
-		if isKeywordAccess {
-			nestedExpr = second
-		} else {
-			nestedExpr = node.Children[1]
-		}
-		isChain, length := checkNestedAccess(nestedExpr)
-		if isChain {
-			return true, length + 1
-		}
-
-		return true, 1
-	}
-
-	return false, 0
-}
-
-func checkGetInAccess(node *reader.RichNode) (bool, int) {
-	if node.Type == reader.NodeList && len(node.Children) >= 3 &&
-		node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "get-in" &&
-		node.Children[2].Type == reader.NodeVector {
-		pathVector := node.Children[2]
-
-		return true, len(pathVector.Children)
-	}
-	return false, 0
-}
-
-func checkThreadFirst(node *reader.RichNode) (bool, int) {
-	if node.Type == reader.NodeList && len(node.Children) > 1 &&
-		node.Children[0].Type == reader.NodeSymbol && (node.Children[0].Value == "->" || node.Children[0].Value == "some->") {
-
-		return true, len(node.Children) - 2
-	}
-	return false, 0
-}
-
 func checkGetChain(node *reader.RichNode, maxLength int) *Finding {
 	if node.Type != reader.NodeList || len(node.Children) < 2 || node.Children[0].Type != reader.NodeSymbol || node.Children[0].Value != "get" {
 		return nil

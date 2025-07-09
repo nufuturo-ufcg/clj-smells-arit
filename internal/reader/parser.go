@@ -2,8 +2,6 @@ package reader
 
 import (
 	"fmt"
-	"unicode"
-
 	"github.com/cespare/goclj/parse"
 )
 
@@ -303,15 +301,6 @@ func FindTopLevelDefns(tree *parse.Tree) []*parse.ListNode {
 		}
 	}
 	return defns
-}
-
-func isPotentialTypeName(s string) bool {
-	if len(s) == 0 {
-		return false
-	}
-
-	firstChar := rune(s[0])
-	return unicode.IsUpper(firstChar)
 }
 
 func ApplyTypeHints(nodes []*RichNode) {
