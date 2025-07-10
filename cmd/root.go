@@ -23,6 +23,7 @@ import (
 var (
 	formatFlag  string
 	verboseFlag bool
+	timingFlag  bool
 )
 
 var rootCmd = &cobra.Command{
@@ -41,6 +42,11 @@ Arit analyzes Clojure files for potential issues,
 style violations, and opportunities for improvement.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		var startTime time.Time
+		if timingFlag {
+			startTime = time.Now()
+		}
 
 		fmt.Print(`
 ###############
@@ -323,6 +329,11 @@ Arit - Static Analysis for Clojure Code
 			return fmt.Errorf("error generating report: %w", err)
 		}
 
+		if timingFlag {
+			duration := time.Since(startTime)
+			fmt.Fprintf(os.Stderr, "\nExecution time: %.2fs\n", duration.Seconds())
+		}
+
 		return nil
 	},
 }
@@ -334,7 +345,7 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, html, markdown)")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
-	rootCmd.AddCommand(listRulesCmd)
+	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 }
 
 func findClojureFiles(dir string) ([]string, error) {
