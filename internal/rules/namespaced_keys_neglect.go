@@ -3,11 +3,57 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-var ()
+var (
+	commonGlobalKeywords map[string]bool
+	apiPatterns          []string
+	namespacedKeysOnce   sync.Once
+)
+
+func initNamespacedKeysMaps() {
+	namespacedKeysOnce.Do(func() {
+		commonGlobalKeywords = map[string]bool{
+			"id":         true,
+			"name":       true,
+			"email":      true,
+			"password":   true,
+			"username":   true,
+			"first-name": true,
+			"last-name":  true,
+			"created-at": true,
+			"updated-at": true,
+			"status":     true,
+			"type":       true,
+			"value":      true,
+			"data":       true,
+			"config":     true,
+			"settings":   true,
+			"user":       true,
+			"admin":      true,
+			"role":       true,
+			"permission": true,
+			"token":      true,
+			"session":    true,
+			"error":      true,
+			"message":    true,
+			"code":       true,
+			"result":     true,
+			"response":   true,
+			"request":    true,
+		}
+
+		apiPatterns = []string{
+			"defapi", "defroute", "POST", "GET", "PUT", "DELETE", "PATCH",
+			"defentity", "defschema", "defspec", "s/def",
+			"insert", "update", "select", "delete", "query",
+			"create-table", "alter-table", "drop-table",
+		}
+	})
+}
 
 type NamespacedKeysNeglectRule struct {
 	Rule
@@ -21,44 +67,9 @@ type KeywordContext struct {
 	Description string
 }
 
-var commonGlobalKeywords = map[string]bool{
-	"id":         true,
-	"name":       true,
-	"email":      true,
-	"password":   true,
-	"username":   true,
-	"first-name": true,
-	"last-name":  true,
-	"created-at": true,
-	"updated-at": true,
-	"status":     true,
-	"type":       true,
-	"value":      true,
-	"data":       true,
-	"config":     true,
-	"settings":   true,
-	"user":       true,
-	"admin":      true,
-	"role":       true,
-	"permission": true,
-	"token":      true,
-	"session":    true,
-	"error":      true,
-	"message":    true,
-	"code":       true,
-	"result":     true,
-	"response":   true,
-	"request":    true,
-}
-
-var apiPatterns = []string{
-	"defapi", "defroute", "POST", "GET", "PUT", "DELETE", "PATCH",
-	"defentity", "defschema", "defspec", "s/def",
-	"insert", "update", "select", "delete", "query",
-	"create-table", "alter-table", "drop-table",
-}
-
 func (r *NamespacedKeysNeglectRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+	initNamespacedKeysMaps()
+
 	if !r.isKeyword(node) {
 		return nil
 	}

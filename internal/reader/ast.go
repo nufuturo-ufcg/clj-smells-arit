@@ -76,7 +76,7 @@ func CountFunctionParameters(paramsNode *RichNode) int {
 	count := 0
 	foundVariadic := false
 
-	for i, param := range paramsNode.Children {
+	for _, param := range paramsNode.Children {
 		if param.Type == NodeSymbol {
 
 			if param.Value == "_" ||
@@ -93,10 +93,13 @@ func CountFunctionParameters(paramsNode *RichNode) int {
 			if foundVariadic {
 				continue
 			}
-		}
 
-		if !foundVariadic {
 			count++
+		} else {
+
+			if !foundVariadic {
+				count++
+			}
 		}
 	}
 	return count
