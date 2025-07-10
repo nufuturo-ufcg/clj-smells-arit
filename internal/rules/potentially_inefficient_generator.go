@@ -8,7 +8,7 @@ type PotentiallyInefficientGeneratorRule struct{}
 
 func (r *PotentiallyInefficientGeneratorRule) Meta() Rule {
 	return Rule{
-		ID:          "inefficient-filter: inefficient-generator",
+		ID:          "inefficient-generator",
 		Name:        "Potentially Inefficient Generator",
 		Description: "Detects the use of generator functions like `gen/such-that` which might be inefficient if the predicate is rarely satisfied by the base generator, potentially leading to excessive generation attempts.",
 		Severity:    SeverityHint,
