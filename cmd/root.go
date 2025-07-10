@@ -5,9 +5,12 @@ import (
 	io "io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
@@ -143,15 +146,55 @@ Arit - Static Analysis for Clojure Code
 			fmt.Fprintf(os.Stderr, "Analyzing %d files...\n", len(filesToAnalyze))
 		}
 
+		numCPUs := runtime.NumCPU()
+		numWorkers := numCPUs
+
+		if len(filesToAnalyze) > 500 {
+
+			numWorkers = numCPUs * 2
+			if numWorkers > 16 {
+				numWorkers = 16
+			}
+		} else if len(filesToAnalyze) > 100 {
+
+			numWorkers = numCPUs + (numCPUs / 2)
+			if numWorkers > 12 {
+				numWorkers = 12
+			}
+		} else {
+
+			if numWorkers < 2 {
+				numWorkers = 2
+			} else if numWorkers > 8 {
+				numWorkers = 8
+			}
+		}
+
+		if len(filesToAnalyze) < numWorkers && len(filesToAnalyze) < 10 {
+			numWorkers = len(filesToAnalyze)
+		}
+
+		if verboseFlag {
+			fmt.Fprintf(os.Stderr, "Using %d workers for %d files (detected %d CPUs)\n", numWorkers, len(filesToAnalyze), numCPUs)
+		}
+
+		semaphore := make(chan struct{}, numWorkers)
+
 		for _, fileToAnalyze := range filesToAnalyze {
 			wg.Add(1)
 			go func(filePath string) {
 				defer wg.Done()
 
+				semaphore <- struct{}{}
+
 				defer func() {
+					<-semaphore
+
 					if r := recover(); r != nil {
+						fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] in goroutine for file '%s': %v\n", filePath, r)
+
 						if verboseFlag {
-							fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] in goroutine for file '%s': %v\n", filePath, r)
+							fmt.Fprintf(os.Stderr, "Stack trace: %s\n", debug.Stack())
 						}
 					}
 				}()
@@ -160,7 +203,30 @@ Arit - Static Analysis for Clojure Code
 					fmt.Fprintf(os.Stderr, "Analyzing file: %s\n", filePath)
 				}
 
-				analysisResult, analyzeErr := analyzer.AnalyzeFile(filePath, cfg)
+				done := make(chan bool, 1)
+				var analysisResult analyzer.AnalysisResult
+				var analyzeErr error
+
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							analyzeErr = fmt.Errorf("panic during analysis: %v", r)
+						}
+						done <- true
+					}()
+					analysisResult, analyzeErr = analyzer.AnalyzeFile(filePath, cfg)
+				}()
+
+				select {
+				case <-done:
+
+				case <-time.After(30 * time.Second):
+					analyzeErr = fmt.Errorf("analysis timeout after 30 seconds")
+					if verboseFlag {
+						fmt.Fprintf(os.Stderr, "[TIMEOUT] Analysis timed out for file '%s'\n", filePath)
+					}
+				}
+
 				if analyzeErr != nil {
 					if verboseFlag {
 						fmt.Fprintf(os.Stderr, "[ERROR] Error analyzing file '%s': %v\n", filePath, analyzeErr)
@@ -168,24 +234,31 @@ Arit - Static Analysis for Clojure Code
 					return
 				}
 
-				mu.Lock()
+				var localFindings []*rules.Finding
 				if analysisResult.Findings != nil {
+					localFindings = make([]*rules.Finding, 0, len(analysisResult.Findings))
 					for _, finding := range analysisResult.Findings {
-						findingCopy := rules.Finding{
+						findingCopy := &rules.Finding{
 							RuleID:   finding.RuleID,
 							Message:  finding.Message,
 							Filepath: finding.Filepath,
 							Location: finding.Location,
 							Severity: finding.Severity,
 						}
-						allFindings = append(allFindings, &findingCopy)
+						localFindings = append(localFindings, findingCopy)
 					}
 				}
-				mu.Unlock()
+
+				if len(localFindings) > 0 {
+					mu.Lock()
+					allFindings = append(allFindings, localFindings...)
+					mu.Unlock()
+				}
 
 				if bar != nil {
 					bar.Add(1)
 				}
+
 			}(fileToAnalyze)
 		}
 

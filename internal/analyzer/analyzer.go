@@ -25,6 +25,10 @@ type Scope struct {
 	symbols         map[string]*SymbolInfo
 	aliases         map[string]*NamespaceAlias
 	referredSymbols map[string]*ReferredSymbol
+
+	lookupCache map[string]*SymbolInfo
+	cacheValid  bool
+	mu          sync.RWMutex
 }
 
 type SymbolType string
@@ -69,18 +73,34 @@ func NewScope(parent *Scope) *Scope {
 		symbols:         make(map[string]*SymbolInfo),
 		aliases:         make(map[string]*NamespaceAlias),
 		referredSymbols: make(map[string]*ReferredSymbol),
+		lookupCache:     make(map[string]*SymbolInfo),
+		cacheValid:      true,
 	}
 }
 
 func (s *Scope) Define(info *SymbolInfo) bool {
+	if s == nil || info == nil {
+		return false
+	}
+
+	if s.symbols == nil {
+		s.symbols = make(map[string]*SymbolInfo)
+	}
+
 	if _, exists := s.symbols[info.Name]; exists {
 		return false
 	}
 	s.symbols[info.Name] = info
+
+	s.invalidateCache()
 	return true
 }
 
 func (s *Scope) DefineAlias(alias NamespaceAlias) {
+	if s == nil {
+		return
+	}
+
 	if s.aliases == nil {
 		s.aliases = make(map[string]*NamespaceAlias)
 	}
@@ -88,32 +108,86 @@ func (s *Scope) DefineAlias(alias NamespaceAlias) {
 }
 
 func (s *Scope) DefineReferredSymbol(ref ReferredSymbol) {
+	if s == nil {
+		return
+	}
+
 	if s.referredSymbols == nil {
 		s.referredSymbols = make(map[string]*ReferredSymbol)
 	}
 	s.referredSymbols[ref.SymbolName] = &ref
 }
 
+func (s *Scope) invalidateCache() {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	s.cacheValid = false
+	s.lookupCache = make(map[string]*SymbolInfo)
+	s.mu.Unlock()
+
+	if s.parent != nil {
+
+		s.parent.invalidateCache()
+	}
+}
+
 func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
-	current := s
-	for current != nil {
-		if info, found := current.symbols[name]; found {
+	if s == nil || name == "" {
+		return nil, false
+	}
+
+	s.mu.RLock()
+	if s.cacheValid && s.lookupCache != nil {
+		if info, found := s.lookupCache[name]; found {
+			s.mu.RUnlock()
+
+			if info == nil {
+				return nil, false
+			}
 			return info, true
 		}
+	}
+	s.mu.RUnlock()
 
-		if _ = current.referredSymbols[name]; len(current.referredSymbols) > 0 {
+	current := s
+	for current != nil {
+		if current.symbols != nil {
+			if info, found := current.symbols[name]; found && info != nil {
 
+				s.mu.Lock()
+				if s.lookupCache != nil && s.cacheValid {
+					s.lookupCache[name] = info
+				}
+				s.mu.Unlock()
+				return info, true
+			}
 		}
 		current = current.parent
 	}
+
+	s.mu.Lock()
+	if s.lookupCache != nil && s.cacheValid {
+		s.lookupCache[name] = nil
+	}
+	s.mu.Unlock()
+
 	return nil, false
 }
 
 func (s *Scope) findAlias(aliasName string) (*NamespaceAlias, bool) {
+	if s == nil || aliasName == "" {
+		return nil, false
+	}
+
 	current := s
 	for current != nil {
-		if aliasInfo, found := current.aliases[aliasName]; found {
-			return aliasInfo, true
+		if current.aliases != nil {
+			if aliasInfo, found := current.aliases[aliasName]; found && aliasInfo != nil {
+				return aliasInfo, true
+			}
 		}
 		current = current.parent
 	}
@@ -121,23 +195,25 @@ func (s *Scope) findAlias(aliasName string) (*NamespaceAlias, bool) {
 }
 
 func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
+	if globalScope == nil {
+		return
+	}
 
 	localDefs := make(map[*reader.RichNode]*SymbolInfo)
 
 	var visit func(node *reader.RichNode, currentScope *Scope)
 	visit = func(node *reader.RichNode, currentScope *Scope) {
-		if node == nil {
+		if node == nil || currentScope == nil {
 			return
 		}
 
 		nextScope := currentScope
 
-		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
+		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol {
 			funcNameNode := node.Children[0]
 			switch funcNameNode.Value {
 			case "defn", "defn-":
-
-				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
+				if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeSymbol {
 					funcSymbolNode := node.Children[1]
 					funcInfo := &SymbolInfo{
 						Name:       funcSymbolNode.Value,
@@ -152,24 +228,19 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 					nextScope = fnScope
 
 					paramIndex := 2
-
-					if len(node.Children) > paramIndex && node.Children[paramIndex].Type == reader.NodeString {
+					if len(node.Children) > paramIndex && node.Children[paramIndex] != nil && node.Children[paramIndex].Type == reader.NodeString {
 						paramIndex++
 					}
-
-					if len(node.Children) > paramIndex && node.Children[paramIndex].Type == reader.NodeMap {
+					if len(node.Children) > paramIndex && node.Children[paramIndex] != nil && node.Children[paramIndex].Type == reader.NodeMap {
 						paramIndex++
 					}
-
-					if len(node.Children) > paramIndex {
+					if len(node.Children) > paramIndex && node.Children[paramIndex] != nil {
 						paramsNodeCandidate := node.Children[paramIndex]
 						if paramsNodeCandidate.Type == reader.NodeVector {
-
 							defineParams(paramsNodeCandidate, fnScope, localDefs)
 						} else if paramsNodeCandidate.Type == reader.NodeList {
-
 							for _, arityForm := range paramsNodeCandidate.Children {
-								if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
+								if arityForm != nil && arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0] != nil && arityForm.Children[0].Type == reader.NodeVector {
 									defineParams(arityForm.Children[0], fnScope, localDefs)
 								}
 							}
@@ -177,24 +248,21 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 					}
 				}
 			case "fn":
-
 				fnScope := NewScope(currentScope)
 				nextScope = fnScope
 				paramIndex := 1
 
-				if len(node.Children) > paramIndex && node.Children[paramIndex].Type == reader.NodeSymbol {
+				if len(node.Children) > paramIndex && node.Children[paramIndex] != nil && node.Children[paramIndex].Type == reader.NodeSymbol {
 					paramIndex++
 				}
 
-				if len(node.Children) > paramIndex {
+				if len(node.Children) > paramIndex && node.Children[paramIndex] != nil {
 					paramsNodeCandidate := node.Children[paramIndex]
 					if paramsNodeCandidate.Type == reader.NodeVector {
-
 						defineParams(paramsNodeCandidate, fnScope, localDefs)
 					} else if paramsNodeCandidate.Type == reader.NodeList {
-
 						for _, arityForm := range paramsNodeCandidate.Children {
-							if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
+							if arityForm != nil && arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0] != nil && arityForm.Children[0].Type == reader.NodeVector {
 								defineParams(arityForm.Children[0], fnScope, localDefs)
 							}
 						}
@@ -202,8 +270,7 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 				}
 
 			case "let", "loop":
-
-				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeVector {
+				if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeVector {
 					bindingsNode := node.Children[1]
 					letScope := NewScope(currentScope)
 					nextScope = letScope
@@ -213,11 +280,13 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 							break
 						}
 						bindingVarNode := bindingsNode.Children[i]
-						defineBindingForm(bindingVarNode, letScope, localDefs, TypeVariable)
+						if bindingVarNode != nil {
+							defineBindingForm(bindingVarNode, letScope, localDefs, TypeVariable)
+						}
 					}
 				}
 			case "def", "defonce":
-				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
+				if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeSymbol {
 					varSymbolNode := node.Children[1]
 					varInfo := &SymbolInfo{
 						Name:       varSymbolNode.Value,
@@ -233,15 +302,21 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 		}
 
 		for idx, child := range node.Children {
+			if child == nil {
+				continue
+			}
+
 			currentChildScope := nextScope
 
 			isLetLoopBindingVector := false
-			if node.Type == reader.NodeList && len(node.Children) > 0 && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
+			if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
 				if idx == 1 && child.Type == reader.NodeVector {
 					isLetLoopBindingVector = true
 					for bindingValIdx := 1; bindingValIdx < len(child.Children); bindingValIdx += 2 {
-						bindingValNode := child.Children[bindingValIdx]
-						visit(bindingValNode, currentScope)
+						if bindingValIdx < len(child.Children) && child.Children[bindingValIdx] != nil {
+							bindingValNode := child.Children[bindingValIdx]
+							visit(bindingValNode, currentScope)
+						}
 					}
 				} else if idx > 1 {
 					currentChildScope = nextScope
@@ -257,7 +332,9 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 	}
 
 	for _, root := range nodes {
-		visit(root, globalScope)
+		if root != nil {
+			visit(root, globalScope)
+		}
 	}
 }
 

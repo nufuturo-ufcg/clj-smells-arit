@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -18,33 +19,46 @@ func (r *VerboseChecksRule) Meta() Rule {
 	return r.Rule
 }
 
-var numericComparisons = map[string]map[string]string{
-	"=": {
-		"0": "zero?",
-	},
-	">": {
-		"0": "pos?",
-	},
-	"<": {
-		"0": "neg?",
-	},
-}
+var (
+	numericComparisons map[string]map[string]string
+	booleanComparisons map[string]string
+	mathOperations     map[string]map[string]string
+	verboseChecksOnce  sync.Once
+)
 
-var booleanComparisons = map[string]string{
-	"true":  "true?",
-	"false": "false?",
-}
+func initVerboseChecksMaps() {
+	verboseChecksOnce.Do(func() {
+		numericComparisons = map[string]map[string]string{
+			"=": {
+				"0": "zero?",
+			},
+			">": {
+				"0": "pos?",
+			},
+			"<": {
+				"0": "neg?",
+			},
+		}
 
-var mathOperations = map[string]map[string]string{
-	"+": {
-		"1": "inc",
-	},
-	"-": {
-		"1": "dec",
-	},
+		booleanComparisons = map[string]string{
+			"true":  "true?",
+			"false": "false?",
+		}
+
+		mathOperations = map[string]map[string]string{
+			"+": {
+				"1": "inc",
+			},
+			"-": {
+				"1": "dec",
+			},
+		}
+	})
 }
 
 func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *Finding {
+	initVerboseChecksMaps()
+
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
 		return nil
 	}
@@ -103,6 +117,8 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *Find
 }
 
 func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *Finding {
+	initVerboseChecksMaps()
+
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
 		return nil
 	}
@@ -183,6 +199,8 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *Finding 
 }
 
 func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *Finding {
+	initVerboseChecksMaps()
+
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
 		return nil
 	}

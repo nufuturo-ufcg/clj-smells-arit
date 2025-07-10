@@ -15,23 +15,36 @@ func ParseFile(filepath string) (*parse.Tree, error) {
 }
 
 func BuildRichTree(tree *parse.Tree) ([]*RichNode, []*RichNode) {
+	if tree == nil {
+		return nil, nil
+	}
+
 	richRoots := make([]*RichNode, 0, len(tree.Roots))
+
+	estimatedComments := len(tree.Roots) / 10
+	if estimatedComments < 16 {
+		estimatedComments = 16
+	}
+
 	for _, rootNode := range tree.Roots {
-		richNode := buildRichNode(rootNode, true)
-		if richNode != nil {
-			richRoots = append(richRoots, richNode)
+		if rootNode != nil {
+			richNode := buildRichNode(rootNode, true)
+			if richNode != nil {
+				richRoots = append(richRoots, richNode)
+			}
 		}
 	}
 
-	comments := collectComments(tree)
+	comments := collectCommentsOptimized(tree, estimatedComments)
 	ApplyTypeHints(richRoots)
 	return richRoots, comments
 }
 
-func collectComments(tree *parse.Tree) []*RichNode {
-	var comments []*RichNode
-	var walk func(node parse.Node)
+func collectCommentsOptimized(tree *parse.Tree, estimatedSize int) []*RichNode {
 
+	comments := make([]*RichNode, 0, estimatedSize)
+
+	var walk func(node parse.Node)
 	walk = func(node parse.Node) {
 		if node == nil {
 			return
@@ -47,6 +60,7 @@ func collectComments(tree *parse.Tree) []*RichNode {
 			walk(child)
 		}
 	}
+
 	for _, root := range tree.Roots {
 		walk(root)
 	}
@@ -77,19 +91,27 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 
 	case *parse.ListNode:
 		rNode.Type = NodeList
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 		rNode.InferredType = "List"
 	case *parse.VectorNode:
 		rNode.Type = NodeVector
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 		rNode.InferredType = "Vector"
 	case *parse.MapNode:
 		rNode.Type = NodeMap
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 		rNode.InferredType = "Map"
 	case *parse.SetNode:
 		rNode.Type = NodeSet
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 		rNode.InferredType = "Set"
 
 	case *parse.SymbolNode:
@@ -144,53 +166,77 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 
 	case *parse.QuoteNode:
 		rNode.Type = NodeQuote
-		if quoted := buildRichNode(n.Node, ignoreComments); quoted != nil {
-			rNode.Children = []*RichNode{quoted}
+		if n.Node != nil {
+			if quoted := buildRichNode(n.Node, ignoreComments); quoted != nil {
+				rNode.Children = []*RichNode{quoted}
+			}
 		}
 	case *parse.SyntaxQuoteNode:
 		rNode.Type = NodeSyntaxQuote
-		if quoted := buildRichNode(n.Node, ignoreComments); quoted != nil {
-			rNode.Children = []*RichNode{quoted}
+		if n.Node != nil {
+			if quoted := buildRichNode(n.Node, ignoreComments); quoted != nil {
+				rNode.Children = []*RichNode{quoted}
+			}
 		}
 	case *parse.UnquoteNode:
 		rNode.Type = NodeUnquote
-		if unquoted := buildRichNode(n.Node, ignoreComments); unquoted != nil {
-			rNode.Children = []*RichNode{unquoted}
+		if n.Node != nil {
+			if unquoted := buildRichNode(n.Node, ignoreComments); unquoted != nil {
+				rNode.Children = []*RichNode{unquoted}
+			}
 		}
 	case *parse.UnquoteSpliceNode:
 		rNode.Type = NodeUnquoteSplice
-		if spliced := buildRichNode(n.Node, ignoreComments); spliced != nil {
-			rNode.Children = []*RichNode{spliced}
+		if n.Node != nil {
+			if spliced := buildRichNode(n.Node, ignoreComments); spliced != nil {
+				rNode.Children = []*RichNode{spliced}
+			}
 		}
 	case *parse.DerefNode:
 		rNode.Type = NodeDeref
-		if derefd := buildRichNode(n.Node, ignoreComments); derefd != nil {
-			rNode.Children = []*RichNode{derefd}
+		if n.Node != nil {
+			if derefd := buildRichNode(n.Node, ignoreComments); derefd != nil {
+				rNode.Children = []*RichNode{derefd}
+			}
 		}
 	case *parse.VarQuoteNode:
 		rNode.Type = NodeVarQuote
 		rNode.Value = n.Val
 	case *parse.FnLiteralNode:
 		rNode.Type = NodeFnLiteral
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 	case *parse.ReaderCondNode:
 		rNode.Type = NodeReaderCond
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 	case *parse.ReaderCondSpliceNode:
 		rNode.Type = NodeReaderCondSplice
-		rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		if n.Nodes != nil {
+			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
+		}
 	case *parse.ReaderDiscardNode:
 		rNode.Type = NodeReaderDiscard
-		if discarded := buildRichNode(n.Node, ignoreComments); discarded != nil {
-			rNode.Children = []*RichNode{discarded}
+		if n.Node != nil {
+			if discarded := buildRichNode(n.Node, ignoreComments); discarded != nil {
+				rNode.Children = []*RichNode{discarded}
+			}
 		}
 	case *parse.ReaderEvalNode:
 		rNode.Type = NodeReaderEval
-		if evalExpr := buildRichNode(n.Node, ignoreComments); evalExpr != nil {
-			rNode.Children = []*RichNode{evalExpr}
+		if n.Node != nil {
+			if evalExpr := buildRichNode(n.Node, ignoreComments); evalExpr != nil {
+				rNode.Children = []*RichNode{evalExpr}
+			}
 		}
 
 	case *parse.MetadataNode:
+		if n == nil {
+			return nil
+		}
+
 		children := n.Children()
 
 		var metaHintNodeRaw parse.Node
@@ -210,6 +256,10 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 			return nil
 		}
 
+		if actualNodeRaw == nil {
+			return nil
+		}
+
 		richActualNode := buildRichNode(actualNodeRaw, ignoreComments)
 		if richActualNode == nil {
 			return nil
@@ -222,25 +272,32 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 		var typeHintFromMeta string
 		switch meta := metaHintNodeRaw.(type) {
 		case *parse.SymbolNode:
-			typeHintFromMeta = meta.Val
+			if meta != nil {
+				typeHintFromMeta = meta.Val
+			}
 		case *parse.TagNode:
-			typeHintFromMeta = meta.Val
+			if meta != nil {
+				typeHintFromMeta = meta.Val
+			}
 		case *parse.KeywordNode:
 
 			break
 		case *parse.MapNode:
-
-			for i := 0; i+1 < len(meta.Nodes); i += 2 {
-				keyNode, okKey := meta.Nodes[i].(*parse.KeywordNode)
-				valueNode, okVal := meta.Nodes[i+1].(*parse.SymbolNode)
-				if okKey && keyNode.Val == ":tag" && okVal {
-					typeHintFromMeta = valueNode.Val
-					break
+			if meta != nil && meta.Nodes != nil {
+				for i := 0; i+1 < len(meta.Nodes); i += 2 {
+					if keyNode, okKey := meta.Nodes[i].(*parse.KeywordNode); okKey && keyNode != nil {
+						if valueNode, okVal := meta.Nodes[i+1].(*parse.SymbolNode); okVal && valueNode != nil {
+							if keyNode.Val == ":tag" {
+								typeHintFromMeta = valueNode.Val
+								break
+							}
+						}
+					}
 				}
 			}
 		}
 
-		if typeHintFromMeta != "" && richActualNode.Type == NodeSymbol {
+		if typeHintFromMeta != "" && richActualNode != nil {
 			richActualNode.TypeHint = typeHintFromMeta
 		}
 

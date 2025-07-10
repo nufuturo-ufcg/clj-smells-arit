@@ -675,19 +675,3 @@ func (r *DuplicatedCodeRule) Check(_ *reader.RichNode, _ map[string]interface{},
 
 	return nil
 }
-
-func init() {
-
-	rule := &DuplicatedCodeRule{
-		Rule: Rule{
-			ID:   "duplicated-code",
-			Name: "Duplicated Code Analysis",
-			Description: "Unified rule for detecting both exact and similar duplicated code blocks. " +
-				"Supports configurable detection modes: exact matching for identical code after normalization, " +
-				"and similar matching for structurally similar code patterns. Configurable thresholds " +
-				"allow fine-tuning of detection sensitivity for both modes.",
-			Severity: SeverityWarning,
-		},
-	}
-	RegisterRule(rule)
-}
