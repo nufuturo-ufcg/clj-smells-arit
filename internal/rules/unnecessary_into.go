@@ -133,9 +133,16 @@ func (r *UnnecessaryIntoRule) checkTransducerAPI(node *reader.RichNode) *Finding
 				funcName := funcNode.Value
 				if isMapFunction(funcName) || isFilterFunction(funcName) {
 					meta := r.Meta()
+					// Verificar se há pelo menos 4 elementos antes de acessar índice [3]
+					var message string
+					if len(secondArg.Children) > 3 {
+						message = "Consider using transducer API for better performance. Use '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + ")' instead of '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + " " + getNodeText(secondArg.Children[3]) + "))' to leverage transducers."
+					} else {
+						message = "Consider using transducer API for better performance. Use '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + ")' to leverage transducers."
+					}
 					return &Finding{
 						RuleID:   meta.ID,
-						Message:  "Consider using transducer API for better performance. Use '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + ")' instead of '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + " " + getNodeText(secondArg.Children[3]) + "))' to leverage transducers.",
+						Message:  message,
 						Filepath: "",
 						Location: node.Location,
 						Severity: meta.Severity,

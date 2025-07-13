@@ -36,12 +36,16 @@ var coreSymbols = map[string]SymbolType{
 }
 
 func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
+	if s == nil || name == "" {
+		return nil, false
+	}
 
 	current := s
 	for current != nil {
-		if info, found := current.symbols[name]; found {
-
-			return info, true
+		if current.symbols != nil {
+			if info, found := current.symbols[name]; found && info != nil {
+				return info, true
+			}
 		}
 		current = current.parent
 	}
@@ -54,16 +58,17 @@ func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
 	if globalScope != nil {
 
 		if !strings.Contains(name, "/") {
-			if refInfo, found := globalScope.referredSymbols[name]; found {
-
-				synthInfo := &SymbolInfo{
-					Name:            name,
-					Definition:      refInfo.DefinitionNode,
-					Type:            TypeReferred,
-					OriginNamespace: refInfo.OriginalNamespace,
-					IsUsed:          false,
+			if globalScope.referredSymbols != nil {
+				if refInfo, found := globalScope.referredSymbols[name]; found && refInfo != nil {
+					synthInfo := &SymbolInfo{
+						Name:            name,
+						Definition:      refInfo.DefinitionNode,
+						Type:            TypeReferred,
+						OriginNamespace: refInfo.OriginalNamespace,
+						IsUsed:          false,
+					}
+					return synthInfo, true
 				}
-				return synthInfo, true
 			}
 		}
 
@@ -71,16 +76,17 @@ func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
 			parts := strings.SplitN(name, "/", 2)
 			if len(parts) == 2 {
 				aliasPart := parts[0]
-				if aliasInfo, found := globalScope.aliases[aliasPart]; found {
-
-					synthInfo := &SymbolInfo{
-						Name:            name,
-						Definition:      aliasInfo.DefinitionNode,
-						Type:            TypeAliased,
-						OriginNamespace: aliasInfo.FullNamespace,
-						IsUsed:          false,
+				if globalScope.aliases != nil {
+					if aliasInfo, found := globalScope.aliases[aliasPart]; found && aliasInfo != nil {
+						synthInfo := &SymbolInfo{
+							Name:            name,
+							Definition:      aliasInfo.DefinitionNode,
+							Type:            TypeAliased,
+							OriginNamespace: aliasInfo.FullNamespace,
+							IsUsed:          false,
+						}
+						return synthInfo, true
 					}
-					return synthInfo, true
 				}
 			}
 		}
@@ -88,7 +94,6 @@ func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
 
 	if !strings.Contains(name, "/") {
 		if coreType, found := coreSymbols[name]; found {
-
 			synthInfo := &SymbolInfo{
 				Name:            name,
 				Definition:      nil,
@@ -98,18 +103,6 @@ func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
 			}
 			return synthInfo, true
 		}
-	}
-
-	if strings.Contains(name, ".") {
-
-		synthInfo := &SymbolInfo{
-			Name:            name,
-			Definition:      nil,
-			Type:            TypeJava,
-			OriginNamespace: "",
-			IsUsed:          false,
-		}
-		return synthInfo, true
 	}
 
 	return nil, false

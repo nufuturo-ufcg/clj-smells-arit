@@ -85,6 +85,9 @@ func analyzeSelfRecursionPattern(node *reader.RichNode) *RecursionPattern {
 	}
 
 	condNode := body.Children[1]
+	if len(body.Children) <= 3 {
+		return nil
+	}
 	elseNode := body.Children[3]
 
 	if isFilterPattern(condNode, elseNode) {
