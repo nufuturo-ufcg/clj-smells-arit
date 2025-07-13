@@ -41,11 +41,29 @@
    :location {:region region :zone availability-zone}
    :monitoring monitoring-enabled})
 
+;; Example 4: Function with 2 required and 11 optional parameters (13 total)
+(defn send-marketing-email
+  [campaign-id recipient-id & [subject body header footer discount-code expiration-date
+      attachments images tracking-id unsubscribe-link locale]]
+  {:campaign campaign-id
+   :recipient recipient-id
+   :content {:subject subject
+             :body body
+             :header header
+             :footer footer}
+   :meta {:discount discount-code
+          :expires expiration-date
+          :attachments attachments
+          :images images
+          :tracking tracking-id
+          :unsubscribe unsubscribe-link
+          :locale locale}})
+
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
 
 
-;; Example 4: Function with 1 parameter that contains 10 primitive fields inside
+;; Example 5: Function with 1 parameter that contains 10 primitive fields inside
 (defn process-user-registration
   [{:keys [username password email phone age gender location
            interests newsletter-opt-in referred-by] :as user-data}]
@@ -61,7 +79,7 @@
               :referral referred-by}
    :raw user-data})
 
-;; Example 5: Function with 9 parameters (limit case)
+;; Example 6: Function with 9 parameters (limit case)
 (defn generate-user-report
   [user-id start-date end-date include-activity? include-purchases?
    include-location? format language send-email?]
@@ -72,14 +90,14 @@
              :location include-location?}
    :output {:format format :language language :notify send-email?}})
 
-;; Example 6: Function with 3 parameters
+;; Example 7: Function with 3 parameters
 (defn send-notification
   [user-id message timestamp]
   {:user user-id
    :text message
    :time timestamp})
 
-;; Example 7: Function with 6 parameters
+;; Example 8: Function with 6 parameters
 (defn calculate-order-total
   [item-prices tax discount shipping-fee coupon-code membership-discount]
   (let [subtotal (reduce + item-prices)
