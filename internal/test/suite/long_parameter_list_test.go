@@ -12,19 +12,19 @@ func TestLongParameterList(t *testing.T) {
             RuleID:        "long-parameter-list",              
             ExpectedFindings: []framework.ExpectedFinding{
                 {
-                    Message:   "has too many required parameters:",     
+                    Message:   "has too many parameters:",     
                     StartLine: 7,                     
                 },
 				{
-					Message:   "has too many required parameters:",     
+					Message:   "has too many parameters:",     
                     StartLine: 21,                     
 				},
 				{
-					Message:   "has too many required parameters:",     
+					Message:   "has too many parameters:",     
                     StartLine: 35,                     
 				},
                 {
-					Message:   "has too many optional parameters:",     
+					Message:   "has too many parameters:",     
                     StartLine: 46,                     
 				},
             },
