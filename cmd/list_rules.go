@@ -45,5 +45,5 @@ including their IDs, names, descriptions, and default severity levels.`,
 
 func init() {
 
-	rootCmd.AddCommand(listRulesCmd)
+	//rootCmd.AddCommand(listRulesCmd)
 }
