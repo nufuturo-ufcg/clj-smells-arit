@@ -12,6 +12,7 @@ import (
 type DataClumpsAnalyzer struct {
 	mu              sync.Mutex
 	parameterGroups []ParameterGroup
+	maxGroups       int
 }
 
 type ParameterGroup struct {
@@ -36,6 +37,7 @@ func GetGlobalDataClumpsAnalyzer() *DataClumpsAnalyzer {
 	globalDataClumpsAnalyzerOnce.Do(func() {
 		globalDataClumpsAnalyzer = &DataClumpsAnalyzer{
 			parameterGroups: make([]ParameterGroup, 0),
+			maxGroups:       10000,
 		}
 	})
 	return globalDataClumpsAnalyzer
@@ -46,6 +48,7 @@ type DataClumpsRule struct {
 	MinClumpSize        int     `json:"min_clump_size" yaml:"min_clump_size"`
 	MinOccurrences      int     `json:"min_occurrences" yaml:"min_occurrences"`
 	SimilarityThreshold float64 `json:"similarity_threshold" yaml:"similarity_threshold"`
+	MaxParametersCheck  int
 }
 
 func (r *DataClumpsRule) Meta() Rule {
@@ -65,7 +68,11 @@ func (r *DataClumpsRule) Check(node *reader.RichNode, context map[string]interfa
 
 	analyzer := GetGlobalDataClumpsAnalyzer()
 	analyzer.mu.Lock()
-	analyzer.parameterGroups = append(analyzer.parameterGroups, *group)
+
+	if len(analyzer.parameterGroups) < analyzer.maxGroups {
+		analyzer.parameterGroups = append(analyzer.parameterGroups, *group)
+	}
+
 	analyzer.mu.Unlock()
 
 	return nil
@@ -138,6 +145,10 @@ func (r *DataClumpsRule) extractParameterGroup(node *reader.RichNode, filepath s
 		}
 	}
 
+	if len(params) > r.MaxParametersCheck {
+		return nil
+	}
+
 	if len(params) < r.MinClumpSize {
 		return nil
 	}
@@ -153,13 +164,12 @@ func (r *DataClumpsRule) extractParameterGroup(node *reader.RichNode, filepath s
 func (r *DataClumpsRule) findDataClumps(groups []ParameterGroup) []ClumpCandidate {
 	var clumps []ClumpCandidate
 
-	paramCombinations := r.generateParameterCombinations(groups)
+	paramCombinations := r.generateParameterCombinationsOptimized(groups)
 
 	for combination, occurrences := range paramCombinations {
 		if len(occurrences) >= r.MinOccurrences {
-			similarity := r.calculateSimilarity(occurrences)
+			similarity := r.calculateSimilarityOptimized(occurrences)
 			if similarity >= r.SimilarityThreshold {
-
 				params := strings.Split(combination, ",")
 				clumps = append(clumps, ClumpCandidate{
 					Parameters:  params,
@@ -177,13 +187,18 @@ func (r *DataClumpsRule) findDataClumps(groups []ParameterGroup) []ClumpCandidat
 	return clumps
 }
 
-func (r *DataClumpsRule) generateParameterCombinations(groups []ParameterGroup) map[string][]ParameterGroup {
+func (r *DataClumpsRule) generateParameterCombinationsOptimized(groups []ParameterGroup) map[string][]ParameterGroup {
 	combinations := make(map[string][]ParameterGroup)
 
 	for _, group := range groups {
 
-		for size := r.MinClumpSize; size <= len(group.Parameters); size++ {
-			combos := r.getCombinations(group.Parameters, size)
+		maxSize := len(group.Parameters)
+		if maxSize > r.MaxParametersCheck {
+			maxSize = r.MaxParametersCheck
+		}
+
+		for size := r.MinClumpSize; size <= maxSize && size <= 6; size++ {
+			combos := r.getCombinationsOptimized(group.Parameters, size)
 			for _, combo := range combos {
 
 				sort.Strings(combo)
@@ -196,15 +211,19 @@ func (r *DataClumpsRule) generateParameterCombinations(groups []ParameterGroup) 
 	return combinations
 }
 
-func (r *DataClumpsRule) getCombinations(items []string, k int) [][]string {
-	if k > len(items) || k <= 0 {
+func (r *DataClumpsRule) getCombinationsOptimized(items []string, k int) [][]string {
+	if k > len(items) || k <= 0 || k > 6 {
+		return nil
+	}
+
+	if len(items) > r.MaxParametersCheck {
 		return nil
 	}
 
 	if k == 1 {
-		var result [][]string
-		for _, item := range items {
-			result = append(result, []string{item})
+		result := make([][]string, len(items))
+		for i, item := range items {
+			result[i] = []string{item}
 		}
 		return result
 	}
@@ -212,9 +231,11 @@ func (r *DataClumpsRule) getCombinations(items []string, k int) [][]string {
 	var result [][]string
 	for i := 0; i <= len(items)-k; i++ {
 		head := items[i]
-		tailCombos := r.getCombinations(items[i+1:], k-1)
+		tailCombos := r.getCombinationsOptimized(items[i+1:], k-1)
 		for _, tailCombo := range tailCombos {
-			combo := append([]string{head}, tailCombo...)
+			combo := make([]string, 0, k)
+			combo = append(combo, head)
+			combo = append(combo, tailCombo...)
 			result = append(result, combo)
 		}
 	}
@@ -222,9 +243,13 @@ func (r *DataClumpsRule) getCombinations(items []string, k int) [][]string {
 	return result
 }
 
-func (r *DataClumpsRule) calculateSimilarity(occurrences []ParameterGroup) float64 {
+func (r *DataClumpsRule) calculateSimilarityOptimized(occurrences []ParameterGroup) float64 {
 	if len(occurrences) <= 1 {
 		return 1.0
+	}
+
+	if len(occurrences) > 100 {
+		return r.calculateSimilaritySampling(occurrences)
 	}
 
 	totalPairs := 0
@@ -246,8 +271,23 @@ func (r *DataClumpsRule) calculateSimilarity(occurrences []ParameterGroup) float
 	return float64(matchingPairs) / float64(totalPairs)
 }
 
+func (r *DataClumpsRule) calculateSimilaritySampling(occurrences []ParameterGroup) float64 {
+
+	sample := occurrences
+	if len(occurrences) > 50 {
+		sample = occurrences[:50]
+	}
+
+	return r.calculateSimilarityOptimized(sample)
+}
+
 func (r *DataClumpsRule) parametersOverlap(params1, params2 []string) bool {
-	set1 := make(map[string]bool)
+
+	if len(params1) < r.MinClumpSize || len(params2) < r.MinClumpSize {
+		return false
+	}
+
+	set1 := make(map[string]bool, len(params1))
 	for _, p := range params1 {
 		set1[p] = true
 	}
@@ -309,6 +349,7 @@ func (d *DataClumpsAnalyzer) GenerateFindings() []*Finding {
 		MinClumpSize:        3,
 		MinOccurrences:      2,
 		SimilarityThreshold: 0.7,
+		MaxParametersCheck:  8,
 	}
 
 	clumps := rule.findDataClumps(d.parameterGroups)
@@ -340,6 +381,7 @@ func init() {
 		MinClumpSize:        3,
 		MinOccurrences:      2,
 		SimilarityThreshold: 0.7,
+		MaxParametersCheck:  8,
 	}
 
 	RegisterRule(defaultRule)
