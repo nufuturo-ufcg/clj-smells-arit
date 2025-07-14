@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -38,11 +39,45 @@ func (r *LongParameterListRule) Check(node *reader.RichNode, context map[string]
 		}
 
 		if argsNode != nil && argsNode.Type == reader.NodeVector {
-			paramCount := reader.CountFunctionParameters(argsNode)
-			if paramCount > r.MaxParameters {
+			paramCount := 0
+			optionalParamCount := 0
+			variadic := false
+
+			for _, param := range argsNode.Children {
+				if param.Type == reader.NodeSymbol {
+					if param.Value == "&" {
+						variadic = true
+						continue
+					}
+
+					if param.Value == "_" ||
+						strings.HasPrefix(param.Value, ".") ||
+						strings.Contains(param.Value, "/") {
+						continue
+					}
+
+					if variadic {
+						optionalParamCount++
+					} else {
+						paramCount++
+					}
+				} else if variadic && param.Type == reader.NodeVector {
+
+					for _, optParam := range param.Children {
+						if optParam.Type == reader.NodeSymbol &&
+							optParam.Value != "_" &&
+							!strings.HasPrefix(optParam.Value, ".") &&
+							!strings.Contains(optParam.Value, "/") {
+							optionalParamCount++
+						}
+					}
+				}
+			}
+
+			if (paramCount + optionalParamCount) > r.MaxParameters {
 				return &Finding{
 					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Function %q has too many parameters: %d (max %d). Consider using a map.", funcName, paramCount, r.MaxParameters),
+					Message:  fmt.Sprintf("Function %q has too many parameters: %d (max %d). Optional parameters: %d.", funcName, paramCount+optionalParamCount, r.MaxParameters, optionalParamCount),
 					Filepath: filepath,
 					Location: argsNode.Location,
 					Severity: r.Severity,
@@ -64,7 +99,7 @@ func init() {
 			Description: "Functions should not have an excessive number of parameters. Consider grouping related parameters into a map or record.",
 			Severity:    SeverityWarning,
 		},
-		MaxParameters: 5,
+		MaxParameters: 9,
 	}
 
 	RegisterRule(defaultRule)
