@@ -1,4 +1,4 @@
-(ns smells.inefficient-filtering)
+(ns inefficient-filtering)
 
 ;; Sample datasets
 (def users

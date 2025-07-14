@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -17,11 +18,7 @@ func (r *LongParameterListRule) Meta() Rule {
 
 func (r *LongParameterListRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
 
-	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
-		fnType := node.Children[0].Value
-		if fnType != "defn" && fnType != "defn-" && fnType != "defmacro" {
-			return nil
-		}
+	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "defn" {
 
 		funcName := "unknown-function"
 		if len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
@@ -31,6 +28,7 @@ func (r *LongParameterListRule) Check(node *reader.RichNode, context map[string]
 		var argsNode *reader.RichNode
 		argsNodeIndex := 2
 		if len(node.Children) > argsNodeIndex && node.Children[argsNodeIndex].Type == reader.NodeString {
+
 			argsNodeIndex = 3
 		}
 
@@ -41,111 +39,55 @@ func (r *LongParameterListRule) Check(node *reader.RichNode, context map[string]
 		}
 
 		if argsNode != nil && argsNode.Type == reader.NodeVector {
+			paramCount := 0
+			optionalParamCount := 0
+			variadic := false
 
-			fixedParamCount := reader.CountFunctionParameters(argsNode)
+			for _, param := range argsNode.Children {
+				if param.Type == reader.NodeSymbol {
+					if param.Value == "&" {
+						variadic = true
+						continue
+					}
 
-			optionalParamCount := r.countOptionalParameters(argsNode)
+					if param.Value == "_" ||
+						strings.HasPrefix(param.Value, ".") ||
+						strings.Contains(param.Value, "/") {
+						continue
+					}
 
-			totalConceptualParams := fixedParamCount + optionalParamCount
+					if variadic {
+						optionalParamCount++
+					} else {
+						paramCount++
+					}
+				} else if variadic && param.Type == reader.NodeVector {
 
-			if totalConceptualParams > r.MaxParameters*2 {
-				return &Finding{
-					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Function %q has excessive parameter complexity: %d required + %d optional = %d total concepts. Consider refactoring into smaller, focused functions.", funcName, fixedParamCount, optionalParamCount, totalConceptualParams),
-					Filepath: filepath,
-					Location: argsNode.Location,
-					Severity: SeverityWarning,
+					for _, optParam := range param.Children {
+						if optParam.Type == reader.NodeSymbol &&
+							optParam.Value != "_" &&
+							!strings.HasPrefix(optParam.Value, ".") &&
+							!strings.Contains(optParam.Value, "/") {
+							optionalParamCount++
+						}
+					}
 				}
 			}
 
-			if fixedParamCount > r.MaxParameters {
+			if (paramCount + optionalParamCount) > r.MaxParameters {
 				return &Finding{
 					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Function %q has too many required parameters: %d (max %d). Consider using a map or breaking into smaller functions.", funcName, fixedParamCount, r.MaxParameters),
+					Message:  fmt.Sprintf("Function %q has too many parameters: %d (max %d). Optional parameters: %d.", funcName, paramCount+optionalParamCount, r.MaxParameters, optionalParamCount),
 					Filepath: filepath,
 					Location: argsNode.Location,
 					Severity: r.Severity,
 				}
 			}
+		} else {
 
-			if optionalParamCount > r.MaxParameters {
-				return &Finding{
-					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Function %q has too many optional parameters: %d (max %d). Consider using a configuration map or splitting functionality.", funcName, optionalParamCount, r.MaxParameters),
-					Filepath: filepath,
-					Location: argsNode.Location,
-					Severity: SeverityInfo,
-				}
-			}
 		}
 	}
 	return nil
-}
-
-func (r *LongParameterListRule) countOptionalParameters(paramsNode *reader.RichNode) int {
-	if paramsNode == nil || paramsNode.Type != reader.NodeVector {
-		return 0
-	}
-
-	foundVariadic := false
-	optionalCount := 0
-
-	for _, param := range paramsNode.Children {
-		if param.Type == reader.NodeSymbol && param.Value == "&" {
-			foundVariadic = true
-			continue
-		}
-
-		if foundVariadic {
-
-			if param.Type == reader.NodeMap {
-				optionalCount += r.countKeywordMapParameters(param)
-			} else {
-
-				optionalCount = 1
-			}
-		}
-	}
-
-	return optionalCount
-}
-
-func (r *LongParameterListRule) countKeywordMapParameters(mapNode *reader.RichNode) int {
-	if mapNode == nil || mapNode.Type != reader.NodeMap {
-		return 0
-	}
-
-	totalOptionalParams := 0
-
-	for i := 0; i < len(mapNode.Children); i += 2 {
-		if i+1 >= len(mapNode.Children) {
-			break
-		}
-
-		keyNode := mapNode.Children[i]
-		valueNode := mapNode.Children[i+1]
-
-		if keyNode.Type == reader.NodeKeyword {
-
-			switch keyNode.Value {
-			case ":keys", ":strs", ":syms":
-				if valueNode.Type == reader.NodeVector {
-					totalOptionalParams += len(valueNode.Children)
-				}
-			case ":or":
-
-				continue
-			case ":as":
-
-				continue
-			default:
-
-				totalOptionalParams++
-			}
-		}
-	}
-
-	return totalOptionalParams
 }
 
 func init() {
@@ -157,7 +99,7 @@ func init() {
 			Description: "Functions should not have an excessive number of parameters. Consider grouping related parameters into a map or record.",
 			Severity:    SeverityWarning,
 		},
-		MaxParameters: 5,
+		MaxParameters: 9,
 	}
 
 	RegisterRule(defaultRule)
