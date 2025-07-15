@@ -41,14 +41,6 @@ to enable or disable rules and configure their parameters.`,
 			if ruleConfig := extractRuleConfig(rule); ruleConfig != nil {
 				defaultConfig.RuleConfig[meta.ID] = ruleConfig
 			}
-
-			switch meta.ID {
-			case "lazy-side-effects":
-				defaultConfig.RuleConfig[meta.ID] = map[string]interface{}{
-					"lazy_context_funcs": rules.DefaultLazyContextFunctions,
-					"side_effect_funcs":  rules.DefaultSideEffectFunctions,
-				}
-			}
 		}
 
 		yamlData, err := yaml.Marshal(&defaultConfig)
@@ -88,51 +80,31 @@ func extractRuleConfig(rule rules.RegisteredRule) map[string]interface{} {
 	ruleType := ruleValue.Type()
 	ruleConfig := make(map[string]interface{})
 
-	if rule.Meta().ID == "duplicated-code" {
+	for i := 0; i < ruleValue.NumField(); i++ {
+		field := ruleValue.Field(i)
+		fieldType := ruleType.Field(i)
 
-		ruleConfig["enable-exact"] = true
-		ruleConfig["enable-similar"] = true
-		ruleConfig["exact-min-lines"] = 6
-		ruleConfig["exact-min-tokens"] = 25
-		ruleConfig["similar-min-lines"] = 3
-		ruleConfig["similar-min-tokens"] = 15
-		ruleConfig["max-cache-size"] = 10000
-		ruleConfig["max-blocks-per-file"] = 1000
-	} else {
-
-		for i := 0; i < ruleValue.NumField(); i++ {
-			field := ruleValue.Field(i)
-			fieldType := ruleType.Field(i)
-
-			if fieldType.Name == "Rule" {
-				continue
-			}
-
-			yamlTag := fieldType.Tag.Get("yaml")
-			jsonTag := fieldType.Tag.Get("json")
-
-			var configKey string
-			if yamlTag != "" && yamlTag != "-" {
-				configKey = strings.Split(yamlTag, ",")[0]
-			} else if jsonTag != "" && jsonTag != "-" {
-				configKey = strings.Split(jsonTag, ",")[0]
-			}
-
-			if configKey == "" {
-				continue
-			}
-
-			if field.CanInterface() {
-				value := field.Interface()
-				if !isZeroValue(field) {
-					ruleConfig[configKey] = value
-				}
-			}
+		if fieldType.Name == "Rule" {
+			continue
 		}
-	}
 
-	if len(ruleConfig) == 0 {
-		return nil
+		yamlTag := fieldType.Tag.Get("yaml")
+		jsonTag := fieldType.Tag.Get("json")
+
+		var configKey string
+		if yamlTag != "" && yamlTag != "-" {
+			configKey = strings.Split(yamlTag, ",")[0]
+		} else if jsonTag != "" && jsonTag != "-" {
+			configKey = strings.Split(jsonTag, ",")[0]
+		}
+
+		if configKey == "" {
+			continue
+		}
+
+		if field.CanInterface() {
+			ruleConfig[configKey] = field.Interface()
+		}
 	}
 
 	return ruleConfig
