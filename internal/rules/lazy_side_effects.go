@@ -52,8 +52,9 @@ var DefaultSideEffectFunctions = map[string]bool{
 }
 
 type LazySideEffectsRule struct {
-	LazyContextFuncs map[string]bool `config:"lazy_context_funcs"`
-	SideEffectFuncs  map[string]bool `config:"side_effect_funcs"`
+	Rule
+	LazyContextFuncs map[string]bool `json:"lazy_context_funcs" yaml:"lazy_context_funcs"`
+	SideEffectFuncs  map[string]bool `json:"side_effect_funcs" yaml:"side_effect_funcs"`
 }
 
 func (r *LazySideEffectsRule) Meta() Rule {
