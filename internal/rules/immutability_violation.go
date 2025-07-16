@@ -7,12 +7,16 @@ import (
 )
 
 var mutatingSymbols = map[string]struct{}{
-	"reset!":         {},
-	"swap!":          {},
+	"reset!": {},
+
 	"set!":           {},
 	"alter-var-root": {},
 	"agent-send":     {},
 	"agent-send-off": {},
+	"intern":         {},
+	"ref-set":        {},
+
+	"aset": {},
 }
 
 type ImmutabilityViolationRule struct {
@@ -25,16 +29,17 @@ func (r *ImmutabilityViolationRule) Meta() Rule {
 
 func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
 
-	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
-		calledFunc := node.Children[0].Value
-		if _, isMutating := mutatingSymbols[calledFunc]; isMutating {
-
-			return &Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Found direct state mutation function call: %s. This can lead to side effects and violates immutability principles.", calledFunc),
-				Filepath: filepath,
-				Location: node.Children[0].Location,
-				Severity: r.Severity,
+	if node.Type == reader.NodeList && len(node.Children) > 0 {
+		symbol := node.Children[0]
+		if symbol.Type == reader.NodeSymbol {
+			if _, isMutating := mutatingSymbols[symbol.Value]; isMutating {
+				return &Finding{
+					RuleID:   r.ID,
+					Message:  fmt.Sprintf("Found state mutation function call: `%s`. This can lead to side effects and violates immutability principles.", symbol.Value),
+					Filepath: filepath,
+					Location: symbol.Location,
+					Severity: r.Severity,
+				}
 			}
 		}
 	}
@@ -44,12 +49,12 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 		isInsideFunc = false
 	}
 
-	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "def" {
-
-		if isInsideFunc {
+	if node.Type == reader.NodeList && len(node.Children) > 0 {
+		symbol := node.Children[0]
+		if symbol.Type == reader.NodeSymbol && (symbol.Value == "def" || symbol.Value == "defonce") && isInsideFunc {
 			return &Finding{
 				RuleID:   r.ID,
-				Message:  "Found `def` usage inside a function. This mutates global state and should be avoided.",
+				Message:  fmt.Sprintf("Found `%s` inside a function. This mutates global state and should be avoided.", symbol.Value),
 				Filepath: filepath,
 				Location: node.Location,
 				Severity: r.Severity,
@@ -61,12 +66,11 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 }
 
 func init() {
-
 	defaultRule := &ImmutabilityViolationRule{
 		Rule: Rule{
 			ID:          "immutability-violation",
 			Name:        "Immutability Violation",
-			Description: "Detects direct state mutation (e.g., reset!, swap!, set!) or definition of global variables (`def`) inside functions. Both practices can lead to side effects and violate functional purity.",
+			Description: "Detects direct state mutation (e.g., reset!, swap!, set!, aset, etc.) or definition of global variables (def, defonce) inside functions. Both practices can lead to side effects and violate functional purity.",
 			Severity:    SeverityWarning,
 		},
 	}
