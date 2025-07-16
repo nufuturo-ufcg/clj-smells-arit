@@ -17,7 +17,7 @@ func TestImmutabilityViolation(t *testing.T) {
 
     for _, tc := range testCases {
         t.Run(tc.FileToAnalyze, func(t *testing.T) {
-				framework.DebugRuleTest(t, tc)
+				framework.RunRuleTest(t, tc)
         })
     }
 }
