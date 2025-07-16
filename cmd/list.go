@@ -8,13 +8,10 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-var listRulesCmd = &cobra.Command{
+var viewRulesCmd = &cobra.Command{
 	Use:   "list-rules",
-	Short: "List all available analysis rules",
-	Long: `List all available analysis rules with their descriptions.
-
-This command displays all registered rules that can be used for code analysis,
-including their IDs, names, descriptions, and default severity levels.`,
+	Short: "List a simplified list of all available analysis rules",
+	Long:  `List a simplified list of all available analysis rules.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		allRules := rules.AllRules()
@@ -32,10 +29,7 @@ including their IDs, names, descriptions, and default severity levels.`,
 
 		for _, rule := range allRules {
 			meta := rule.Meta()
-			fmt.Printf("ID: %s\n", meta.ID)
 			fmt.Printf("Name: %s\n", meta.Name)
-			fmt.Printf("Severity: %s\n", meta.Severity)
-			fmt.Printf("Description: %s\n", meta.Description)
 			fmt.Println("---")
 		}
 
@@ -45,5 +39,5 @@ including their IDs, names, descriptions, and default severity levels.`,
 
 func init() {
 
-	//rootCmd.AddCommand(listRulesCmd)
+	rootCmd.AddCommand(viewRulesCmd)
 }
