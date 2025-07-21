@@ -6,8 +6,6 @@ import (
 
 type LinearCollectionScanRule struct {
 	Rule
-	processedLines map[string]map[int]bool
-	lastFilepath   string
 }
 
 func NewLinearCollectionScanRule() *LinearCollectionScanRule {
@@ -18,7 +16,6 @@ func NewLinearCollectionScanRule() *LinearCollectionScanRule {
 			Description: "Detects inefficient linear scanning patterns in collections that can be optimized",
 			Severity:    SeverityInfo,
 		},
-		processedLines: make(map[string]map[int]bool),
 	}
 }
 
@@ -28,28 +25,6 @@ func (r *LinearCollectionScanRule) Meta() Rule {
 
 func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
-		return nil
-	}
-
-	currentLine := 0
-	if node.Location != nil {
-		currentLine = node.Location.StartLine
-	}
-
-	if currentLine <= 0 {
-		return nil
-	}
-
-	if r.lastFilepath != filepath {
-		r.processedLines = make(map[string]map[int]bool)
-		r.lastFilepath = filepath
-	}
-
-	if r.processedLines[filepath] == nil {
-		r.processedLines[filepath] = make(map[int]bool)
-	}
-
-	if r.processedLines[filepath][currentLine] {
 		return nil
 	}
 
@@ -218,12 +193,7 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[stri
 		finding = r.checkRedundant(node, filepath)
 	}
 
-	if finding != nil {
-		r.processedLines[filepath][currentLine] = true
-		return finding
-	}
-
-	return nil
+	return finding
 }
 
 func (r *LinearCollectionScanRule) checkManualLoops(node *reader.RichNode, filepath string) *Finding {
