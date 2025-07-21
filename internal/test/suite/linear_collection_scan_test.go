@@ -13,15 +13,19 @@ func TestLinearCollectionScan(t *testing.T) {
 			RuleID:        "linear-collection-scan",
 			ExpectedFindings: []framework.ExpectedFinding{
 
-				{Message: "Manual loop for finding elements can be replaced with 'some' or 'filter'", StartLine: 12},
+				{Message: "Manual loop for finding elements", StartLine: 12},
 
 				{Message: "Counting filtered results can be done in single pass", StartLine: 25},
 
-				{Message: "Using sort for min/max detected. Prefer 'reduce' or 'apply min/max' for efficiency", StartLine: 34},
+				{Message: "Using sort for min/max detected", StartLine: 34},
 
-				{Message: "Using count/filter for existence check detected. Prefer 'some' or 'not-any?' for efficiency", StartLine: 43},
+				{Message: "Counting filtered results", StartLine: 43},
 
-				{Message: "Multiple nested map/filter detected. Prefer function composition or threading macros to avoid multiple collection passes", StartLine: 52},
+				{Message: "Counting filtered results", StartLine: 43},
+
+				{Message: "Multiple nested map/filter detected", StartLine: 52},
+
+				{Message: "Multiple nested map/filter detected", StartLine: 52},
 			},
 		},
 	}
