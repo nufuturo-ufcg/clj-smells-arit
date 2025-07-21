@@ -3,6 +3,8 @@ package rules
 import (
 	"fmt"
 	"hash/fnv"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -10,33 +12,26 @@ import (
 
 	"github.com/cespare/goclj/parse"
 	"github.com/thlaurentino/arit/internal/reader"
+	"gopkg.in/yaml.v3"
 )
 
 type DuplicatedCodeAnalyzer struct {
-	mu                   sync.Mutex
-	exactCodeBlocks      map[string][]CodeBlockInfo
-	processedNodes       map[*reader.RichNode]string
-	nodeCounter          int64
-	totalBlocksProcessed int64
-
-	normalizationCache map[string]string
-	cacheHits          int64
-	cacheMisses        int64
+	mu              sync.Mutex
+	exactCodeBlocks map[string][]CodeBlockInfo
+	nodeCounter     int64
 
 	exactMinLines    int
 	exactMinTokens   int
-	maxCacheSize     int
 	maxBlocksPerFile int
 
 	semanticMapNormalization bool
-
-	detectFunctions  bool
-	detectCodeBlocks bool
+	detectFunctions          bool
+	detectCodeBlocks         bool
+	enabled                  bool
 }
 
 type CodeBlockInfo struct {
 	Hash          string
-	Content       string
 	NormalizedAST string
 	File          string
 	Location      *reader.Location
@@ -51,70 +46,98 @@ var (
 	unifiedAnalyzer     *DuplicatedCodeAnalyzer
 	analyzerInitOnce    sync.Once
 	numericLiteralRegex *regexp.Regexp
-	symbolPatterns      map[string]*regexp.Regexp
-	symbolReplacements  map[string]string
-	regexInitOnce       sync.Once
 )
 
-func initUnifiedRegexPatterns() {
-	regexInitOnce.Do(func() {
-		numericLiteralRegex = regexp.MustCompile(`^-?\d+(?:\.\d+)?$`)
-		symbolPatterns = make(map[string]*regexp.Regexp)
-		symbolReplacements = make(map[string]string)
+type SimpleConfig struct {
+	EnabledRules map[string]bool                   `yaml:"enabled-rules"`
+	RuleConfig   map[string]map[string]interface{} `yaml:"rule-config"`
+}
 
-		patterns := []struct {
-			pattern     string
-			replacement string
-		}{
+func loadSimpleConfig() *SimpleConfig {
 
-			{`^(?:data|info|result|response|request|payload)$`, "DATA_VAR"},
-			{`^(?:item|element|entry|record)s?$`, "ITEM_VAR"},
-			{`^(?:id|key|index|idx)$`, "ID_VAR"},
-			{`^(?:value|val|amount|total|sum)s?$`, "VALUE_VAR"},
-			{`^(?:name|title|label)$`, "NAME_VAR"},
-			{`^(?:user|customer|person|entity|account)s?$`, "ENTITY_VAR"},
-			{`^(?:config|settings|options|params?)$`, "CONFIG_VAR"},
-
-			{`^get-`, "GET_FUNC"},
-			{`^set-`, "SET_FUNC"},
-			{`^process-`, "PROCESS_FUNC"},
-			{`^create-`, "CREATE_FUNC"},
-			{`^validate-`, "VALIDATE_FUNC"},
-			{`^calculate-`, "CALC_FUNC"},
-			{`^(?:handle|manage|execute)-`, "PROCESS_FUNC"},
-			{`^(?:fetch|retrieve|load)-`, "GET_FUNC"},
-			{`^(?:save|store|persist|update)-`, "SET_FUNC"},
-			{`^(?:check|verify|ensure)-`, "VALIDATE_FUNC"},
-			{`^(?:compute|determine|find)-`, "CALC_FUNC"},
-			{`^(?:make|build|generate)-`, "CREATE_FUNC"},
-			{`^(?:parse|format|transform|convert)-`, "TRANSFORM_FUNC"},
+	dir, _ := os.Getwd()
+	for {
+		filePath := filepath.Join(dir, ".arit.yaml")
+		if _, err := os.Stat(filePath); err == nil {
+			data, err := os.ReadFile(filePath)
+			if err == nil {
+				var config SimpleConfig
+				if yaml.Unmarshal(data, &config) == nil {
+					return &config
+				}
+			}
+			break
 		}
 
-		for _, p := range patterns {
-			compiled := regexp.MustCompile(p.pattern)
-			symbolPatterns[p.pattern] = compiled
-			symbolReplacements[p.pattern] = p.replacement
+		parentDir := filepath.Dir(dir)
+		if parentDir == dir {
+			break
 		}
-	})
+		dir = parentDir
+	}
+
+	return &SimpleConfig{
+		EnabledRules: map[string]bool{"duplicated-code": true},
+		RuleConfig:   make(map[string]map[string]interface{}),
+	}
+}
+
+func initRegex() {
+	numericLiteralRegex = regexp.MustCompile(`^-?\d+(?:\.\d+)?$`)
 }
 
 func GetDuplicatedCodeAnalyzer() *DuplicatedCodeAnalyzer {
 	analyzerInitOnce.Do(func() {
-		initUnifiedRegexPatterns()
+		initRegex()
+
+		config := loadSimpleConfig()
+
+		enabled := true
+		if enabledVal, exists := config.EnabledRules["duplicated-code"]; exists {
+			enabled = enabledVal
+		}
+
+		detectFunctions := true
+		detectCodeBlocks := false
+		semanticMapNorm := true
+		exactMinLines := 1
+		exactMinTokens := 5
+		maxBlocksPerFile := 1000
+
+		if ruleCfg, exists := config.RuleConfig["duplicated-code"]; exists {
+			if val, ok := ruleCfg["detect_functions"].(bool); ok {
+				detectFunctions = val
+			}
+			if val, ok := ruleCfg["detect_code_blocks"].(bool); ok {
+				detectCodeBlocks = val
+			}
+			if val, ok := ruleCfg["semantic_map_normalization"].(bool); ok {
+				semanticMapNorm = val
+			}
+			if val, ok := ruleCfg["exact_min_lines"].(int); ok {
+				exactMinLines = val
+			}
+			if val, ok := ruleCfg["exact_min_tokens"].(int); ok {
+				exactMinTokens = val
+			}
+			if val, ok := ruleCfg["max_blocks_per_file"].(int); ok {
+				maxBlocksPerFile = val
+			}
+		}
+
 		unifiedAnalyzer = &DuplicatedCodeAnalyzer{
-			exactCodeBlocks:    make(map[string][]CodeBlockInfo),
-			processedNodes:     make(map[*reader.RichNode]string),
-			normalizationCache: make(map[string]string),
+			exactCodeBlocks: make(map[string][]CodeBlockInfo),
+			nodeCounter:     0,
 
-			exactMinLines:    1,
-			exactMinTokens:   5,
-			maxCacheSize:     10000,
-			maxBlocksPerFile: 1000,
+			exactMinLines:    exactMinLines,
+			exactMinTokens:   exactMinTokens,
+			maxBlocksPerFile: maxBlocksPerFile,
 
-			semanticMapNormalization: true,
+			semanticMapNormalization: semanticMapNorm,
 
-			detectFunctions:  true,
-			detectCodeBlocks: false,
+			detectFunctions:  detectFunctions,
+			detectCodeBlocks: detectCodeBlocks,
+			enabled:          enabled,
 		}
 	})
 	return unifiedAnalyzer
@@ -128,18 +151,6 @@ func (d *DuplicatedCodeAnalyzer) SetDetectionMode(functions, codeBlocks bool) {
 	d.detectCodeBlocks = codeBlocks
 }
 
-func (d *DuplicatedCodeAnalyzer) DetectOnlyFunctions() {
-	d.SetDetectionMode(true, false)
-}
-
-func (d *DuplicatedCodeAnalyzer) DetectOnlyCodeBlocks() {
-	d.SetDetectionMode(false, true)
-}
-
-func (d *DuplicatedCodeAnalyzer) DetectBoth() {
-	d.SetDetectionMode(true, true)
-}
-
 func (d *DuplicatedCodeAnalyzer) GetDetectionMode() (functions, codeBlocks bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -147,7 +158,24 @@ func (d *DuplicatedCodeAnalyzer) GetDetectionMode() (functions, codeBlocks bool)
 	return d.detectFunctions, d.detectCodeBlocks
 }
 
+func (d *DuplicatedCodeAnalyzer) SetEnabled(enabled bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.enabled = enabled
+}
+
+func (d *DuplicatedCodeAnalyzer) IsEnabled() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.enabled
+}
+
 func (d *DuplicatedCodeAnalyzer) AnalyzeTree(_ *parse.Tree, richNodes []*reader.RichNode, filepath string) []Finding {
+
+	if !d.IsEnabled() {
+		return []Finding{}
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -258,7 +286,6 @@ func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepa
 	d.nodeCounter++
 	nodeID := d.nodeCounter
 
-	content := d.extractNodeContent(node)
 	lines := d.calculateLines(node)
 	tokens := d.calculateTokens(node)
 
@@ -273,7 +300,6 @@ func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepa
 
 	block := CodeBlockInfo{
 		Hash:          exactHash,
-		Content:       content,
 		NormalizedAST: exactNormalized,
 		File:          filepath,
 		Location:      node.Location,
@@ -286,7 +312,6 @@ func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepa
 	*blocks = append(*blocks, block)
 
 	*blockCount++
-	d.totalBlocksProcessed++
 }
 
 type mapPair struct {
@@ -370,12 +395,7 @@ func (d *DuplicatedCodeAnalyzer) extractAndSortMapPairs(children []*reader.RichN
 			key := children[i]
 			value := children[i+1]
 
-			keyString := ""
-			if key.Type == reader.NodeKeyword {
-				keyString = key.Value
-			} else {
-				keyString = d.extractNodeContent(key)
-			}
+			keyString := key.Value
 
 			pairs = append(pairs, mapPair{
 				key:       key,
@@ -520,13 +540,7 @@ func (d *DuplicatedCodeAnalyzer) Reset() {
 	defer d.mu.Unlock()
 
 	d.exactCodeBlocks = make(map[string][]CodeBlockInfo)
-	d.processedNodes = make(map[*reader.RichNode]string)
-	d.normalizationCache = make(map[string]string)
-
 	d.nodeCounter = 0
-	d.totalBlocksProcessed = 0
-	d.cacheHits = 0
-	d.cacheMisses = 0
 }
 
 func (d *DuplicatedCodeAnalyzer) GetStatistics() map[string]interface{} {
@@ -543,12 +557,9 @@ func (d *DuplicatedCodeAnalyzer) GetStatistics() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_exact_blocks":       totalExactBlocks,
-		"duplicated_exact_hashes":  duplicatedExactHashes,
-		"total_blocks_processed":   d.totalBlocksProcessed,
-		"normalization_cache_hits": d.cacheHits,
-		"normalization_cache_miss": d.cacheMisses,
-		"cache_size":               len(d.normalizationCache),
+		"total_exact_blocks":      totalExactBlocks,
+		"duplicated_exact_hashes": duplicatedExactHashes,
+		"total_blocks_processed":  d.nodeCounter,
 	}
 }
 
@@ -557,68 +568,6 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-type DuplicatedCodeExactRule struct {
-	Rule
-	DetectFunctions          bool `json:"detect_functions" yaml:"detect_functions"`
-	DetectCodeBlocks         bool `json:"detect_code_blocks" yaml:"detect_code_blocks"`
-	SemanticMapNormalization bool `json:"semantic_map_normalization" yaml:"semantic_map_normalization"`
-	ExactMinLines            int  `json:"exact_min_lines" yaml:"exact_min_lines"`
-	ExactMinTokens           int  `json:"exact_min_tokens" yaml:"exact_min_tokens"`
-	MaxBlocksPerFile         int  `json:"max_blocks_per_file" yaml:"max_blocks_per_file"`
-}
-
-func (r *DuplicatedCodeExactRule) Meta() Rule {
-	return r.Rule
-}
-
-func (r *DuplicatedCodeExactRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-
-	globalAnalyzer := GetDuplicatedCodeAnalyzer()
-	globalAnalyzer.SetDetectionMode(r.DetectFunctions, r.DetectCodeBlocks)
-	globalAnalyzer.semanticMapNormalization = r.SemanticMapNormalization
-	globalAnalyzer.exactMinLines = r.ExactMinLines
-	globalAnalyzer.exactMinTokens = r.ExactMinTokens
-	globalAnalyzer.maxBlocksPerFile = r.MaxBlocksPerFile
-
-	return nil
-}
-
-func (r *DuplicatedCodeExactRule) getConfiguredAnalyzer() *DuplicatedCodeAnalyzer {
-	analyzer := &DuplicatedCodeAnalyzer{
-		exactCodeBlocks:    make(map[string][]CodeBlockInfo),
-		processedNodes:     make(map[*reader.RichNode]string),
-		normalizationCache: make(map[string]string),
-
-		exactMinLines:            r.ExactMinLines,
-		exactMinTokens:           r.ExactMinTokens,
-		maxBlocksPerFile:         r.MaxBlocksPerFile,
-		semanticMapNormalization: r.SemanticMapNormalization,
-		detectFunctions:          r.DetectFunctions,
-		detectCodeBlocks:         r.DetectCodeBlocks,
-	}
-
-	return analyzer
-}
-
-func init() {
-
-	RegisterRule(&DuplicatedCodeExactRule{
-		Rule: Rule{
-			ID:          "duplicated-code",
-			Name:        "Exact Code Duplication",
-			Description: "Detects exact duplicated code blocks that are identical in structure and content",
-			Severity:    SeverityWarning,
-		},
-
-		DetectFunctions:          true,
-		DetectCodeBlocks:         false,
-		SemanticMapNormalization: true,
-		ExactMinLines:            1,
-		ExactMinTokens:           5,
-		MaxBlocksPerFile:         1000,
-	})
 }
 
 func (d *DuplicatedCodeAnalyzer) isCoreFunctionSymbol(symbol string) bool {
@@ -665,49 +614,4 @@ func (d *DuplicatedCodeAnalyzer) calculateTokens(node *reader.RichNode) int {
 	}
 	visit(node)
 	return count
-}
-
-func (d *DuplicatedCodeAnalyzer) extractNodeContent(node *reader.RichNode) string {
-	if node == nil {
-		return ""
-	}
-
-	var parts []string
-	switch node.Type {
-	case reader.NodeSymbol, reader.NodeKeyword, reader.NodeString:
-		parts = append(parts, node.Value)
-	case reader.NodeList:
-		parts = append(parts, "(")
-		for i, child := range node.Children {
-			if i > 0 {
-				parts = append(parts, " ")
-			}
-			parts = append(parts, d.extractNodeContent(child))
-		}
-		parts = append(parts, ")")
-	case reader.NodeVector:
-		parts = append(parts, "[")
-		for i, child := range node.Children {
-			if i > 0 {
-				parts = append(parts, " ")
-			}
-			parts = append(parts, d.extractNodeContent(child))
-		}
-		parts = append(parts, "]")
-	case reader.NodeMap:
-		parts = append(parts, "{")
-		for i, child := range node.Children {
-			if i > 0 {
-				parts = append(parts, " ")
-			}
-			parts = append(parts, d.extractNodeContent(child))
-		}
-		parts = append(parts, "}")
-	default:
-		if node.Value != "" {
-			parts = append(parts, node.Value)
-		}
-	}
-
-	return strings.Join(parts, "")
 }
