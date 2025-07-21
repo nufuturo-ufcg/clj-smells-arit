@@ -232,7 +232,7 @@ func (r *PrimitiveObsessionParamsRule) Check(node *reader.RichNode, context map[
 func init() {
 
 	defaultRule := &PrimitiveObsessionParamsRule{
-		MinConsecutivePrimitives: 3,
+		MinConsecutivePrimitives: 8,
 	}
 	RegisterRule(defaultRule)
 }

@@ -94,7 +94,7 @@ func init() {
 			Description: "Functions should be kept short and focused. Long functions are harder to understand, test, and maintain.",
 			Severity:    SeverityWarning,
 		},
-		MaxLines: 58,
+		MaxLines: 57,
 	}
 
 	RegisterRule(defaultRule)
