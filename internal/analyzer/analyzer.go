@@ -590,11 +590,30 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		childContext["isInEagerContext"] = isParentEager || isNodeEagerConsumer(node)
 
 		parentIsInsideFunc, _ := currentContext["isInsideFunction"].(bool)
+		parentIsInsideLet, _ := currentContext["isInsideLet"].(bool)
+		parentIsInsideLoop, _ := currentContext["isInsideLoop"].(bool)
+		parentIsInsideBinding, _ := currentContext["isInsideBinding"].(bool)
+		parentIsInsideDosync, _ := currentContext["isInsideDosync"].(bool)
+
 		currentNodeDefinesFunc := false
+		currentNodeDefinesLet := false
+		currentNodeDefinesLoop := false
+		currentNodeDefinesBinding := false
+		currentNodeDefinesDosync := false
+
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			nodeVal := node.Children[0].Value
-			if nodeVal == "defn" || nodeVal == "defn-" || nodeVal == "fn" {
+			switch nodeVal {
+			case "defn", "defn-", "fn":
 				currentNodeDefinesFunc = true
+			case "let":
+				currentNodeDefinesLet = true
+			case "loop":
+				currentNodeDefinesLoop = true
+			case "binding":
+				currentNodeDefinesBinding = true
+			case "dosync":
+				currentNodeDefinesDosync = true
 			}
 		}
 
@@ -615,7 +634,6 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			childIsInsideFunc := parentIsInsideFunc
 			funcBodyStartIndex := -1
 			if currentNodeDefinesFunc {
-
 				funcBodyStartIndex = 2
 				if node.Children[0].Value == "fn" {
 					funcBodyStartIndex = 1
@@ -643,9 +661,32 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				if idx >= funcBodyStartIndex {
 					childIsInsideFunc = true
 				}
-
 			}
 			traversalContext["isInsideFunction"] = childIsInsideFunc
+
+			childIsInsideLet := parentIsInsideLet
+			if currentNodeDefinesLet && idx > 0 {
+				childIsInsideLet = true
+			}
+			traversalContext["isInsideLet"] = childIsInsideLet
+
+			childIsInsideLoop := parentIsInsideLoop
+			if currentNodeDefinesLoop && idx > 0 {
+				childIsInsideLoop = true
+			}
+			traversalContext["isInsideLoop"] = childIsInsideLoop
+
+			childIsInsideBinding := parentIsInsideBinding
+			if currentNodeDefinesBinding && idx > 0 {
+				childIsInsideBinding = true
+			}
+			traversalContext["isInsideBinding"] = childIsInsideBinding
+
+			childIsInsideDosync := parentIsInsideDosync
+			if currentNodeDefinesDosync && idx > 0 {
+				childIsInsideDosync = true
+			}
+			traversalContext["isInsideDosync"] = childIsInsideDosync
 
 			traverseAndAnalyze(child, traversalContext, currentChildScope)
 		}
@@ -655,6 +696,10 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	initialContext := map[string]interface{}{
 		"isInEagerContext": false,
 		"isInsideFunction": false,
+		"isInsideLet":      false,
+		"isInsideLoop":     false,
+		"isInsideBinding":  false,
+		"isInsideDosync":   false,
 	}
 
 	for _, rootNode := range richRootNodes {
