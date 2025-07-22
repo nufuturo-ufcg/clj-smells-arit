@@ -21,7 +21,7 @@
 (defn mutate-java-field [^java.util.concurrent.atomic.AtomicInteger ai]
   (set! (.value ai) 10))
 
-;; Example 5: Using intern to dynamically redefine a var inside a function(not-detected)
+;; Example 5: Using intern to dynamically redefine a var inside a function(
 (defn redefine-var []
   (intern *ns* 'my-var 42))
 
@@ -50,14 +50,14 @@
 (defn mutate-array [arr idx val]
   (aset arr idx val))
 
-;; Example 11: Using a ref and dosync but changing state in improper place (side effect hidden) (not-detected)
+;; Example 11: Using a ref and dosync but changing state in improper place (side effect hidden) (not-detected) (Analisar)
 (def my-ref (ref 0))
 (defn bad-ref-update []
   (dosync
     (ref-set my-ref 42)
     (println "Ref updated")))
 
-;; Example 12: Using agent with improper side effect (printing inside send) (not-detected)
+;; Example 12: Using agent with improper side effect (printing inside send) (not-detected) (Analisar)
 (def my-agent (agent 0))
 (defn bad-agent-update []
   (send my-agent (fn [state]

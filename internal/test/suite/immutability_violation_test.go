@@ -10,7 +10,7 @@ func TestImmutabilityViolation(t *testing.T) {
         {
             FileToAnalyze: "immutability_violation.clj",
             RuleID:        "immutability-violation",  
-            ExpectedFindings: []framework.ExpectedFinding{
+
             },
         },
     }
