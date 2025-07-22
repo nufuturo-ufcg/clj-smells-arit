@@ -413,19 +413,17 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 		}
 
 		if node.Type == reader.NodeSymbol {
-			if !isDefinitionSite(node) {
-				symbolName := node.Value
-				if info, found := currentScope.findLocalOrParentDef(symbolName); found {
-					node.ResolvedDefinition = info.Definition
-					node.SymbolRef = info
-					info.IsUsed = true
+			symbolName := node.Value
+			if info, found := currentScope.findLocalOrParentDef(symbolName); found {
+				node.ResolvedDefinition = info.Definition
+				node.SymbolRef = info
+				info.IsUsed = true
 
-				} else if aliasInfo, aliasFound := currentScope.findAlias(symbolName); aliasFound {
-					node.SymbolRef = aliasInfo
+			} else if aliasInfo, aliasFound := currentScope.findAlias(symbolName); aliasFound {
+				node.SymbolRef = aliasInfo
 
-				} else {
+			} else {
 
-				}
 			}
 		}
 
@@ -621,7 +619,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			currentChildScope := nextScope
 
 			if node.Type == reader.NodeList && len(node.Children) > 0 && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
-				if isLetBindingValue(node, child) {
+				if idx == 1 && child.Type == reader.NodeVector {
 					currentChildScope = scope
 				}
 			}
@@ -857,30 +855,6 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 	return false
 }
 
-func isDefinitionSite(node *reader.RichNode) bool {
-	if node == nil || node.Type != reader.NodeSymbol {
-		return false
-	}
-
-	return false
-}
-
-func isLetBindingValue(letNode, childNode *reader.RichNode) bool {
-	if letNode == nil || childNode == nil || letNode.Type != reader.NodeList || len(letNode.Children) < 2 {
-		return false
-	}
-	funcName := letNode.Children[0].Value
-	if funcName != "let" && funcName != "loop" {
-		return false
-	}
-	bindingsVecNode := letNode.Children[1]
-	if bindingsVecNode.Type != reader.NodeVector {
-		return false
-	}
-
-	return false
-}
-
 func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []ReferredSymbol, error) {
 	if nsNode == nil || nsNode.Type != reader.NodeList || len(nsNode.Children) == 0 || nsNode.Children[0].Value != "ns" {
 		return "", nil, nil, fmt.Errorf("node is not a valid ns form")
@@ -1050,11 +1024,6 @@ func AnalyzeFile(filepath string, cfg *config.Config) (AnalysisResult, error) {
 			concreteFindings = append(concreteFindings, *fptr)
 		}
 	}
-
-	duplicatedAnalyzer := rules.GetDuplicatedCodeAnalyzer()
-
-	duplicatedFindings := duplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
-	concreteFindings = append(concreteFindings, duplicatedFindings...)
 
 	return AnalysisResult{
 		Findings:        concreteFindings,
