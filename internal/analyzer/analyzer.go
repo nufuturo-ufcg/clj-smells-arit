@@ -413,19 +413,17 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 		}
 
 		if node.Type == reader.NodeSymbol {
-			if !isDefinitionSite(node) {
-				symbolName := node.Value
-				if info, found := currentScope.findLocalOrParentDef(symbolName); found {
-					node.ResolvedDefinition = info.Definition
-					node.SymbolRef = info
-					info.IsUsed = true
+			symbolName := node.Value
+			if info, found := currentScope.findLocalOrParentDef(symbolName); found {
+				node.ResolvedDefinition = info.Definition
+				node.SymbolRef = info
+				info.IsUsed = true
 
-				} else if aliasInfo, aliasFound := currentScope.findAlias(symbolName); aliasFound {
-					node.SymbolRef = aliasInfo
+			} else if aliasInfo, aliasFound := currentScope.findAlias(symbolName); aliasFound {
+				node.SymbolRef = aliasInfo
 
-				} else {
+			} else {
 
-				}
 			}
 		}
 
@@ -590,11 +588,30 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		childContext["isInEagerContext"] = isParentEager || isNodeEagerConsumer(node)
 
 		parentIsInsideFunc, _ := currentContext["isInsideFunction"].(bool)
+		parentIsInsideLet, _ := currentContext["isInsideLet"].(bool)
+		parentIsInsideLoop, _ := currentContext["isInsideLoop"].(bool)
+		parentIsInsideBinding, _ := currentContext["isInsideBinding"].(bool)
+		parentIsInsideDosync, _ := currentContext["isInsideDosync"].(bool)
+
 		currentNodeDefinesFunc := false
+		currentNodeDefinesLet := false
+		currentNodeDefinesLoop := false
+		currentNodeDefinesBinding := false
+		currentNodeDefinesDosync := false
+
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			nodeVal := node.Children[0].Value
-			if nodeVal == "defn" || nodeVal == "defn-" || nodeVal == "fn" {
+			switch nodeVal {
+			case "defn", "defn-", "fn":
 				currentNodeDefinesFunc = true
+			case "let":
+				currentNodeDefinesLet = true
+			case "loop":
+				currentNodeDefinesLoop = true
+			case "binding":
+				currentNodeDefinesBinding = true
+			case "dosync":
+				currentNodeDefinesDosync = true
 			}
 		}
 
@@ -602,7 +619,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			currentChildScope := nextScope
 
 			if node.Type == reader.NodeList && len(node.Children) > 0 && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
-				if isLetBindingValue(node, child) {
+				if idx == 1 && child.Type == reader.NodeVector {
 					currentChildScope = scope
 				}
 			}
@@ -615,7 +632,6 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			childIsInsideFunc := parentIsInsideFunc
 			funcBodyStartIndex := -1
 			if currentNodeDefinesFunc {
-
 				funcBodyStartIndex = 2
 				if node.Children[0].Value == "fn" {
 					funcBodyStartIndex = 1
@@ -643,9 +659,32 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				if idx >= funcBodyStartIndex {
 					childIsInsideFunc = true
 				}
-
 			}
 			traversalContext["isInsideFunction"] = childIsInsideFunc
+
+			childIsInsideLet := parentIsInsideLet
+			if currentNodeDefinesLet && idx > 0 {
+				childIsInsideLet = true
+			}
+			traversalContext["isInsideLet"] = childIsInsideLet
+
+			childIsInsideLoop := parentIsInsideLoop
+			if currentNodeDefinesLoop && idx > 0 {
+				childIsInsideLoop = true
+			}
+			traversalContext["isInsideLoop"] = childIsInsideLoop
+
+			childIsInsideBinding := parentIsInsideBinding
+			if currentNodeDefinesBinding && idx > 0 {
+				childIsInsideBinding = true
+			}
+			traversalContext["isInsideBinding"] = childIsInsideBinding
+
+			childIsInsideDosync := parentIsInsideDosync
+			if currentNodeDefinesDosync && idx > 0 {
+				childIsInsideDosync = true
+			}
+			traversalContext["isInsideDosync"] = childIsInsideDosync
 
 			traverseAndAnalyze(child, traversalContext, currentChildScope)
 		}
@@ -655,6 +694,10 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	initialContext := map[string]interface{}{
 		"isInEagerContext": false,
 		"isInsideFunction": false,
+		"isInsideLet":      false,
+		"isInsideLoop":     false,
+		"isInsideBinding":  false,
+		"isInsideDosync":   false,
 	}
 
 	for _, rootNode := range richRootNodes {
@@ -809,30 +852,6 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 			return true
 		}
 	}
-	return false
-}
-
-func isDefinitionSite(node *reader.RichNode) bool {
-	if node == nil || node.Type != reader.NodeSymbol {
-		return false
-	}
-
-	return false
-}
-
-func isLetBindingValue(letNode, childNode *reader.RichNode) bool {
-	if letNode == nil || childNode == nil || letNode.Type != reader.NodeList || len(letNode.Children) < 2 {
-		return false
-	}
-	funcName := letNode.Children[0].Value
-	if funcName != "let" && funcName != "loop" {
-		return false
-	}
-	bindingsVecNode := letNode.Children[1]
-	if bindingsVecNode.Type != reader.NodeVector {
-		return false
-	}
-
 	return false
 }
 
@@ -1005,11 +1024,6 @@ func AnalyzeFile(filepath string, cfg *config.Config) (AnalysisResult, error) {
 			concreteFindings = append(concreteFindings, *fptr)
 		}
 	}
-
-	duplicatedAnalyzer := rules.GetDuplicatedCodeAnalyzer()
-
-	duplicatedFindings := duplicatedAnalyzer.AnalyzeTree(tree, richRoots, filepath)
-	concreteFindings = append(concreteFindings, duplicatedFindings...)
 
 	return AnalysisResult{
 		Findings:        concreteFindings,
