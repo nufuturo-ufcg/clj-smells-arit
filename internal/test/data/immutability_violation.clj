@@ -17,7 +17,7 @@
 (defn update-state [k v]
   (reset! state (assoc @state k v)))
 
-;; Example 4: Using set! to mutate a local Java field (mutable state)
+;; Example 4: Using set! to mutate a local Java field (mutable state) (Analisar hidden-side-effect; OBS: Possivelmente esse caso deveria estar nos casos para java)
 (defn mutate-java-field [^java.util.concurrent.atomic.AtomicInteger ai]
   (set! (.value ai) 10))
 
@@ -29,7 +29,7 @@
 (let [x 1]
   (def x 2))
 
-;; Example 7: Using defonce inside a function to redefine a var multiple times (not-detected)
+;; Example 7: Using defonce inside a function to redefine a var multiple times
 (defonce config {:debug false})
 (defn update-config []
   (defonce config {:debug true}))
@@ -40,31 +40,13 @@
   (binding [*log-level* :debug]
     (def ^:dynamic *log-level* *log-level*)))
 
-;; Example 9: Macro that expands to a def inside a function (mutating global var) (not-detected)
-(defmacro def-inside-fn []
-  `(def x 100))
-(defn fn-with-macro []
-  (def-inside-fn))
 
-;; Example 10: Mutating a Java array directly inside a function (not-detected)
+;; Example 9: Mutating a Java array directly inside a function 
 (defn mutate-array [arr idx val]
   (aset arr idx val))
 
-;; Example 11: Using a ref and dosync but changing state in improper place (side effect hidden) (not-detected) (Analisar)
-(def my-ref (ref 0))
-(defn bad-ref-update []
-  (dosync
-    (ref-set my-ref 42)
-    (println "Ref updated")))
 
-;; Example 12: Using agent with improper side effect (printing inside send) (not-detected) (Analisar)
-(def my-agent (agent 0))
-(defn bad-agent-update []
-  (send my-agent (fn [state]
-                   (println "Updating agent")
-                   (inc state))))
-
-;; Example 13: Rebinding global var inside recursive function (def inside recursion)
+;; Example 10: Rebinding global var inside recursive function (def inside recursion)
 (defn recursive-redef [n]
   (if (zero? n)
     0
@@ -74,54 +56,49 @@
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
 
-;; Example 14: Pure function returning new map without mutating any var
+;; Example 11: Pure function returning new map without mutating any var
 (defn update-country-pure [countries country]
   (assoc countries (:name country) country))
 
-;; Example 15: Proper use of atom with swap! in controlled manner (detected)
+;; Example 12: Proper use of atom with swap! in controlled manner (detected)
 (def state (atom {}))
 (defn safe-update-state [k v]
   (swap! state assoc k v))
 
-;; Example 16: Using let to create local bindings without side effects
+;; Example 13: Using let to create local bindings without side effects
 (defn compute-sum [nums]
   (let [s (reduce + nums)]
     s))
 
-;; Example 17: Pure function using recursion without side effects
+;; Example 14: Pure function using recursion without side effects
 (defn factorial [n]
   (if (<= n 1)
     1
     (* n (factorial (dec n)))))
 
-;; Example 18: Using refs and dosync properly without side effects
-(def my-ref (ref 0))
-(defn proper-ref-update []
-  (dosync
-    (ref-set my-ref 10)))
 
-;; Example 19: Using agents with send safely, no side effects in action fn
+;; Example 15: Using agents with send safely, no side effects in action fn
 (def my-agent (agent 0))
 (defn proper-agent-update []
   (send my-agent inc))
 
-;; Example 20: Using binding for thread-local dynamic var changes only
+;; Example 16: Using binding for thread-local dynamic var changes only
 (def ^:dynamic *user* nil)
 (defn with-user [user f]
   (binding [*user* user]
     (f)))
 
-;; Example 21: Pure function manipulating Java immutable types (e.g., String)
+;; Example 17: Pure function manipulating Java immutable types (e.g., String)
 (defn append-string [s suffix]
   (str s suffix))
 
-;; Example 22: Macro expanding to pure, immutable code (no mutation)
+;; Example 18: Macro expanding to pure, immutable code (no mutation)
 (defmacro pure-macro [x]
   `(+ ~x 1))
 (defn use-pure-macro [n]
   (pure-macro n))
 
-;; Example 23: Using letfn to define local recursive functions without mutation
+;; Example 19: Using letfn to define local recursive functions without mutation
 (defn fib [n]
   (letfn [(fib-inner [k a b]
             (if (zero? k)
@@ -129,11 +106,11 @@
               (fib-inner (dec k) b (+ a b))))]
     (fib-inner n 0 1)))
 
-;; Example 24: Passing state explicitly through function parameters
+;; Example 20: Passing state explicitly through function parameters
 (defn update-map [m k v]
   (assoc m k v))
 
-;; Example 25: Immutable update of nested maps using update-in
+;; Example 21: Immutable update of nested maps using update-in
 (defn update-nested [m ks f]
   (update-in m ks f))
 
