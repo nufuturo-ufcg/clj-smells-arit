@@ -6,11 +6,14 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-type RedundantDoBlockRule struct{}
+type RedundantDoBlockRule struct {
+	Rule
+}
 
 func (r *RedundantDoBlockRule) Meta() Rule {
 	return Rule{
 		ID:          "redundant-do-block",
+		Name:        "Redundant `do` Block",
 		Description: "Checks for redundant `do` blocks within forms that already imply sequential execution of their body or clauses.",
 		Severity:    SeverityInfo,
 	}

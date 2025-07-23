@@ -1,8 +1,10 @@
 package rules
 
 import (
-	"crypto/md5"
 	"fmt"
+	"hash/fnv"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -10,29 +12,26 @@ import (
 
 	"github.com/cespare/goclj/parse"
 	"github.com/thlaurentino/arit/internal/reader"
+	"gopkg.in/yaml.v3"
 )
 
 type DuplicatedCodeAnalyzer struct {
-	mu                   sync.Mutex
-	exactCodeBlocks      map[string][]CodeBlockInfo
-	similarCodeBlocks    map[string][]CodeBlockInfo
-	processedNodes       map[*reader.RichNode]string
-	nodeCounter          int64
-	totalBlocksProcessed int64
+	mu              sync.Mutex
+	exactCodeBlocks map[string][]CodeBlockInfo
+	nodeCounter     int64
 
-	enableExact      bool
-	enableSimilar    bool
 	exactMinLines    int
 	exactMinTokens   int
-	similarMinLines  int
-	similarMinTokens int
-	maxCacheSize     int
 	maxBlocksPerFile int
+
+	semanticMapNormalization bool
+	detectFunctions          bool
+	detectCodeBlocks         bool
+	enabled                  bool
 }
 
 type CodeBlockInfo struct {
 	Hash          string
-	Content       string
 	NormalizedAST string
 	File          string
 	Location      *reader.Location
@@ -40,7 +39,6 @@ type CodeBlockInfo struct {
 	Tokens        int
 	BlockType     string
 	Context       string
-	DetectionType string
 	NodeID        int64
 }
 
@@ -48,75 +46,136 @@ var (
 	unifiedAnalyzer     *DuplicatedCodeAnalyzer
 	analyzerInitOnce    sync.Once
 	numericLiteralRegex *regexp.Regexp
-	symbolPatterns      map[string]*regexp.Regexp
-	symbolReplacements  map[string]string
-	regexInitOnce       sync.Once
 )
 
-func initUnifiedRegexPatterns() {
-	regexInitOnce.Do(func() {
-		numericLiteralRegex = regexp.MustCompile(`^-?\d+(?:\.\d+)?$`)
-		symbolPatterns = make(map[string]*regexp.Regexp)
-		symbolReplacements = make(map[string]string)
+type SimpleConfig struct {
+	EnabledRules map[string]bool                   `yaml:"enabled-rules"`
+	RuleConfig   map[string]map[string]interface{} `yaml:"rule-config"`
+}
 
-		patterns := []struct {
-			pattern     string
-			replacement string
-		}{
+func loadSimpleConfig() *SimpleConfig {
 
-			{`^(?:data|info|result|response|request|payload)$`, "DATA_VAR"},
-			{`^(?:item|element|entry|record)s?$`, "ITEM_VAR"},
-			{`^(?:id|key|index|idx)$`, "ID_VAR"},
-			{`^(?:value|val|amount|total|sum)s?$`, "VALUE_VAR"},
-			{`^(?:name|title|label)$`, "NAME_VAR"},
-			{`^(?:user|customer|person|entity|account)s?$`, "ENTITY_VAR"},
-			{`^(?:config|settings|options|params?)$`, "CONFIG_VAR"},
-
-			{`^get-`, "GET_FUNC"},
-			{`^set-`, "SET_FUNC"},
-			{`^process-`, "PROCESS_FUNC"},
-			{`^create-`, "CREATE_FUNC"},
-			{`^validate-`, "VALIDATE_FUNC"},
-			{`^calculate-`, "CALC_FUNC"},
-			{`^(?:handle|manage|execute)-`, "PROCESS_FUNC"},
-			{`^(?:fetch|retrieve|load)-`, "GET_FUNC"},
-			{`^(?:save|store|persist|update)-`, "SET_FUNC"},
-			{`^(?:check|verify|ensure)-`, "VALIDATE_FUNC"},
-			{`^(?:compute|determine|find)-`, "CALC_FUNC"},
-			{`^(?:make|build|generate)-`, "CREATE_FUNC"},
-			{`^(?:parse|format|transform|convert)-`, "TRANSFORM_FUNC"},
+	dir, _ := os.Getwd()
+	for {
+		filePath := filepath.Join(dir, ".arit.yaml")
+		if _, err := os.Stat(filePath); err == nil {
+			data, err := os.ReadFile(filePath)
+			if err == nil {
+				var config SimpleConfig
+				if yaml.Unmarshal(data, &config) == nil {
+					return &config
+				}
+			}
+			break
 		}
 
-		for _, p := range patterns {
-			compiled := regexp.MustCompile(p.pattern)
-			symbolPatterns[p.pattern] = compiled
-			symbolReplacements[p.pattern] = p.replacement
+		parentDir := filepath.Dir(dir)
+		if parentDir == dir {
+			break
 		}
-	})
+		dir = parentDir
+	}
+
+	return &SimpleConfig{
+		EnabledRules: map[string]bool{"duplicated-code": true},
+		RuleConfig:   make(map[string]map[string]interface{}),
+	}
+}
+
+func initRegex() {
+	numericLiteralRegex = regexp.MustCompile(`^-?\d+(?:\.\d+)?$`)
 }
 
 func GetDuplicatedCodeAnalyzer() *DuplicatedCodeAnalyzer {
 	analyzerInitOnce.Do(func() {
-		initUnifiedRegexPatterns()
-		unifiedAnalyzer = &DuplicatedCodeAnalyzer{
-			exactCodeBlocks:   make(map[string][]CodeBlockInfo),
-			similarCodeBlocks: make(map[string][]CodeBlockInfo),
-			processedNodes:    make(map[*reader.RichNode]string),
+		initRegex()
 
-			enableExact:      true,
-			enableSimilar:    true,
-			exactMinLines:    8,
-			exactMinTokens:   30,
-			similarMinLines:  5,
-			similarMinTokens: 20,
-			maxCacheSize:     10000,
-			maxBlocksPerFile: 1000,
+		config := loadSimpleConfig()
+
+		enabled := true
+		if enabledVal, exists := config.EnabledRules["duplicated-code"]; exists {
+			enabled = enabledVal
+		}
+
+		detectFunctions := true
+		detectCodeBlocks := false
+		semanticMapNorm := true
+		exactMinLines := 1
+		exactMinTokens := 5
+		maxBlocksPerFile := 1000
+
+		if ruleCfg, exists := config.RuleConfig["duplicated-code"]; exists {
+			if val, ok := ruleCfg["detect_functions"].(bool); ok {
+				detectFunctions = val
+			}
+			if val, ok := ruleCfg["detect_code_blocks"].(bool); ok {
+				detectCodeBlocks = val
+			}
+			if val, ok := ruleCfg["semantic_map_normalization"].(bool); ok {
+				semanticMapNorm = val
+			}
+			if val, ok := ruleCfg["exact_min_lines"].(int); ok {
+				exactMinLines = val
+			}
+			if val, ok := ruleCfg["exact_min_tokens"].(int); ok {
+				exactMinTokens = val
+			}
+			if val, ok := ruleCfg["max_blocks_per_file"].(int); ok {
+				maxBlocksPerFile = val
+			}
+		}
+
+		unifiedAnalyzer = &DuplicatedCodeAnalyzer{
+			exactCodeBlocks: make(map[string][]CodeBlockInfo),
+			nodeCounter:     0,
+
+			exactMinLines:    exactMinLines,
+			exactMinTokens:   exactMinTokens,
+			maxBlocksPerFile: maxBlocksPerFile,
+
+			semanticMapNormalization: semanticMapNorm,
+
+			detectFunctions:  detectFunctions,
+			detectCodeBlocks: detectCodeBlocks,
+			enabled:          enabled,
 		}
 	})
 	return unifiedAnalyzer
 }
 
+func (d *DuplicatedCodeAnalyzer) SetDetectionMode(functions, codeBlocks bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.detectFunctions = functions
+	d.detectCodeBlocks = codeBlocks
+}
+
+func (d *DuplicatedCodeAnalyzer) GetDetectionMode() (functions, codeBlocks bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.detectFunctions, d.detectCodeBlocks
+}
+
+func (d *DuplicatedCodeAnalyzer) SetEnabled(enabled bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.enabled = enabled
+}
+
+func (d *DuplicatedCodeAnalyzer) IsEnabled() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.enabled
+}
+
 func (d *DuplicatedCodeAnalyzer) AnalyzeTree(_ *parse.Tree, richNodes []*reader.RichNode, filepath string) []Finding {
+
+	if !d.IsEnabled() {
+		return []Finding{}
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -138,22 +197,8 @@ func (d *DuplicatedCodeAnalyzer) AnalyzeTree(_ *parse.Tree, richNodes []*reader.
 	})
 
 	for _, block := range blocks {
-
-		var exactFound bool
-		if d.enableExact && d.meetsExactThresholds(block) {
-			exactFindings := d.processExactDuplicate(block, filepath)
-			findings = append(findings, exactFindings...)
-
-			exactFound = len(d.exactCodeBlocks[block.Hash]) > 1
-		}
-
-		if d.enableSimilar && d.meetsSimilarThresholds(block) {
-
-			if !d.enableExact || !exactFound {
-				findings = append(findings, d.processSimilarDuplicate(block, filepath)...)
-			}
-
-		}
+		exactFindings := d.processExactDuplicate(block, filepath)
+		findings = append(findings, exactFindings...)
 	}
 
 	sort.Slice(findings, func(i, j int) bool {
@@ -178,7 +223,6 @@ func (d *DuplicatedCodeAnalyzer) extractAllCodeBlocks(nodes []*reader.RichNode, 
 
 	for _, node := range nodes {
 		if blockCount >= d.maxBlocksPerFile {
-
 			break
 		}
 		d.extractBlocksFromNode(node, filepath, "", &blocks, &blockCount)
@@ -193,15 +237,26 @@ func (d *DuplicatedCodeAnalyzer) extractBlocksFromNode(node *reader.RichNode, fi
 
 	switch {
 	case d.isFunctionDefinition(node):
-		d.extractTypedBlock(node, filepath, "function", context, blocks, blockCount)
+		if d.detectFunctions {
+			d.extractTypedBlock(node, filepath, "function", context, blocks, blockCount)
+		}
 	case d.isLetBlock(node):
-		d.extractTypedBlock(node, filepath, "let-block", context, blocks, blockCount)
+		if d.detectCodeBlocks {
+			d.extractTypedBlock(node, filepath, "let-block", context, blocks, blockCount)
+		}
 	case d.isConditionalBlock(node):
-		d.extractTypedBlock(node, filepath, "conditional-block", context, blocks, blockCount)
+		if d.detectCodeBlocks {
+			d.extractTypedBlock(node, filepath, "conditional-block", context, blocks, blockCount)
+		}
 	case d.isLoopBlock(node):
-		d.extractTypedBlock(node, filepath, "loop-block", context, blocks, blockCount)
+		if d.detectCodeBlocks {
+			d.extractTypedBlock(node, filepath, "loop-block", context, blocks, blockCount)
+		}
 	case d.isSignificantBlock(node):
-		d.extractTypedBlock(node, filepath, "generic-block", context, blocks, blockCount)
+
+		if d.detectCodeBlocks {
+			d.extractTypedBlock(node, filepath, "generic-block", context, blocks, blockCount)
+		}
 	}
 
 	newContext := context
@@ -217,71 +272,55 @@ func (d *DuplicatedCodeAnalyzer) extractBlocksFromNode(node *reader.RichNode, fi
 	}
 }
 
+func fastHash(data string) string {
+	h := fnv.New64a()
+	_, err := h.Write([]byte(data))
+	if err != nil {
+
+		return fmt.Sprintf("%x", len(data))
+	}
+	return fmt.Sprintf("%x", h.Sum64())
+}
+
 func (d *DuplicatedCodeAnalyzer) extractTypedBlock(node *reader.RichNode, filepath, blockType, context string, blocks *[]CodeBlockInfo, blockCount *int) {
 	d.nodeCounter++
 	nodeID := d.nodeCounter
 
-	content := d.extractNodeContent(node)
 	lines := d.calculateLines(node)
 	tokens := d.calculateTokens(node)
 
-	exactMeetsThreshold := d.enableExact && lines >= d.exactMinLines && tokens >= d.exactMinTokens
-	similarMeetsThreshold := d.enableSimilar && lines >= d.similarMinLines && tokens >= d.similarMinTokens
+	exactMeetsThreshold := lines >= d.exactMinLines && tokens >= d.exactMinTokens
 
-	if !exactMeetsThreshold && !similarMeetsThreshold {
+	if !exactMeetsThreshold {
 		return
 	}
 
-	var exactNormalized, similarNormalized string
-	var exactHash, similarHash string
+	exactNormalized := d.normalizeAST(node)
+	exactHash := fastHash("exact:" + exactNormalized)
 
-	if exactMeetsThreshold {
-		exactNormalized = d.normalizeASTWithStrategy(node, true)
-		exactHash = fmt.Sprintf("%x", md5.Sum([]byte("exact:"+exactNormalized)))
-
-		block := CodeBlockInfo{
-			Hash:          exactHash,
-			Content:       content,
-			NormalizedAST: exactNormalized,
-			File:          filepath,
-			Location:      node.Location,
-			Lines:         lines,
-			Tokens:        tokens,
-			BlockType:     blockType,
-			Context:       context,
-			DetectionType: "exact",
-			NodeID:        nodeID,
-		}
-		*blocks = append(*blocks, block)
+	block := CodeBlockInfo{
+		Hash:          exactHash,
+		NormalizedAST: exactNormalized,
+		File:          filepath,
+		Location:      node.Location,
+		Lines:         lines,
+		Tokens:        tokens,
+		BlockType:     blockType,
+		Context:       context,
+		NodeID:        nodeID,
 	}
-
-	if similarMeetsThreshold {
-		similarNormalized = d.normalizeASTWithStrategy(node, false)
-		similarHash = fmt.Sprintf("%x", md5.Sum([]byte("similar:"+similarNormalized)))
-
-		if !exactMeetsThreshold || similarHash != exactHash {
-			block := CodeBlockInfo{
-				Hash:          similarHash,
-				Content:       content,
-				NormalizedAST: similarNormalized,
-				File:          filepath,
-				Location:      node.Location,
-				Lines:         lines,
-				Tokens:        tokens,
-				BlockType:     blockType,
-				Context:       context,
-				DetectionType: "similar",
-				NodeID:        nodeID,
-			}
-			*blocks = append(*blocks, block)
-		}
-	}
+	*blocks = append(*blocks, block)
 
 	*blockCount++
-	d.totalBlocksProcessed++
 }
 
-func (d *DuplicatedCodeAnalyzer) normalizeASTWithStrategy(node *reader.RichNode, exact bool) string {
+type mapPair struct {
+	key       *reader.RichNode
+	value     *reader.RichNode
+	keyString string
+}
+
+func (d *DuplicatedCodeAnalyzer) normalizeAST(node *reader.RichNode) string {
 	if node == nil {
 		return ""
 	}
@@ -295,21 +334,40 @@ func (d *DuplicatedCodeAnalyzer) normalizeASTWithStrategy(node *reader.RichNode,
 		}
 
 		switch n.Type {
-		case reader.NodeList, reader.NodeVector, reader.NodeMap, reader.NodeSet:
+		case reader.NodeList, reader.NodeVector, reader.NodeSet:
 			builder.WriteString("(")
 			for _, child := range n.Children {
 				visit(child)
 				builder.WriteString(" ")
 			}
 			builder.WriteString(")")
-		case reader.NodeSymbol:
-			if exact {
-				builder.WriteString(d.normalizeSymbolExact(n.Value))
+		case reader.NodeMap:
+			if d.semanticMapNormalization {
+
+				builder.WriteString("{")
+				pairs := d.extractAndSortMapPairs(n.Children)
+				for i, pair := range pairs {
+					if i > 0 {
+						builder.WriteString(" ")
+					}
+					visit(pair.key)
+					builder.WriteString(" ")
+					visit(pair.value)
+				}
+				builder.WriteString("}")
 			} else {
-				builder.WriteString(d.normalizeSymbolSimilar(n.Value))
+
+				builder.WriteString("{")
+				for _, child := range n.Children {
+					visit(child)
+					builder.WriteString(" ")
+				}
+				builder.WriteString("}")
 			}
+		case reader.NodeSymbol:
+			builder.WriteString(d.normalizeSymbol(n.Value))
 		case reader.NodeKeyword:
-			if exact && d.isImportantKeyword(n.Value) {
+			if d.isImportantKeyword(n.Value) {
 				builder.WriteString(n.Value)
 			} else {
 				builder.WriteString(":KEYWORD")
@@ -319,11 +377,7 @@ func (d *DuplicatedCodeAnalyzer) normalizeASTWithStrategy(node *reader.RichNode,
 		case reader.NodeNumber:
 			builder.WriteString("NUMBER")
 		case reader.NodeBool:
-			if exact {
-				builder.WriteString(n.Value)
-			} else {
-				builder.WriteString("BOOL")
-			}
+			builder.WriteString(n.Value)
 		default:
 
 		}
@@ -333,23 +387,32 @@ func (d *DuplicatedCodeAnalyzer) normalizeASTWithStrategy(node *reader.RichNode,
 	return builder.String()
 }
 
-func (d *DuplicatedCodeAnalyzer) normalizeSymbolExact(symbol string) string {
-	if d.isCoreFunctionSymbol(symbol) {
-		return symbol
-	}
-	if d.isNumericLiteral(symbol) {
-		return "NUMBER"
-	}
+func (d *DuplicatedCodeAnalyzer) extractAndSortMapPairs(children []*reader.RichNode) []mapPair {
+	var pairs []mapPair
 
-	for pattern, replacement := range symbolReplacements {
-		if symbolPatterns[pattern].MatchString(symbol) {
-			return replacement
+	for i := 0; i < len(children); i += 2 {
+		if i+1 < len(children) {
+			key := children[i]
+			value := children[i+1]
+
+			keyString := key.Value
+
+			pairs = append(pairs, mapPair{
+				key:       key,
+				value:     value,
+				keyString: keyString,
+			})
 		}
 	}
-	return "VAR"
+
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].keyString < pairs[j].keyString
+	})
+
+	return pairs
 }
 
-func (d *DuplicatedCodeAnalyzer) normalizeSymbolSimilar(symbol string) string {
+func (d *DuplicatedCodeAnalyzer) normalizeSymbol(symbol string) string {
 	if d.isCoreFunctionSymbol(symbol) {
 		return symbol
 	}
@@ -401,56 +464,110 @@ func (d *DuplicatedCodeAnalyzer) isSignificantBlock(node *reader.RichNode) bool 
 	return node.Type == reader.NodeList && len(node.Children) >= 4
 }
 
-func (d *DuplicatedCodeAnalyzer) meetsExactThresholds(block CodeBlockInfo) bool {
-	return block.Lines >= d.exactMinLines && block.Tokens >= d.exactMinTokens
-}
-
-func (d *DuplicatedCodeAnalyzer) meetsSimilarThresholds(block CodeBlockInfo) bool {
-	return block.Lines >= d.similarMinLines && block.Tokens >= d.similarMinTokens
-}
-
 func (d *DuplicatedCodeAnalyzer) processExactDuplicate(block CodeBlockInfo, filepath string) []Finding {
-	if block.DetectionType != "exact" {
-		return nil
-	}
-
 	var findings []Finding
 	d.exactCodeBlocks[block.Hash] = append(d.exactCodeBlocks[block.Hash], block)
 
 	if len(d.exactCodeBlocks[block.Hash]) > 1 {
+
 		finding := Finding{
-			RuleID:   "duplicated-code-exact",
-			Message:  d.createDuplicationMessage(block, len(d.exactCodeBlocks[block.Hash]), "exact"),
+			RuleID:   "duplicated-code",
+			Message:  d.createDuplicationMessage(block, len(d.exactCodeBlocks[block.Hash])),
 			Filepath: filepath,
 			Location: block.Location,
 			Severity: SeverityWarning,
 		}
 		findings = append(findings, finding)
+	} else {
+
 	}
 
 	return findings
 }
 
-func (d *DuplicatedCodeAnalyzer) processSimilarDuplicate(block CodeBlockInfo, filepath string) []Finding {
-	if block.DetectionType != "similar" {
-		return nil
-	}
+func (d *DuplicatedCodeAnalyzer) createDuplicationMessage(block CodeBlockInfo, count int) string {
+	var otherFiles []string
+	blocks := d.exactCodeBlocks[block.Hash]
 
-	var findings []Finding
-	d.similarCodeBlocks[block.Hash] = append(d.similarCodeBlocks[block.Hash], block)
-
-	if len(d.similarCodeBlocks[block.Hash]) > 1 {
-		finding := Finding{
-			RuleID:   "duplicated-code-similar",
-			Message:  d.createDuplicationMessage(block, len(d.similarCodeBlocks[block.Hash]), "similar"),
-			Filepath: filepath,
-			Location: block.Location,
-			Severity: SeverityWarning,
+	for _, otherBlock := range blocks {
+		if otherBlock.File != block.File {
+			context := otherBlock.Context
+			if context == "" {
+				context = "unknown"
+			}
+			otherFiles = append(otherFiles, fmt.Sprintf("%s:%s", otherBlock.File, context))
 		}
-		findings = append(findings, finding)
+	}
+	sort.Strings(otherFiles)
+
+	blockTypeDesc := map[string]string{
+		"function":          "function",
+		"let-block":         "let block",
+		"conditional-block": "conditional block",
+		"loop-block":        "loop block",
+		"generic-block":     "code block",
 	}
 
-	return findings
+	desc := blockTypeDesc[block.BlockType]
+	if desc == "" {
+		desc = "code block"
+	}
+
+	context := block.Context
+	if context == "" {
+		context = "unknown"
+	}
+
+	titleCase := func(s string) string {
+		if len(s) == 0 {
+			return s
+		}
+		return strings.ToUpper(s[:1]) + s[1:]
+	}
+
+	message := fmt.Sprintf("%s %s detected in %q (%d occurrences, %d lines, %d tokens)",
+		titleCase("duplicated"), desc, context, count, block.Lines, block.Tokens)
+
+	if len(otherFiles) > 0 {
+		message += fmt.Sprintf(". Also found in: %s", strings.Join(otherFiles, ", "))
+	}
+
+	return message
+}
+
+func (d *DuplicatedCodeAnalyzer) Reset() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.exactCodeBlocks = make(map[string][]CodeBlockInfo)
+	d.nodeCounter = 0
+}
+
+func (d *DuplicatedCodeAnalyzer) GetStatistics() map[string]interface{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	totalExactBlocks := 0
+	duplicatedExactHashes := 0
+	for _, blocks := range d.exactCodeBlocks {
+		totalExactBlocks += len(blocks)
+		if len(blocks) > 1 {
+			duplicatedExactHashes++
+		}
+	}
+
+	return map[string]interface{}{
+		"total_exact_blocks":      totalExactBlocks,
+		"duplicated_exact_hashes": duplicatedExactHashes,
+		"total_blocks_processed":  d.nodeCounter,
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (d *DuplicatedCodeAnalyzer) isCoreFunctionSymbol(symbol string) bool {
@@ -497,181 +614,4 @@ func (d *DuplicatedCodeAnalyzer) calculateTokens(node *reader.RichNode) int {
 	}
 	visit(node)
 	return count
-}
-
-func (d *DuplicatedCodeAnalyzer) extractNodeContent(node *reader.RichNode) string {
-	if node == nil {
-		return ""
-	}
-
-	var parts []string
-	switch node.Type {
-	case reader.NodeSymbol, reader.NodeKeyword, reader.NodeString:
-		parts = append(parts, node.Value)
-	case reader.NodeList:
-		parts = append(parts, "(")
-		for i, child := range node.Children {
-			if i > 0 {
-				parts = append(parts, " ")
-			}
-			parts = append(parts, d.extractNodeContent(child))
-		}
-		parts = append(parts, ")")
-	case reader.NodeVector:
-		parts = append(parts, "[")
-		for i, child := range node.Children {
-			if i > 0 {
-				parts = append(parts, " ")
-			}
-			parts = append(parts, d.extractNodeContent(child))
-		}
-		parts = append(parts, "]")
-	case reader.NodeMap:
-		parts = append(parts, "{")
-		for i, child := range node.Children {
-			if i > 0 {
-				parts = append(parts, " ")
-			}
-			parts = append(parts, d.extractNodeContent(child))
-		}
-		parts = append(parts, "}")
-	default:
-		if node.Value != "" {
-			parts = append(parts, node.Value)
-		}
-	}
-
-	return strings.Join(parts, "")
-}
-
-func (d *DuplicatedCodeAnalyzer) createDuplicationMessage(block CodeBlockInfo, count int, detectionType string) string {
-	var otherFiles []string
-	var blocks []CodeBlockInfo
-
-	if detectionType == "exact" {
-		blocks = d.exactCodeBlocks[block.Hash]
-	} else {
-		blocks = d.similarCodeBlocks[block.Hash]
-	}
-
-	for _, otherBlock := range blocks {
-		if otherBlock.File != block.File {
-			context := otherBlock.Context
-			if context == "" {
-				context = "unknown"
-			}
-			otherFiles = append(otherFiles, fmt.Sprintf("%s:%s", otherBlock.File, context))
-		}
-	}
-	sort.Strings(otherFiles)
-
-	blockTypeDesc := map[string]string{
-		"function":          "function",
-		"let-block":         "let block",
-		"conditional-block": "conditional block",
-		"loop-block":        "loop block",
-		"generic-block":     "code block",
-	}
-
-	desc := blockTypeDesc[block.BlockType]
-	if desc == "" {
-		desc = "code block"
-	}
-
-	context := block.Context
-	if context == "" {
-		context = "unknown"
-	}
-
-	detectionTypeDesc := "duplicated"
-	if detectionType == "exact" {
-		detectionTypeDesc = "exactly duplicated"
-	} else {
-		detectionTypeDesc = "similar"
-	}
-
-	titleCase := func(s string) string {
-		if len(s) == 0 {
-			return s
-		}
-		return strings.ToUpper(s[:1]) + s[1:]
-	}
-
-	message := fmt.Sprintf("%s %s detected in %q (%d occurrences, %d lines, %d tokens)",
-		titleCase(detectionTypeDesc), desc, context, count, block.Lines, block.Tokens)
-
-	if len(otherFiles) > 0 {
-		message += fmt.Sprintf(". Also found in: %s", strings.Join(otherFiles, ", "))
-	}
-
-	return message
-}
-
-func (d *DuplicatedCodeAnalyzer) Reset() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.exactCodeBlocks = make(map[string][]CodeBlockInfo)
-	d.similarCodeBlocks = make(map[string][]CodeBlockInfo)
-	d.processedNodes = make(map[*reader.RichNode]string)
-	d.nodeCounter = 0
-	d.totalBlocksProcessed = 0
-}
-
-func (d *DuplicatedCodeAnalyzer) GetStatistics() map[string]interface{} {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	totalExactBlocks := 0
-	duplicatedExactHashes := 0
-	for _, blocks := range d.exactCodeBlocks {
-		totalExactBlocks += len(blocks)
-		if len(blocks) > 1 {
-			duplicatedExactHashes++
-		}
-	}
-
-	totalSimilarBlocks := 0
-	duplicatedSimilarHashes := 0
-	for _, blocks := range d.similarCodeBlocks {
-		totalSimilarBlocks += len(blocks)
-		if len(blocks) > 1 {
-			duplicatedSimilarHashes++
-		}
-	}
-
-	return map[string]interface{}{
-		"total_exact_blocks":        totalExactBlocks,
-		"total_similar_blocks":      totalSimilarBlocks,
-		"duplicated_exact_hashes":   duplicatedExactHashes,
-		"duplicated_similar_hashes": duplicatedSimilarHashes,
-		"total_blocks_processed":    d.totalBlocksProcessed,
-		"enable_exact":              d.enableExact,
-		"enable_similar":            d.enableSimilar,
-		"exact_min_lines":           d.exactMinLines,
-		"exact_min_tokens":          d.exactMinTokens,
-		"similar_min_lines":         d.similarMinLines,
-		"similar_min_tokens":        d.similarMinTokens,
-		"max_cache_size":            d.maxCacheSize,
-		"max_blocks_per_file":       d.maxBlocksPerFile,
-	}
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-type DuplicatedCodeRule struct {
-	Rule
-}
-
-func (r *DuplicatedCodeRule) Meta() Rule {
-	return r.Rule
-}
-
-func (r *DuplicatedCodeRule) Check(_ *reader.RichNode, _ map[string]interface{}, _ string) *Finding {
-
-	return nil
 }
