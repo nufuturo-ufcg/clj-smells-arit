@@ -55,7 +55,64 @@ func getFnBodyStartIndex(parentChildren []*reader.RichNode, parentSymbol string)
 	return currentIndex
 }
 
+func (r *RedundantDoBlockRule) containsRecur(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+
+	if node.Type == reader.NodeSymbol && node.Value == "recur" {
+		return true
+	}
+
+	if node.Type == reader.NodeList && len(node.Children) > 0 {
+		firstChild := node.Children[0]
+		if firstChild.Type == reader.NodeSymbol && firstChild.Value == "recur" {
+			return true
+		}
+	}
+
+	for _, child := range node.Children {
+		if r.containsRecur(child) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *RedundantDoBlockRule) hasMultipleExpressions(doNode *reader.RichNode) bool {
+	if doNode == nil || doNode.Type != reader.NodeList || len(doNode.Children) <= 1 {
+		return false
+	}
+
+	return len(doNode.Children) > 2
+}
+
+func (r *RedundantDoBlockRule) isInValidRefactoredContext(doNode *reader.RichNode, parent *reader.RichNode, doNodeIndex int) bool {
+	if parent == nil || parent.Type != reader.NodeList || len(parent.Children) == 0 {
+		return false
+	}
+
+	parentFirstElement := parent.Children[0]
+	if parentFirstElement.Type != reader.NodeSymbol {
+		return false
+	}
+
+	parentSymbol := parentFirstElement.Value
+
+	if parentSymbol == "cond" && doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+
+		if r.hasMultipleExpressions(doNode) {
+
+			return false
+		}
+	}
+
+	return false
+}
+
 func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+
 	if node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
 	}
@@ -76,41 +133,6 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		return nil
 	}
 
-	parentFirstElement := parent.Children[0]
-	if parentFirstElement.Type != reader.NodeSymbol {
-
-		if parentFirstElement.Type == reader.NodeVector {
-
-			doNodeIndexInArity := -1
-			for i, child := range parent.Children {
-				if child == node {
-					doNodeIndexInArity = i
-					break
-				}
-			}
-			if doNodeIndexInArity > 0 {
-				var grandParent *reader.RichNode
-				if gpVal, gpOk := context["grandparent"]; gpOk {
-					if gpNode, gpNodeOk := gpVal.(*reader.RichNode); gpNodeOk {
-						grandParent = gpNode
-					}
-				}
-
-				if grandParent != nil && grandParent.Type == reader.NodeList && len(grandParent.Children) > 0 &&
-					grandParent.Children[0].Type == reader.NodeSymbol {
-					gpSymbol := grandParent.Children[0].Value
-					switch gpSymbol {
-					case "fn", "defn", "defn-", "defmacro", "defmethod", "proxy", "reify", "deftype", "defrecord", "extend-protocol", "extend-type":
-
-						return r.createFinding(node, parent, "arity list", filepath)
-					}
-				}
-			}
-		}
-		return nil
-	}
-	parentSymbol := parentFirstElement.Value
-
 	doNodeIndex := -1
 	for i, child := range parent.Children {
 		if child == node {
@@ -122,6 +144,33 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		return nil
 	}
 
+	parentFirstElement := parent.Children[0]
+	if parentFirstElement.Type != reader.NodeSymbol {
+
+		if parentFirstElement.Type == reader.NodeVector {
+			var grandParent *reader.RichNode
+			if gpVal, gpOk := context["grandparent"]; gpOk {
+				if gpNode, gpNodeOk := gpVal.(*reader.RichNode); gpNodeOk {
+					grandParent = gpNode
+				}
+			}
+
+			if grandParent != nil && grandParent.Type == reader.NodeList && len(grandParent.Children) > 0 &&
+				grandParent.Children[0].Type == reader.NodeSymbol {
+				gpSymbol := grandParent.Children[0].Value
+				switch gpSymbol {
+				case "fn", "defn", "defn-", "defmacro", "defmethod", "proxy", "reify", "deftype", "defrecord", "extend-protocol", "extend-type":
+					if doNodeIndex > 0 {
+						return r.createFinding(node, parent, "arity list", filepath)
+					}
+				}
+			}
+		}
+		return nil
+	}
+
+	parentSymbol := parentFirstElement.Value
+
 	isRedundant := false
 	redundantInForm := parentSymbol
 
@@ -131,31 +180,64 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		if doNodeIndex >= 2 {
 			isRedundant = true
 		}
+
 	case "when", "when-not":
 
 		if doNodeIndex >= 2 {
 			isRedundant = true
 		}
+
 	case "when-let", "when-some":
 
 		if doNodeIndex >= 2 {
 			isRedundant = true
 		}
+
 	case "if", "if-not":
 
-		if doNodeIndex == 2 || (doNodeIndex == 3 && len(parent.Children) > 3) {
-			isRedundant = true
+		if doNodeIndex == 2 {
+			if r.hasMultipleExpressions(node) {
+				isRedundant = true
+			}
+		} else if doNodeIndex == 3 && len(parent.Children) == 4 {
+			if r.hasMultipleExpressions(node) {
+				isRedundant = true
+			}
 		}
+
 	case "if-let", "if-some":
 
-		if doNodeIndex == 2 || (doNodeIndex == 3 && len(parent.Children) > 3) {
-			isRedundant = true
+		if doNodeIndex == 2 {
+			if r.hasMultipleExpressions(node) {
+				isRedundant = true
+			}
+		} else if doNodeIndex == 3 && len(parent.Children) == 4 {
+			if r.hasMultipleExpressions(node) {
+				isRedundant = true
+			}
 		}
-	case "fn", "defn", "defn-", "defmacro", "defmethod", "proxy", "reify", "deftype", "defrecord", "extend-protocol", "extend-type":
+
+	case "fn", "defn", "defn-":
+
 		bodyStartIndex := getFnBodyStartIndex(parent.Children, parentSymbol)
 		if doNodeIndex >= bodyStartIndex {
-			isRedundant = true
+
+			totalBodyExpressions := len(parent.Children) - bodyStartIndex
+			if totalBodyExpressions == 1 {
+				isRedundant = true
+			}
 		}
+
+	case "defmacro":
+
+		bodyStartIndex := getFnBodyStartIndex(parent.Children, parentSymbol)
+		if doNodeIndex >= bodyStartIndex {
+			totalBodyExpressions := len(parent.Children) - bodyStartIndex
+			if totalBodyExpressions == 1 {
+				isRedundant = true
+			}
+		}
+
 	case "try":
 
 		isTryBody := true
@@ -171,29 +253,45 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		if isTryBody && doNodeIndex >= 1 {
 			isRedundant = true
 		}
+
 	case "catch":
+
 		if doNodeIndex >= 3 {
 			isRedundant = true
 		}
+
 	case "finally":
+
 		if doNodeIndex >= 1 {
 			isRedundant = true
 		}
-	case "cond", "condp":
 
-		if parentSymbol == "cond" || parentSymbol == "condp" {
-			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+	case "cond":
+
+		if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+
+			if !r.hasMultipleExpressions(node) {
+
 				isRedundant = true
 			}
 		}
+
+	case "condp":
+
+		if doNodeIndex >= 3 && doNodeIndex%2 == 1 {
+
+			isRedundant = true
+		}
+
 	case "case":
 
 		if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+
 			isRedundant = true
 		}
 	}
 
-	if isRedundant {
+	if isRedundant && !r.isInValidRefactoredContext(node, parent, doNodeIndex) {
 		return r.createFinding(node, parent, redundantInForm, filepath)
 	}
 
@@ -201,7 +299,6 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 }
 
 func (r *RedundantDoBlockRule) createFinding(doNode, parentNode *reader.RichNode, parentFormName string, filepath string) *Finding {
-
 	numDoChildren := len(doNode.Children) - 1
 
 	message := fmt.Sprintf("Redundant `do` block found. The surrounding `%s` form already provides an implicit `do` for its body expressions.", parentFormName)
@@ -221,5 +318,6 @@ func (r *RedundantDoBlockRule) createFinding(doNode, parentNode *reader.RichNode
 }
 
 func init() {
-	RegisterRule(&RedundantDoBlockRule{})
+	rule := &RedundantDoBlockRule{}
+	RegisterRule(rule)
 }
