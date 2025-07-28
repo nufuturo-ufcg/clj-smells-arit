@@ -48,7 +48,7 @@ style violations, and opportunities for improvement.`,
 			startTime = time.Now()
 		}
 
-		fmt.Print(`
+		fmt.Fprint(os.Stderr, `
 ###############
     • 
 ┏┓┏┓┓╋
