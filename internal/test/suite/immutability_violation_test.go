@@ -9,7 +9,8 @@ func TestImmutabilityViolation(t *testing.T) {
     testCases := []framework.RuleTestCase{
         {
             FileToAnalyze: "immutability_violation.clj",
-            RuleID:        "immutability-violation",  
+            RuleID:        "immutability-violation", 
+			ExpectedFindings: []framework.ExpectedFinding{
 
             },
         },
@@ -17,7 +18,7 @@ func TestImmutabilityViolation(t *testing.T) {
 
     for _, tc := range testCases {
         t.Run(tc.FileToAnalyze, func(t *testing.T) {
-				framework.RunRuleTest(t, tc)
+				framework.DebugRuleTest(t, tc)
         })
     }
 }
