@@ -31,6 +31,7 @@ var EagerConsumerFunctions = map[string]bool{
 	"transduce": true,
 	"mapv":      true,
 	"dorun":     true,
+	"doall":     true,
 	"sequence":  true,
 }
 
@@ -66,10 +67,59 @@ func (r *LazySideEffectsRule) Meta() Rule {
 	}
 }
 
+func isConsumedByEagerFunction(node *reader.RichNode, eagerFunctions map[string]bool) bool {
+
+	return findEagerConsumerInAST(node, eagerFunctions, 0, 10)
+}
+
+func findEagerConsumerInAST(node *reader.RichNode, eagerFunctions map[string]bool, depth int, maxDepth int) bool {
+	if depth > maxDepth || node == nil {
+		return false
+	}
+
+	current := node
+	for current != nil {
+
+		if current.Type == reader.NodeList && len(current.Children) > 0 {
+			firstChild := current.Children[0]
+			if firstChild.Type == reader.NodeSymbol {
+				if _, isEager := eagerFunctions[firstChild.Value]; isEager {
+
+					if nodeContainsLazyOperation(current, node) {
+						return true
+					}
+				}
+			}
+		}
+
+		for _, child := range current.Children {
+			if findEagerConsumerInAST(child, eagerFunctions, depth+1, maxDepth) {
+				return true
+			}
+		}
+		break
+	}
+
+	return false
+}
+
+func nodeContainsLazyOperation(container *reader.RichNode, target *reader.RichNode) bool {
+	if container == target {
+		return true
+	}
+
+	for _, child := range container.Children {
+		if nodeContainsLazyOperation(child, target) {
+			return true
+		}
+	}
+
+	return false
+}
+
 const maxRecursionDepth = 50
 
 func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool, sideEffects map[string]bool, currentDepth int, maxDepth int) bool {
-
 	if currentDepth > maxDepth {
 		return false
 	}
@@ -77,6 +127,22 @@ func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool
 		return false
 	}
 	visited[node] = true
+
+	if node.Type == reader.NodeFnLiteral {
+
+		for _, child := range node.Children {
+			if containsSideEffect(child, visited, sideEffects, currentDepth+1, maxDepth) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if node.Type == reader.NodeSymbol {
+		if _, isDirectSideEffect := sideEffects[node.Value]; isDirectSideEffect {
+			return true
+		}
+	}
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 {
 		funcNode := node.Children[0]
@@ -98,7 +164,6 @@ func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool
 				}
 
 				for _, bodyNode := range bodyNodesToAnalyze {
-
 					newVisited := make(map[*reader.RichNode]bool)
 					if containsSideEffect(bodyNode, newVisited, sideEffects, currentDepth+1, maxDepth) {
 						return true
@@ -118,7 +183,6 @@ func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool
 }
 
 func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-
 	isInEagerCtx, _ := context["isInEagerContext"].(bool)
 
 	if isInEagerCtx {
@@ -139,11 +203,13 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 		return nil
 	}
 
+	if isConsumedByEagerFunction(node, EagerConsumerFunctions) {
+		return nil
+	}
+
 	var funcArgNode *reader.RichNode
 	if len(node.Children) >= 2 {
-
 		if lazyFuncName == "for" && len(node.Children) > 2 && node.Children[1].Type == reader.NodeVector {
-
 			for i := 2; i < len(node.Children); i++ {
 				bodyExpr := node.Children[i]
 				visited := make(map[*reader.RichNode]bool)
@@ -153,7 +219,6 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 			}
 			return nil
 		} else if lazyFuncName == "lazy-seq" {
-
 			for i := 1; i < len(node.Children); i++ {
 				bodyExpr := node.Children[i]
 				visited := make(map[*reader.RichNode]bool)
@@ -163,7 +228,6 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 			}
 			return nil
 		} else {
-
 			funcArgNode = node.Children[1]
 		}
 	}
@@ -176,20 +240,16 @@ func (r *LazySideEffectsRule) Check(node *reader.RichNode, context map[string]in
 	funcNameStr := ""
 
 	if funcArgNode.Type == reader.NodeFnLiteral {
-
 		bodyToAnalyze = funcArgNode
 		funcNameStr = "function literal (#(...))"
 	} else if funcArgNode.Type == reader.NodeList && len(funcArgNode.Children) > 0 && funcArgNode.Children[0].Type == reader.NodeSymbol && funcArgNode.Children[0].Value == "fn" {
-
 		bodyToAnalyze = funcArgNode
 		funcNameStr = "function literal (fn ...)"
 	} else if funcArgNode.Type == reader.NodeSymbol {
-
 		funcNameStr = fmt.Sprintf("symbol '%s'", funcArgNode.Value)
 		if funcArgNode.ResolvedDefinition != nil {
 			bodyToAnalyze = funcArgNode.ResolvedDefinition
 		} else {
-
 			if _, isDirectSideEffect := r.SideEffectFuncs[funcArgNode.Value]; isDirectSideEffect {
 				return r.createFinding(node, lazyFuncName, funcNameStr, filepath, isInEagerCtx)
 			}
