@@ -117,7 +117,7 @@ func nodeContainsLazyOperation(container *reader.RichNode, target *reader.RichNo
 	return false
 }
 
-const maxRecursionDepth = 50
+const maxRecursionDepth = 10
 
 func containsSideEffect(node *reader.RichNode, visited map[*reader.RichNode]bool, sideEffects map[string]bool, currentDepth int, maxDepth int) bool {
 	if currentDepth > maxDepth {

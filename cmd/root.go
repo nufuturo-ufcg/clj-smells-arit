@@ -192,13 +192,10 @@ Arit - Static Analysis for Clojure Code
 				defer wg.Done()
 
 				semaphore <- struct{}{}
-
 				defer func() {
 					<-semaphore
-
 					if r := recover(); r != nil {
 						fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] in goroutine for file '%s': %v\n", filePath, r)
-
 						if verboseFlag {
 							fmt.Fprintf(os.Stderr, "Stack trace: %s\n", debug.Stack())
 						}
@@ -209,29 +206,7 @@ Arit - Static Analysis for Clojure Code
 					fmt.Fprintf(os.Stderr, "Analyzing file: %s\n", filePath)
 				}
 
-				done := make(chan bool, 1)
-				var analysisResult analyzer.AnalysisResult
-				var analyzeErr error
-
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							analyzeErr = fmt.Errorf("panic during analysis: %v", r)
-						}
-						done <- true
-					}()
-					analysisResult, analyzeErr = analyzer.AnalyzeFile(filePath, cfg)
-				}()
-
-				select {
-				case <-done:
-
-				case <-time.After(30 * time.Second):
-					analyzeErr = fmt.Errorf("analysis timeout after 30 seconds")
-					if verboseFlag {
-						fmt.Fprintf(os.Stderr, "[TIMEOUT] Analysis timed out for file '%s'\n", filePath)
-					}
-				}
+				analysisResult, analyzeErr := analyzer.AnalyzeFile(filePath, cfg)
 
 				if analyzeErr != nil {
 					if verboseFlag {
@@ -240,22 +215,15 @@ Arit - Static Analysis for Clojure Code
 					return
 				}
 
-				var localFindings []*rules.Finding
-				if analysisResult.Findings != nil {
-					localFindings = make([]*rules.Finding, 0, len(analysisResult.Findings))
-					for _, finding := range analysisResult.Findings {
-						findingCopy := &rules.Finding{
-							RuleID:   finding.RuleID,
-							Message:  finding.Message,
-							Filepath: finding.Filepath,
-							Location: finding.Location,
-							Severity: finding.Severity,
-						}
-						localFindings = append(localFindings, findingCopy)
-					}
-				}
+				if len(analysisResult.Findings) > 0 {
 
-				if len(localFindings) > 0 {
+					localFindings := make([]*rules.Finding, 0, len(analysisResult.Findings))
+
+					for i := range analysisResult.Findings {
+
+						localFindings = append(localFindings, &analysisResult.Findings[i])
+					}
+
 					mu.Lock()
 					allFindings = append(allFindings, localFindings...)
 					mu.Unlock()

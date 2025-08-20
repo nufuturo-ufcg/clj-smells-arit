@@ -2,6 +2,7 @@ package reader
 
 import (
 	"fmt"
+
 	"github.com/cespare/goclj/parse"
 )
 
@@ -21,11 +22,6 @@ func BuildRichTree(tree *parse.Tree) ([]*RichNode, []*RichNode) {
 
 	richRoots := make([]*RichNode, 0, len(tree.Roots))
 
-	estimatedComments := len(tree.Roots) / 10
-	if estimatedComments < 16 {
-		estimatedComments = 16
-	}
-
 	for _, rootNode := range tree.Roots {
 		if rootNode != nil {
 			richNode := buildRichNode(rootNode, true)
@@ -35,7 +31,7 @@ func BuildRichTree(tree *parse.Tree) ([]*RichNode, []*RichNode) {
 		}
 	}
 
-	comments := collectCommentsOptimized(tree, estimatedComments)
+	comments := collectCommentsOptimized(tree, len(tree.Roots)/10+16)
 	ApplyTypeHints(richRoots)
 	return richRoots, comments
 }
@@ -49,15 +45,19 @@ func collectCommentsOptimized(tree *parse.Tree, estimatedSize int) []*RichNode {
 		if node == nil {
 			return
 		}
+
 		if comment, ok := node.(*parse.CommentNode); ok {
 			richComment := buildRichNode(comment, false)
 			if richComment != nil {
 				comments = append(comments, richComment)
 			}
+			return
 		}
-		children := node.Children()
-		for _, child := range children {
-			walk(child)
+
+		if children := node.Children(); len(children) > 0 {
+			for _, child := range children {
+				walk(child)
+			}
 		}
 	}
 
@@ -73,34 +73,30 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 	}
 
 	if ignoreComments {
-		if _, ok := node.(*parse.CommentNode); ok {
-			return nil
-		}
-		if _, ok := node.(*parse.NewlineNode); ok {
+		switch node.(type) {
+		case *parse.CommentNode, *parse.NewlineNode:
 			return nil
 		}
 	}
 
-	location := extractLocation(node)
 	rNode := &RichNode{
-		Location:     location,
+		Location:     extractLocation(node),
 		OriginalNode: node,
 	}
 
 	switch n := node.(type) {
-
 	case *parse.ListNode:
 		rNode.Type = NodeList
-		if n.Nodes != nil {
+		rNode.InferredType = "List"
+		if n.Nodes != nil && len(n.Nodes) > 0 {
 			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
 		}
-		rNode.InferredType = "List"
 	case *parse.VectorNode:
 		rNode.Type = NodeVector
-		if n.Nodes != nil {
+		rNode.InferredType = "Vector"
+		if n.Nodes != nil && len(n.Nodes) > 0 {
 			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
 		}
-		rNode.InferredType = "Vector"
 	case *parse.MapNode:
 		rNode.Type = NodeMap
 		if n.Nodes != nil {
