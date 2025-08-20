@@ -124,13 +124,20 @@ func (s *Scope) invalidateCache() {
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.cacheValid {
+		return
+	}
+
 	s.cacheValid = false
-	s.lookupCache = make(map[string]*SymbolInfo)
-	s.mu.Unlock()
 
-	if s.parent != nil {
+	if s.lookupCache != nil {
+		s.lookupCache = nil
+	}
 
-		s.parent.invalidateCache()
+	if s.parent != nil && s.parent.cacheValid {
+		go s.parent.invalidateCache()
 	}
 }
 
@@ -140,14 +147,11 @@ func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
 	}
 
 	s.mu.RLock()
+
 	if s.cacheValid && s.lookupCache != nil {
 		if info, found := s.lookupCache[name]; found {
 			s.mu.RUnlock()
-
-			if info == nil {
-				return nil, false
-			}
-			return info, true
+			return info, info != nil
 		}
 	}
 	s.mu.RUnlock()
@@ -158,7 +162,10 @@ func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
 			if info, found := current.symbols[name]; found && info != nil {
 
 				s.mu.Lock()
-				if s.lookupCache != nil && s.cacheValid {
+				if s.lookupCache == nil && s.cacheValid {
+					s.lookupCache = make(map[string]*SymbolInfo, 32)
+				}
+				if s.cacheValid && s.lookupCache != nil {
 					s.lookupCache[name] = info
 				}
 				s.mu.Unlock()
@@ -169,7 +176,10 @@ func (s *Scope) findLocalOrParentDef(name string) (*SymbolInfo, bool) {
 	}
 
 	s.mu.Lock()
-	if s.lookupCache != nil && s.cacheValid {
+	if s.cacheValid {
+		if s.lookupCache == nil {
+			s.lookupCache = make(map[string]*SymbolInfo, 32)
+		}
 		s.lookupCache[name] = nil
 	}
 	s.mu.Unlock()

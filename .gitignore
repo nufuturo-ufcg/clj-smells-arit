@@ -30,3 +30,4 @@ docs/           # Diretório com documentação e catálogos de code smells
 /.lsp/
 /.clj-kondo/
 /output_test/
+/testes/
