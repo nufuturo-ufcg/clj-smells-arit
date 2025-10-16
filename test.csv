@@ -1,0 +1,10 @@
+RuleID,Count
+duplicated-code,16
+hidden-side-effects,8
+inappropriate-collection,2
+lazy-side-effects,8
+linear-collection-scan,2
+middle-man,16
+namespaced-keys-neglect,13
+primitive-obsession,3
+unnecessary-abstraction,4

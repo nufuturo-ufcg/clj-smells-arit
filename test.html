@@ -1,0 +1,1277 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<title>Arit Analysis Report</title>
+<style>
+  body { font-family: sans-serif; margin: 20px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1em; table-layout: fixed; }
+  th, td { border: 1px solid #ddd; padding: 10px 8px; text-align: left; word-wrap: break-word; }
+  th { background-color: #f2f2f2; font-weight: bold; }
+  .col-counter { width: 5%; }
+  .col-severity { width: 10%; }
+  .col-rule-id { width: 15%; }
+  .col-message { width: 30%; }
+  .col-file-loc { width: 20%; }
+  .col-code { width: 30%; }
+  tbody tr:nth-child(even) { background-color: #f9f9f9; }
+  tbody tr:hover { background-color: #f1f1f1; }
+  .summary { margin-bottom: 20px; padding: 10px; background-color: #eef; border: 1px solid #ccf; }
+  .summary p { margin: 5px 0; }
+  .severity-ERROR { color: red; font-weight: bold; }
+  .severity-WARNING { color: orange; }
+  .severity-INFO { color: blue; }
+  .location { font-family: monospace; }
+  .code-snippet { background-color: #f8f8f8; border: 1px solid #eee; padding: 10px; margin-top: 5px; white-space: pre-wrap; font-family: monospace; }
+  .finding-details td { vertical-align: top; }
+  .highlight-finding { 
+    background-color: #fff8dc;
+    display: block;
+    margin: -1px;
+    padding: 1px; 
+  }
+  .finding-message-cell { width: 30%; }
+</style>
+</head>
+<body>
+
+<h1>Arit Analysis Report</h1>
+
+<div class="summary">
+  <p><strong>Total Files Analyzed:</strong> 1</p>
+  <p><strong>Total Findings:</strong> 72</p>
+</div>
+
+
+<h2>Smell Summary</h2>
+<table id="summary-table">
+  <thead>
+    <tr>
+      <th>Smell Type (Rule ID)</th>
+      <th>Count</th>
+    </tr>
+  </thead>
+  <tbody>
+    
+    <tr>
+      <td>duplicated-code</td>
+      <td>16</td>
+    </tr>
+    
+    <tr>
+      <td>hidden-side-effects</td>
+      <td>8</td>
+    </tr>
+    
+    <tr>
+      <td>inappropriate-collection</td>
+      <td>2</td>
+    </tr>
+    
+    <tr>
+      <td>lazy-side-effects</td>
+      <td>8</td>
+    </tr>
+    
+    <tr>
+      <td>linear-collection-scan</td>
+      <td>2</td>
+    </tr>
+    
+    <tr>
+      <td>middle-man</td>
+      <td>16</td>
+    </tr>
+    
+    <tr>
+      <td>namespaced-keys-neglect</td>
+      <td>13</td>
+    </tr>
+    
+    <tr>
+      <td>primitive-obsession</td>
+      <td>3</td>
+    </tr>
+    
+    <tr>
+      <td>unnecessary-abstraction</td>
+      <td>4</td>
+    </tr>
+    
+  </tbody>
+</table>
+
+
+
+  <h2>All Findings</h2>
+  <table id="findings-table">
+    <thead>
+      <tr>
+        <th class="col-counter">#</th>
+        <th class="col-severity">Severity</th>
+        <th class="col-rule-id">Rule ID</th>
+        <th class="col-message">Message</th>
+        <th class="col-file-loc">File & Location</th>
+        <th class="col-code">Problematic Code</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+      <tr class="finding-details">
+        <td>1</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;greet-user&#39; performs side effects (I/O operations) without explicit indication. Consider adding &#39;!&#39; suffix or using &#39;doseq&#39; for side-effect operations to make the impurity explicit.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L4:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    1: (ns hidden-side-effects)<br>    3: ;; Example 1: &#39;map&#39; with println<br><span class="highlight-finding">    4: (defn greet-user [user]</span><br>    6:   (println &#34;Hello,&#34; (:name user))<br>    7:   (str &#34;Greeted &#34; (:name user)))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>2</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L6:22</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    3: ;; Example 1: &#39;map&#39; with println<br>    4: (defn greet-user [user]<br><span class="highlight-finding">    6:   (println &#34;Hello,&#34; (:name user))</span><br>    7:   (str &#34;Greeted &#34; (:name user)))<br>    9: (defn greet-users [users]<br>   10:   (map greet-user users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>3</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L7:20</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    3: ;; Example 1: &#39;map&#39; with println<br>    4: (defn greet-user [user]<br>    6:   (println &#34;Hello,&#34; (:name user))<br><span class="highlight-finding">    7:   (str &#34;Greeted &#34; (:name user)))</span><br>    9: (defn greet-users [users]<br>   10:   (map greet-user users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>4</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;greet-users&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;map&#34;. Consider using &#34;map&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L9:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    6:   (println &#34;Hello,&#34; (:name user))<br>    7:   (str &#34;Greeted &#34; (:name user)))<br><span class="highlight-finding">    9: (defn greet-users [users]</span><br>   10:   (map greet-user users))<br>   12: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]<br>   13:   (greet-users users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>5</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol symbol &#39;greet-user&#39; passed to lazy function &#39;map&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L10:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    6:   (println &#34;Hello,&#34; (:name user))<br>    7:   (str &#34;Greeted &#34; (:name user)))<br>    9: (defn greet-users [users]<br><span class="highlight-finding">   10:   (map greet-user users))</span><br>   12: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]<br>   13:   (greet-users users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>6</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L12:15</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    9: (defn greet-users [users]<br>   10:   (map greet-user users))<br><span class="highlight-finding">   12: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>   13:   (greet-users users))<br>   15: ;; Example 2: &#39;reduce&#39; with side-effect (not detecting)<br>   16: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>7</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L12:31</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    9: (defn greet-users [users]<br>   10:   (map greet-user users))<br><span class="highlight-finding">   12: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>   13:   (greet-users users))<br>   15: ;; Example 2: &#39;reduce&#39; with side-effect (not detecting)<br>   16: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>8</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L12:45</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>    9: (defn greet-users [users]<br>   10:   (map greet-user users))<br><span class="highlight-finding">   12: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>   13:   (greet-users users))<br>   15: ;; Example 2: &#39;reduce&#39; with side-effect (not detecting)<br>   16: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>9</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;accumulate&#39; performs side effects (I/O operations) without explicit indication. Consider adding &#39;!&#39; suffix or using &#39;doseq&#39; for side-effect operations to make the impurity explicit.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L17:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   13:   (greet-users users))<br>   15: ;; Example 2: &#39;reduce&#39; with side-effect (not detecting)<br>   16: (declare sum)<br><span class="highlight-finding">   17: (defn accumulate [acc x]</span><br>   18:   (println &#34;Adding&#34; x)<br>   19:   (+ acc x))<br>   21: (defn sum [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>10</td>
+        <td class="severity-HINT">HINT</td>
+        <td>primitive-obsession</td>
+        <td class="finding-message-cell">Function &#39;accumulate&#39; takes exactly two primitive-like parameters (&#39;acc&#39;, &#39;x&#39;). Consider using a dedicated record or map to represent this concept.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L17:19</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   13:   (greet-users users))<br>   15: ;; Example 2: &#39;reduce&#39; with side-effect (not detecting)<br>   16: (declare sum)<br><span class="highlight-finding">   17: (defn accumulate [acc x]</span><br>   18:   (println &#34;Adding&#34; x)<br>   19:   (+ acc x))<br>   21: (defn sum [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>11</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;sum&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;reduce&#34;. Consider using &#34;reduce&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L21:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   17: (defn accumulate [acc x]<br>   18:   (println &#34;Adding&#34; x)<br>   19:   (+ acc x))<br><span class="highlight-finding">   21: (defn sum [nums]</span><br>   22:   (reduce accumulate 0 nums))<br>   24: ;; Example 3: &#39;filter&#39; with side effect<br>   25: (declare filtered-values)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>12</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;side-effect-check&#39; appears to be pure based on its name but contains hidden side effects: I/O operations. Consider making side effects explicit in the function name (e.g., &#39;save-user!&#39;, &#39;log-event!&#39;) or using &#39;doseq&#39; for side-effect operations.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L26:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   22:   (reduce accumulate 0 nums))<br>   24: ;; Example 3: &#39;filter&#39; with side effect<br>   25: (declare filtered-values)<br><span class="highlight-finding">   26: (defn side-effect-check [x]</span><br>   27:   (println &#34;Checking&#34; x)<br>   28:   (even? x))<br>   30: (defn filtered-values [xs]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>13</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;filtered-values&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;filter&#34;. Consider using &#34;filter&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L30:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   26: (defn side-effect-check [x]<br>   27:   (println &#34;Checking&#34; x)<br>   28:   (even? x))<br><span class="highlight-finding">   30: (defn filtered-values [xs]</span><br>   31:   (filter side-effect-check xs))<br>   33: ;; Example 4: &#39;lazy-seq&#39; with a println<br>   34: (defn lazy-numbers []</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>14</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol symbol &#39;side-effect-check&#39; passed to lazy function &#39;filter&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L31:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   27:   (println &#34;Checking&#34; x)<br>   28:   (even? x))<br>   30: (defn filtered-values [xs]<br><span class="highlight-finding">   31:   (filter side-effect-check xs))</span><br>   33: ;; Example 4: &#39;lazy-seq&#39; with a println<br>   34: (defn lazy-numbers []<br>   35:   (map #(do (println &#34;Yielding&#34; %) %) (range 5)))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>15</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;lazy-numbers&#39; performs side effects (I/O operations) without explicit indication. Consider adding &#39;!&#39; suffix or using &#39;doseq&#39; for side-effect operations to make the impurity explicit.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L34:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   30: (defn filtered-values [xs]<br>   31:   (filter side-effect-check xs))<br>   33: ;; Example 4: &#39;lazy-seq&#39; with a println<br><span class="highlight-finding">   34: (defn lazy-numbers []</span><br>   35:   (map #(do (println &#34;Yielding&#34; %) %) (range 5)))<br>   37: ;; Example 5: &#39;filter&#39; with a println<br>   38: (declare filter-evens)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>16</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol function literal (#(...)) passed to lazy function &#39;map&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L35:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   31:   (filter side-effect-check xs))<br>   33: ;; Example 4: &#39;lazy-seq&#39; with a println<br>   34: (defn lazy-numbers []<br><span class="highlight-finding">   35:   (map #(do (println &#34;Yielding&#34; %) %) (range 5)))</span><br>   37: ;; Example 5: &#39;filter&#39; with a println<br>   38: (declare filter-evens)<br>   39: (defn check-even [x]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>17</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;check-even&#34; (2 occurrences, 2 lines, 12 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L39:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   35:   (map #(do (println &#34;Yielding&#34; %) %) (range 5)))<br>   37: ;; Example 5: &#39;filter&#39; with a println<br>   38: (declare filter-evens)<br><span class="highlight-finding">   39: (defn check-even [x]</span><br>   40:   (println &#34;Checking&#34; x)<br>   41:   (even? x))<br>   43: (defn filter-evens [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>18</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;check-even&#39; appears to be pure based on its name but contains hidden side effects: I/O operations. Consider making side effects explicit in the function name (e.g., &#39;save-user!&#39;, &#39;log-event!&#39;) or using &#39;doseq&#39; for side-effect operations.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L39:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   35:   (map #(do (println &#34;Yielding&#34; %) %) (range 5)))<br>   37: ;; Example 5: &#39;filter&#39; with a println<br>   38: (declare filter-evens)<br><span class="highlight-finding">   39: (defn check-even [x]</span><br>   40:   (println &#34;Checking&#34; x)<br>   41:   (even? x))<br>   43: (defn filter-evens [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>19</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;filter-evens&#34; (2 occurrences, 1 lines, 9 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L43:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   39: (defn check-even [x]<br>   40:   (println &#34;Checking&#34; x)<br>   41:   (even? x))<br><span class="highlight-finding">   43: (defn filter-evens [nums]</span><br>   44:   (filter check-even nums))<br>   46: ;; Example 6: &#39;for&#39; with side effect (not detected)<br>   47: (declare amplify-all)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>20</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;filter-evens&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;filter&#34;. Consider using &#34;filter&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L43:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   39: (defn check-even [x]<br>   40:   (println &#34;Checking&#34; x)<br>   41:   (even? x))<br><span class="highlight-finding">   43: (defn filter-evens [nums]</span><br>   44:   (filter check-even nums))<br>   46: ;; Example 6: &#39;for&#39; with side effect (not detected)<br>   47: (declare amplify-all)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>21</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol symbol &#39;check-even&#39; passed to lazy function &#39;filter&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L44:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   40:   (println &#34;Checking&#34; x)<br>   41:   (even? x))<br>   43: (defn filter-evens [nums]<br><span class="highlight-finding">   44:   (filter check-even nums))</span><br>   46: ;; Example 6: &#39;for&#39; with side effect (not detected)<br>   47: (declare amplify-all)<br>   48: (defn show-and-scale [x]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>22</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;show-and-scale&#39; performs side effects (I/O operations) without explicit indication. Consider adding &#39;!&#39; suffix or using &#39;doseq&#39; for side-effect operations to make the impurity explicit.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L48:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   44:   (filter check-even nums))<br>   46: ;; Example 6: &#39;for&#39; with side effect (not detected)<br>   47: (declare amplify-all)<br><span class="highlight-finding">   48: (defn show-and-scale [x]</span><br>   49:   (println &#34;Doubling&#34; x)  ;; efeito colateral oculto<br>   50:   (* 2 x))<br>   52: (defn amplify-all [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>23</td>
+        <td class="severity-HINT">HINT</td>
+        <td>inappropriate-collection</td>
+        <td class="finding-message-cell">Simple &#39;for&#39; comprehension can be replaced with &#39;map&#39; for better clarity and performance.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L53:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   49:   (println &#34;Doubling&#34; x)  ;; efeito colateral oculto<br>   50:   (* 2 x))<br>   52: (defn amplify-all [nums]<br><span class="highlight-finding">   53:   (for [n nums]</span><br>   54:     (show-and-scale n)))<br>   57: ;; Example 7: &#39;comp&#39; with a printing function (not detected)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>24</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol body expression passed to lazy function &#39;for&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L53:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   49:   (println &#34;Doubling&#34; x)  ;; efeito colateral oculto<br>   50:   (* 2 x))<br>   52: (defn amplify-all [nums]<br><span class="highlight-finding">   53:   (for [n nums]</span><br>   54:     (show-and-scale n)))<br>   57: ;; Example 7: &#39;comp&#39; with a printing function (not detected)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>25</td>
+        <td class="severity-HINT">HINT</td>
+        <td>linear-collection-scan</td>
+        <td class="finding-message-cell">Trivial for usage detected. Prefer &#39;map&#39; or &#39;filter&#39; for simple transformations.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L53:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   49:   (println &#34;Doubling&#34; x)  ;; efeito colateral oculto<br>   50:   (* 2 x))<br>   52: (defn amplify-all [nums]<br><span class="highlight-finding">   53:   (for [n nums]</span><br>   54:     (show-and-scale n)))<br>   57: ;; Example 7: &#39;comp&#39; with a printing function (not detected)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>26</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;track-and-inc&#34; (3 occurrences, 2 lines, 12 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L59:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   57: ;; Example 7: &#39;comp&#39; with a printing function (not detected)<br>   58: (declare process-nums)<br><span class="highlight-finding">   59: (defn track-and-inc [x]</span><br>   60:   (println &#34;Incrementing&#34; x) <br>   61:   (inc x))<br>   63: (def inc-then-double (comp #(* 2 %) track-and-inc))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>27</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;track-and-inc&#39; performs side effects (I/O operations) without explicit indication. Consider adding &#39;!&#39; suffix or using &#39;doseq&#39; for side-effect operations to make the impurity explicit.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L59:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   57: ;; Example 7: &#39;comp&#39; with a printing function (not detected)<br>   58: (declare process-nums)<br><span class="highlight-finding">   59: (defn track-and-inc [x]</span><br>   60:   (println &#34;Incrementing&#34; x) <br>   61:   (inc x))<br>   63: (def inc-then-double (comp #(* 2 %) track-and-inc))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>28</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;process-nums&#34; (2 occurrences, 1 lines, 9 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L65:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   61:   (inc x))<br>   63: (def inc-then-double (comp #(* 2 %) track-and-inc))<br><span class="highlight-finding">   65: (defn process-nums [nums]</span><br>   66:   (map inc-then-double nums)) <br>   68: ;; Example 8: &#39;lazy-seq&#39; with side-effect (not detected)<br>   69: (defn lazy-show-nums [s]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>29</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;process-nums&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;map&#34;. Consider using &#34;map&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L65:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   61:   (inc x))<br>   63: (def inc-then-double (comp #(* 2 %) track-and-inc))<br><span class="highlight-finding">   65: (defn process-nums [nums]</span><br>   66:   (map inc-then-double nums)) <br>   68: ;; Example 8: &#39;lazy-seq&#39; with side-effect (not detected)<br>   69: (defn lazy-show-nums [s]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>30</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>hidden-side-effects</td>
+        <td class="finding-message-cell">Function &#39;lazy-show-nums&#39; performs side effects (I/O operations) without explicit indication. Consider adding &#39;!&#39; suffix or using &#39;doseq&#39; for side-effect operations to make the impurity explicit.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L69:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   65: (defn process-nums [nums]<br>   66:   (map inc-then-double nums)) <br>   68: ;; Example 8: &#39;lazy-seq&#39; with side-effect (not detected)<br><span class="highlight-finding">   69: (defn lazy-show-nums [s]</span><br>   70:   (lazy-seq<br>   71:     (when-let [s (seq s)]<br>   72:       (println &#34;Yielding&#34; (first s))<br>   73:       (cons (first s) #_{:clj-kondo/ignore [:invalid-arity]}</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>31</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol body expression passed to lazy function &#39;lazy-seq&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L70:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   66:   (map inc-then-double nums)) <br>   68: ;; Example 8: &#39;lazy-seq&#39; with side-effect (not detected)<br>   69: (defn lazy-show-nums [s]<br><span class="highlight-finding">   70:   (lazy-seq</span><br>   71:     (when-let [s (seq s)]<br>   72:       (println &#34;Yielding&#34; (first s))<br>   73:       (cons (first s) #_{:clj-kondo/ignore [:invalid-arity]}<br>   74:                       (lazy-show-nums)))))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>32</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L83:22</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   79: ;; = EXAMPLES WITH &#39;!&#39; OR KEYWORDS =<br>   81: ;; Example 1: &#39;map&#39; with println using &#39;!&#39;<br>   82: (defn greet-user! [user]<br><span class="highlight-finding">   83:   (println &#34;Hello,&#34; (:name user)))</span><br>   85: (defn greet-users! [users]<br>   86:   (doseq [user users]<br>   87:     (greet-user! user)))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>33</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;greet-users!&#34; (2 occurrences, 2 lines, 13 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L85:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   81: ;; Example 1: &#39;map&#39; with println using &#39;!&#39;<br>   82: (defn greet-user! [user]<br>   83:   (println &#34;Hello,&#34; (:name user)))<br><span class="highlight-finding">   85: (defn greet-users! [users]</span><br>   86:   (doseq [user users]<br>   87:     (greet-user! user)))<br>   89: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>34</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L89:15</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   85: (defn greet-users! [users]<br>   86:   (doseq [user users]<br>   87:     (greet-user! user)))<br><span class="highlight-finding">   89: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>   90:   (greet-users! users))<br>   92: ;; Example 2: &#39;reduce&#39; with side-effect using key-word &#39;log&#39;<br>   93: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>35</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L89:31</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   85: (defn greet-users! [users]<br>   86:   (doseq [user users]<br>   87:     (greet-user! user)))<br><span class="highlight-finding">   89: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>   90:   (greet-users! users))<br>   92: ;; Example 2: &#39;reduce&#39; with side-effect using key-word &#39;log&#39;<br>   93: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>36</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L89:45</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   85: (defn greet-users! [users]<br>   86:   (doseq [user users]<br>   87:     (greet-user! user)))<br><span class="highlight-finding">   89: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>   90:   (greet-users! users))<br>   92: ;; Example 2: &#39;reduce&#39; with side-effect using key-word &#39;log&#39;<br>   93: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>37</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;log-and-accumulate&#34; (2 occurrences, 2 lines, 14 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L94:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   90:   (greet-users! users))<br>   92: ;; Example 2: &#39;reduce&#39; with side-effect using key-word &#39;log&#39;<br>   93: (declare sum)<br><span class="highlight-finding">   94: (defn log-and-accumulate [acc x]</span><br>   95:   (println &#34;Adding&#34; x)<br>   96:   (+ acc x))<br>   98: (defn sum-with-logging [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>38</td>
+        <td class="severity-HINT">HINT</td>
+        <td>primitive-obsession</td>
+        <td class="finding-message-cell">Function &#39;log-and-accumulate&#39; takes exactly two primitive-like parameters (&#39;acc&#39;, &#39;x&#39;). Consider using a dedicated record or map to represent this concept.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L94:27</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   90:   (greet-users! users))<br>   92: ;; Example 2: &#39;reduce&#39; with side-effect using key-word &#39;log&#39;<br>   93: (declare sum)<br><span class="highlight-finding">   94: (defn log-and-accumulate [acc x]</span><br>   95:   (println &#34;Adding&#34; x)<br>   96:   (+ acc x))<br>   98: (defn sum-with-logging [nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>39</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;sum-with-logging&#34; (2 occurrences, 2 lines, 10 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L98:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   94: (defn log-and-accumulate [acc x]<br>   95:   (println &#34;Adding&#34; x)<br>   96:   (+ acc x))<br><span class="highlight-finding">   98: (defn sum-with-logging [nums]</span><br>   99:   (reduce accumulate 0 nums))<br>  101: ;; = EXAMPLES WITH REFACTORING =</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>40</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;sum-with-logging&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;reduce&#34;. Consider using &#34;reduce&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L98:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>   94: (defn log-and-accumulate [acc x]<br>   95:   (println &#34;Adding&#34; x)<br>   96:   (+ acc x))<br><span class="highlight-finding">   98: (defn sum-with-logging [nums]</span><br>   99:   (reduce accumulate 0 nums))<br>  101: ;; = EXAMPLES WITH REFACTORING =</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>41</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;greet-user&#34; (2 occurrences, 2 lines, 11 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L104:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  101: ;; = EXAMPLES WITH REFACTORING =<br>  103: ;; Example 3: &#39;map&#39; without side effects<br><span class="highlight-finding">  104: (defn greet-user [user]</span><br>  105:   (str &#34;Greeted &#34; (:name user)))<br>  107: (defn greet-users [users]<br>  108:   (map greet-user users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>42</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L105:20</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  101: ;; = EXAMPLES WITH REFACTORING =<br>  103: ;; Example 3: &#39;map&#39; without side effects<br>  104: (defn greet-user [user]<br><span class="highlight-finding">  105:   (str &#34;Greeted &#34; (:name user)))</span><br>  107: (defn greet-users [users]<br>  108:   (map greet-user users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>43</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;greet-users&#34; (3 occurrences, 1 lines, 9 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L107:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  103: ;; Example 3: &#39;map&#39; without side effects<br>  104: (defn greet-user [user]<br>  105:   (str &#34;Greeted &#34; (:name user)))<br><span class="highlight-finding">  107: (defn greet-users [users]</span><br>  108:   (map greet-user users))<br>  110: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]<br>  111:   (greet-users users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>44</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;greet-users&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;map&#34;. Consider using &#34;map&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L107:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  103: ;; Example 3: &#39;map&#39; without side effects<br>  104: (defn greet-user [user]<br>  105:   (str &#34;Greeted &#34; (:name user)))<br><span class="highlight-finding">  107: (defn greet-users [users]</span><br>  108:   (map greet-user users))<br>  110: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]<br>  111:   (greet-users users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>45</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol symbol &#39;greet-user&#39; passed to lazy function &#39;map&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L108:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  104: (defn greet-user [user]<br>  105:   (str &#34;Greeted &#34; (:name user)))<br>  107: (defn greet-users [users]<br><span class="highlight-finding">  108:   (map greet-user users))</span><br>  110: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]<br>  111:   (greet-users users))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>46</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L110:15</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  107: (defn greet-users [users]<br>  108:   (map greet-user users))<br><span class="highlight-finding">  110: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>  111:   (greet-users users))<br>  113: ;; Example 4: &#39;reduce&#39; without side-effects<br>  114: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>47</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L110:31</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  107: (defn greet-users [users]<br>  108:   (map greet-user users))<br><span class="highlight-finding">  110: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>  111:   (greet-users users))<br>  113: ;; Example 4: &#39;reduce&#39; without side-effects<br>  114: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>48</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>namespaced-keys-neglect</td>
+        <td class="finding-message-cell">Non-namespaced keyword &#39;:name&#39; detected in global-data context. This is a common keyword that often appears across system boundaries and should be namespaced to avoid collisions. Suggestion: Consider using namespaced keyword like :myapp.user/name or :myapp/name</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L110:45</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  107: (defn greet-users [users]<br>  108:   (map greet-user users))<br><span class="highlight-finding">  110: (let [users [{:name &#34;Alice&#34;} {:name &#34;Bob&#34;} {:name &#34;Carol&#34;}]]</span><br>  111:   (greet-users users))<br>  113: ;; Example 4: &#39;reduce&#39; without side-effects<br>  114: (declare sum)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>49</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;accumulate&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;&#43;&#34;. Consider using &#34;&#43;&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L115:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  111:   (greet-users users))<br>  113: ;; Example 4: &#39;reduce&#39; without side-effects<br>  114: (declare sum)<br><span class="highlight-finding">  115: (defn accumulate [acc x]</span><br>  116:   (+ acc x))<br>  118: (defn sum [nums]<br>  119:   (reduce accumulate 0 nums))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>50</td>
+        <td class="severity-HINT">HINT</td>
+        <td>unnecessary-abstraction</td>
+        <td class="finding-message-cell">Function &#39;accumulate&#39; appears to only delegate the call to &#39;&#43;&#39; with the same arguments. Consider inlining or using &#39;&#43;&#39; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L115:7</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  111:   (greet-users users))<br>  113: ;; Example 4: &#39;reduce&#39; without side-effects<br>  114: (declare sum)<br><span class="highlight-finding">  115: (defn accumulate [acc x]</span><br>  116:   (+ acc x))<br>  118: (defn sum [nums]<br>  119:   (reduce accumulate 0 nums))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>51</td>
+        <td class="severity-HINT">HINT</td>
+        <td>primitive-obsession</td>
+        <td class="finding-message-cell">Function &#39;accumulate&#39; takes exactly two primitive-like parameters (&#39;acc&#39;, &#39;x&#39;). Consider using a dedicated record or map to represent this concept.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L115:19</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  111:   (greet-users users))<br>  113: ;; Example 4: &#39;reduce&#39; without side-effects<br>  114: (declare sum)<br><span class="highlight-finding">  115: (defn accumulate [acc x]</span><br>  116:   (+ acc x))<br>  118: (defn sum [nums]<br>  119:   (reduce accumulate 0 nums))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>52</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;sum&#34; (3 occurrences, 2 lines, 10 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L118:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  114: (declare sum)<br>  115: (defn accumulate [acc x]<br>  116:   (+ acc x))<br><span class="highlight-finding">  118: (defn sum [nums]</span><br>  119:   (reduce accumulate 0 nums))<br>  121: ;; Example 5: &#39;filter without side-effects<br>  122: (declare filtered-values)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>53</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;sum&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;reduce&#34;. Consider using &#34;reduce&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L118:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  114: (declare sum)<br>  115: (defn accumulate [acc x]<br>  116:   (+ acc x))<br><span class="highlight-finding">  118: (defn sum [nums]</span><br>  119:   (reduce accumulate 0 nums))<br>  121: ;; Example 5: &#39;filter without side-effects<br>  122: (declare filtered-values)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>54</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;is-even&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;even?&#34;. Consider using &#34;even?&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L123:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  119:   (reduce accumulate 0 nums))<br>  121: ;; Example 5: &#39;filter without side-effects<br>  122: (declare filtered-values)<br><span class="highlight-finding">  123: (defn is-even [x]</span><br>  124:   (even? x))<br>  126: (defn filtered-values [xs]<br>  127:   (filter is-even xs))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>55</td>
+        <td class="severity-HINT">HINT</td>
+        <td>unnecessary-abstraction</td>
+        <td class="finding-message-cell">Function &#39;is-even&#39; appears to only delegate the call to &#39;even?&#39; with the same arguments. Consider inlining or using &#39;even?&#39; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L123:7</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  119:   (reduce accumulate 0 nums))<br>  121: ;; Example 5: &#39;filter without side-effects<br>  122: (declare filtered-values)<br><span class="highlight-finding">  123: (defn is-even [x]</span><br>  124:   (even? x))<br>  126: (defn filtered-values [xs]<br>  127:   (filter is-even xs))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>56</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;filtered-values&#34; (3 occurrences, 1 lines, 9 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L126:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  122: (declare filtered-values)<br>  123: (defn is-even [x]<br>  124:   (even? x))<br><span class="highlight-finding">  126: (defn filtered-values [xs]</span><br>  127:   (filter is-even xs))<br>  129: ;; Example 6: &#39;lazy-seq&#39; without side effects<br>  130: (defn lazy-numbers []</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>57</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;filtered-values&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;filter&#34;. Consider using &#34;filter&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L126:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  122: (declare filtered-values)<br>  123: (defn is-even [x]<br>  124:   (even? x))<br><span class="highlight-finding">  126: (defn filtered-values [xs]</span><br>  127:   (filter is-even xs))<br>  129: ;; Example 6: &#39;lazy-seq&#39; without side effects<br>  130: (defn lazy-numbers []</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>58</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;is-even&#34; (2 occurrences, 1 lines, 8 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L135:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  131:   (range 5))<br>  133: ;; Example 7: &#39;filter&#39; without side effects<br>  134: (declare filter-evens)<br><span class="highlight-finding">  135: (defn is-even [x]</span><br>  136:   (even? x))<br>  138: (defn filter-evens [nums]<br>  139:   (filter is-even nums))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>59</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;is-even&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;even?&#34;. Consider using &#34;even?&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L135:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  131:   (range 5))<br>  133: ;; Example 7: &#39;filter&#39; without side effects<br>  134: (declare filter-evens)<br><span class="highlight-finding">  135: (defn is-even [x]</span><br>  136:   (even? x))<br>  138: (defn filter-evens [nums]<br>  139:   (filter is-even nums))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>60</td>
+        <td class="severity-HINT">HINT</td>
+        <td>unnecessary-abstraction</td>
+        <td class="finding-message-cell">Function &#39;is-even&#39; appears to only delegate the call to &#39;even?&#39; with the same arguments. Consider inlining or using &#39;even?&#39; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L135:7</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  131:   (range 5))<br>  133: ;; Example 7: &#39;filter&#39; without side effects<br>  134: (declare filter-evens)<br><span class="highlight-finding">  135: (defn is-even [x]</span><br>  136:   (even? x))<br>  138: (defn filter-evens [nums]<br>  139:   (filter is-even nums))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>61</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;filter-evens&#34; (4 occurrences, 1 lines, 9 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L138:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  134: (declare filter-evens)<br>  135: (defn is-even [x]<br>  136:   (even? x))<br><span class="highlight-finding">  138: (defn filter-evens [nums]</span><br>  139:   (filter is-even nums))<br>  141: ;;Example 8: for without-side effects<br>  142: (declare amplify-all)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>62</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;filter-evens&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;filter&#34;. Consider using &#34;filter&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L138:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  134: (declare filter-evens)<br>  135: (defn is-even [x]<br>  136:   (even? x))<br><span class="highlight-finding">  138: (defn filter-evens [nums]</span><br>  139:   (filter is-even nums))<br>  141: ;;Example 8: for without-side effects<br>  142: (declare amplify-all)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>63</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;scale&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;*&#34;. Consider using &#34;*&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L143:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  139:   (filter is-even nums))<br>  141: ;;Example 8: for without-side effects<br>  142: (declare amplify-all)<br><span class="highlight-finding">  143: (defn scale [x]</span><br>  144:   (* 2 x))<br>  146: (defn amplify-all [nums]<br>  147:   (for [n nums]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>64</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;amplify-all&#34; (3 occurrences, 2 lines, 13 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L146:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  142: (declare amplify-all)<br>  143: (defn scale [x]<br>  144:   (* 2 x))<br><span class="highlight-finding">  146: (defn amplify-all [nums]</span><br>  147:   (for [n nums]<br>  148:     (scale n)))<br>  150: ;; Example 9: &#39;comp&#39; without side-effects</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>65</td>
+        <td class="severity-HINT">HINT</td>
+        <td>inappropriate-collection</td>
+        <td class="finding-message-cell">Simple &#39;for&#39; comprehension can be replaced with &#39;map&#39; for better clarity and performance.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L147:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  143: (defn scale [x]<br>  144:   (* 2 x))<br>  146: (defn amplify-all [nums]<br><span class="highlight-finding">  147:   (for [n nums]</span><br>  148:     (scale n)))<br>  150: ;; Example 9: &#39;comp&#39; without side-effects<br>  151: (declare process-nums)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>66</td>
+        <td class="severity-HINT">HINT</td>
+        <td>linear-collection-scan</td>
+        <td class="finding-message-cell">Trivial for usage detected. Prefer &#39;map&#39; or &#39;filter&#39; for simple transformations.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L147:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  143: (defn scale [x]<br>  144:   (* 2 x))<br>  146: (defn amplify-all [nums]<br><span class="highlight-finding">  147:   (for [n nums]</span><br>  148:     (scale n)))<br>  150: ;; Example 9: &#39;comp&#39; without side-effects<br>  151: (declare process-nums)</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>67</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;raise&#34; (3 occurrences, 1 lines, 8 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L152:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  148:     (scale n)))<br>  150: ;; Example 9: &#39;comp&#39; without side-effects<br>  151: (declare process-nums)<br><span class="highlight-finding">  152: (defn raise [x]</span><br>  153:   (inc x))<br>  155: (def amplify-after-raise (comp #(* 2 %) raise))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>68</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;raise&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;inc&#34;. Consider using &#34;inc&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L152:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  148:     (scale n)))<br>  150: ;; Example 9: &#39;comp&#39; without side-effects<br>  151: (declare process-nums)<br><span class="highlight-finding">  152: (defn raise [x]</span><br>  153:   (inc x))<br>  155: (def amplify-after-raise (comp #(* 2 %) raise))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>69</td>
+        <td class="severity-HINT">HINT</td>
+        <td>unnecessary-abstraction</td>
+        <td class="finding-message-cell">Function &#39;raise&#39; appears to only delegate the call to &#39;inc&#39; with the same arguments. Consider inlining or using &#39;inc&#39; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L152:7</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  148:     (scale n)))<br>  150: ;; Example 9: &#39;comp&#39; without side-effects<br>  151: (declare process-nums)<br><span class="highlight-finding">  152: (defn raise [x]</span><br>  153:   (inc x))<br>  155: (def amplify-after-raise (comp #(* 2 %) raise))</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>70</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>duplicated-code</td>
+        <td class="finding-message-cell">Duplicated function detected in &#34;process-nums&#34; (4 occurrences, 1 lines, 9 tokens)</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L157:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  153:   (inc x))<br>  155: (def amplify-after-raise (comp #(* 2 %) raise))<br><span class="highlight-finding">  157: (defn process-nums [nums]</span><br>  158:   (map amplify-after-raise nums))<br>  160: ;; Example 10: &#39;lazy-seq&#39; without side-effects<br>  161: (defn lazy-show-nums [s]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>71</td>
+        <td class="severity-HINT">HINT</td>
+        <td>middle-man</td>
+        <td class="finding-message-cell">Function &#34;process-nums&#34; appears to be a &#39;Middle Man&#39; delegating directly to &#34;map&#34;. Consider using &#34;map&#34; directly.</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L157:1</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  153:   (inc x))<br>  155: (def amplify-after-raise (comp #(* 2 %) raise))<br><span class="highlight-finding">  157: (defn process-nums [nums]</span><br>  158:   (map amplify-after-raise nums))<br>  160: ;; Example 10: &#39;lazy-seq&#39; without side-effects<br>  161: (defn lazy-show-nums [s]</code></pre>
+          
+        </td>
+      </tr>
+      
+      <tr class="finding-details">
+        <td>72</td>
+        <td class="severity-WARNING">WARNING</td>
+        <td>lazy-side-effects</td>
+        <td class="finding-message-cell">Function/symbol body expression passed to lazy function &#39;lazy-seq&#39; may contain side effects. Execution might be delayed or unexpected. (Note: If this lazy call is ultimately consumed by an eager function like &#39;into&#39; or &#39;run!&#39;, this warning might be a false positive).</td>
+        <td>
+          internal/test/data/hidden_side_effects.clj<br>
+          <span class="location">L162:3</span>
+        </td>
+        <td class="finding-code-cell">
+          
+          <pre class="code-snippet"><code>  158:   (map amplify-after-raise nums))<br>  160: ;; Example 10: &#39;lazy-seq&#39; without side-effects<br>  161: (defn lazy-show-nums [s]<br><span class="highlight-finding">  162:   (lazy-seq</span><br>  163:     (when-let [s (seq s)]<br>  164:       (cons (first s) (lazy-show-nums (rest s))))))</code></pre>
+          
+        </td>
+      </tr>
+      
+    </tbody>
+  </table>
+
+
+</body>
+</html>
