@@ -24,6 +24,7 @@ var (
 	formatFlag  string
 	verboseFlag bool
 	timingFlag  bool
+	quietFlag bool
 )
 
 var rootCmd = &cobra.Command{
@@ -47,7 +48,7 @@ style violations, and opportunities for improvement.`,
 		if timingFlag {
 			startTime = time.Now()
 		}
-
+		if !quietFlag {
 		fmt.Fprint(os.Stderr, `
 ###############
     • 
@@ -59,6 +60,7 @@ style violations, and opportunities for improvement.`,
 Arit - Static Analysis for Clojure Code
 
 `)
+		}
 
 		filesToAnalyze := []string{}
 
@@ -271,7 +273,7 @@ Arit - Static Analysis for Clojure Code
 			fmt.Fprint(os.Stderr, "\n")
 		}
 
-		if outputFormat != reporter.FormatSummary {
+		if !quietFlag && outputFormat != reporter.FormatSummary {
 			switch outputFormat {
 			case reporter.FormatJSON:
 				fmt.Fprintf(os.Stderr, "Report generated in JSON format.\n")
@@ -311,9 +313,10 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, html, markdown)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, html, markdown, csv)")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
+	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
 }
 
 func findClojureFiles(dir string) ([]string, error) {
