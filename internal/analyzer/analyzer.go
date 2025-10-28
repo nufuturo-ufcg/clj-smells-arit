@@ -729,8 +729,30 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			}
 		}
 	}
+	
+	for _, rootNode := range richRootNodes {
+		PrintRichNode(rootNode, "")
+	}
 
 	return allFindings
+}
+
+func PrintRichNode(node *reader.RichNode, indent string) {
+	if node == nil {
+		return
+	}
+
+	if node.Value != "" {
+		fmt.Printf("%s%s: %s\n", indent, node.Type, node.Value)
+	} else {
+		fmt.Printf("%s%s\n", indent, node.Type)
+	}
+
+	for _, child := range node.Children {
+		PrintRichNode(child, indent+"  ")
+	}
+
+
 }
 
 func defineParams(paramsNode *reader.RichNode, targetScope *Scope, localDefs map[*reader.RichNode]*SymbolInfo) {
