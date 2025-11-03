@@ -1,76 +1,150 @@
 package rules
 
 import (
+	"sort"  
+	"strings" 
+	"sync"  
 
-	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/reader" 
 )
 
-type CircularDependencyRule struct {
-	Rule
+type CyclicDependencyRule struct {
+	Rule 
 }
 
-func NewCircularDependencyRule() *CircularDependencyRule {
-	return &CircularDependencyRule{
+var (
+	cyclicDepMutex sync.Mutex
+
+	cyclicDepCallGraph map[string]map[string]map[string]*reader.RichNode
+
+	cyclicDepFuncs map[string]map[string]bool
+
+	cyclicDepChecked map[string]bool
+)
+
+func NewCyclicDependencyRule() *CyclicDependencyRule {
+	return &CyclicDependencyRule{
 		Rule: Rule{
-				ID:          "circular-dependency",
-				Name:        "Circular Dependency",
-				Description: "Detects circular dependencies between functions or modules. Circular dependencies make the codebase harder to maintain, understand, and test, as they create tight coupling and implicit execution order dependencies.",
-				Severity:    SeverityWarning,
+			ID:          "cyclic-dependency", 
+			Name:        "Cyclic Dependency", 
+			Description: "Detects when two functions call each other, creating a direct mutual recursion cycle (e.g., A calls B, and B calls A).",
+			Severity:    SeverityWarning,
 		},
 	}
 }
 
-
-func (r *CircularDependencyRule) Meta() Rule {
+func (r *CyclicDependencyRule) Meta() Rule {
 	return r.Rule
 }
 
+func (r *CyclicDependencyRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+	cyclicDepMutex.Lock()
+	defer cyclicDepMutex.Unlock()
 
-func (r *CircularDependencyRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
-	if node == nil {	
-		return nil
-	}
-	funcName := r.getFunctionName(node)
-	return findCircularDependency(node, funcName, filepath)
-}
-
-func findCircularDependency(node *reader.RichNode, funcName string, filepath string) *Finding {
-	if node == nil{ 
-		return nil
+	if cyclicDepCallGraph[filepath] == nil {
+		cyclicDepCallGraph[filepath] = make(map[string]map[string]*reader.RichNode) 
+		cyclicDepFuncs[filepath] = make(map[string]bool)                            
+		cyclicDepChecked[filepath] = false     
 	}
 
-	if node.Type == reader.NodeList && len(node.Children) > 0 {
-		first := node.Children[0]
-		if first.Type == reader.NodeSymbol && first.Value == funcName {
-			return &Finding{
-				RuleID: "circular-dependency",
-				Message: "Function appears to call itself (possible circular dependency)",
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: SeverityWarning,
+	callGraph := cyclicDepCallGraph[filepath] 
+	visitedFuncs := cyclicDepFuncs[filepath]  
 
+
+	if node.Type == reader.NodeList && len(node.Children) > 1 {
+		if node.Children[0].Type == reader.NodeSymbol {
+			head := node.Children[0]
+
+			if head.Value == "defn" || head.Value == "defn-" { // é uma função
+
+				if node.Children[1].Type == reader.NodeSymbol {
+					funcName := node.Children[1].Value 
+
+					visitedFuncs[funcName] = true
+
+					if callGraph[funcName] == nil {
+						callGraph[funcName] = make(map[string]*reader.RichNode)
+					}
+
+					collectCalls(node, funcName, callGraph) //collect the calls from a function
+				}
 			}
 		}
 	}
 
-	for _, child := range node.Children {
-    	finding := findCircularDependency(child, funcName, filepath)
-    	if finding != nil {
-        	return finding
-    	}
+	if len(visitedFuncs) >= 2 && !cyclicDepChecked[filepath] {
+		cyclicDepChecked[filepath] = true
+
+		finding := findMutualCycle(callGraph, visitedFuncs, filepath)
+
+		delete(cyclicDepCallGraph, filepath)
+		delete(cyclicDepFuncs, filepath)
+		delete(cyclicDepChecked, filepath)
+		
+		return finding
 	}
+
 	return nil
 }
 
-func (r *CircularDependencyRule) getFunctionName(node *reader.RichNode) string {
-	if node.Type == reader.NodeList && len(node.Children) > 1 &&
-		node.Children[0].Type == reader.NodeSymbol &&
-		(node.Children[0].Value == "defn" || node.Children[0].Value == "defn-") {
-		if node.Children[1].Type == reader.NodeSymbol {
-			return node.Children[1].Value
+func collectCalls(funcDefNode *reader.RichNode, callerName string, graph map[string]map[string]*reader.RichNode) {
+	var walk func(*reader.RichNode)
+
+	walk = func(node *reader.RichNode) {
+		if node.Type == reader.NodeList && len(node.Children) > 0 {
+
+			if node.Children[0].Type == reader.NodeSymbol {
+				calleeName := node.Children[0].Value
+
+				if calleeName != callerName {
+					graph[callerName][calleeName] = node
+				}
+			}
+		}
+
+		for _, child := range node.Children {
+			walk(child) 
 		}
 	}
-	return ""
+
+	walk(funcDefNode)
 }
 
+func findMutualCycle(graph map[string]map[string]*reader.RichNode, visitedFuncs map[string]bool, filepath string) *Finding {
+	reported := make(map[string]bool)
+	for caller, callees := range graph {
+		if !visitedFuncs[caller] {
+			continue
+		}
+		for callee, location := range callees {
+			if !visitedFuncs[callee] {
+				continue
+			}
+			if otherCallees, ok := graph[callee]; ok {
+				if _, mutual := otherCallees[caller]; mutual {
+					pair := []string{caller, callee}
+					sort.Strings(pair)
+					pairKey := strings.Join(pair, "-")
+					if !reported[pairKey] {
+						return &Finding{
+							RuleID:   "cyclic-dependency",
+							Message:  "Mutual recursion detected between '" + caller + "' and '" + callee + "'.",
+							Filepath: filepath,
+							Location: location.Location,
+							Severity: SeverityWarning,
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+func init() {
+	cyclicDepCallGraph = make(map[string]map[string]map[string]*reader.RichNode)
+	cyclicDepFuncs = make(map[string]map[string]bool)
+	cyclicDepChecked = make(map[string]bool)
 
+	RegisterRule(NewCyclicDependencyRule())
+
+}
