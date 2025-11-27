@@ -246,9 +246,10 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 					}
 					if len(node.Children) > paramIndex && node.Children[paramIndex] != nil {
 						paramsNodeCandidate := node.Children[paramIndex]
-						if paramsNodeCandidate.Type == reader.NodeVector {
+						switch paramsNodeCandidate.Type {
+						case reader.NodeVector:
 							defineParams(paramsNodeCandidate, fnScope, localDefs)
-						} else if paramsNodeCandidate.Type == reader.NodeList {
+						case reader.NodeList:
 							for _, arityForm := range paramsNodeCandidate.Children {
 								if arityForm != nil && arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0] != nil && arityForm.Children[0].Type == reader.NodeVector {
 									defineParams(arityForm.Children[0], fnScope, localDefs)
@@ -268,9 +269,10 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 
 				if len(node.Children) > paramIndex && node.Children[paramIndex] != nil {
 					paramsNodeCandidate := node.Children[paramIndex]
-					if paramsNodeCandidate.Type == reader.NodeVector {
+					switch paramsNodeCandidate.Type {
+					case reader.NodeVector:
 						defineParams(paramsNodeCandidate, fnScope, localDefs)
-					} else if paramsNodeCandidate.Type == reader.NodeList {
+					case reader.NodeList:
 						for _, arityForm := range paramsNodeCandidate.Children {
 							if arityForm != nil && arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0] != nil && arityForm.Children[0].Type == reader.NodeVector {
 								defineParams(arityForm.Children[0], fnScope, localDefs)
@@ -373,9 +375,10 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 					}
 					if len(node.Children) > paramIndex {
 						paramsNode := node.Children[paramIndex]
-						if paramsNode.Type == reader.NodeVector {
+						switch paramsNode.Type {
+						case reader.NodeVector:
 							defineParams(paramsNode, newFnScope, nil)
-						} else if paramsNode.Type == reader.NodeList {
+						case reader.NodeList:
 							for _, arityForm := range paramsNode.Children {
 								if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
 									defineParams(arityForm.Children[0], newFnScope, nil)
@@ -394,9 +397,10 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 				}
 				if len(node.Children) > paramIndex {
 					paramsNode := node.Children[paramIndex]
-					if paramsNode.Type == reader.NodeVector {
+					switch paramsNode.Type {
+					case reader.NodeVector:
 						defineParams(paramsNode, newFnScope, nil)
-					} else if paramsNode.Type == reader.NodeList {
+					case reader.NodeList:
 						for _, arityForm := range paramsNode.Children {
 							if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
 								defineParams(arityForm.Children[0], newFnScope, nil)
@@ -729,30 +733,8 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			}
 		}
 	}
-	
-	for _, rootNode := range richRootNodes {
-		PrintRichNode(rootNode, "")
-	}
 
 	return allFindings
-}
-
-func PrintRichNode(node *reader.RichNode, indent string) {
-	if node == nil {
-		return
-	}
-
-	if node.Value != "" {
-		fmt.Printf("%s%s: %s\n", indent, node.Type, node.Value)
-	} else {
-		fmt.Printf("%s%s\n", indent, node.Type)
-	}
-
-	for _, child := range node.Children {
-		PrintRichNode(child, indent+"  ")
-	}
-
-
 }
 
 func defineParams(paramsNode *reader.RichNode, targetScope *Scope, localDefs map[*reader.RichNode]*SymbolInfo) {
