@@ -282,7 +282,7 @@ func collectCallsAndReads(g *graph.Graph, roots []*reader.RichNode, currentNs, f
 
 		if !isCallPosition && node.Type == reader.NodeSymbol && callerID != "" {
 			targetID := resolveTargetID(node, currentNs, aliasToNs)
-			if targetID != "" && !strings.HasPrefix(targetID, currentNs+"/") {
+			if targetID != "" && targetID != callerID {
 				ensureNodeExists(g, targetID, graph.KindVar)
 				line := 0
 				if node.Location != nil {
