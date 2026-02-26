@@ -206,13 +206,21 @@ ARIT is built with a modular architecture:
 ```
 ├── cmd/                    # CLI interface (Cobra)
 ├── internal/
-│   ├── analyzer/          # Core analysis engine
+│   ├── analyzer/          # Core analysis engine (+ dependency graph builder)
 │   ├── config/            # Configuration management
+│   ├── graph/             # Unified dependency graph (nodes, edges, maps)
 │   ├── reader/            # Clojure parser integration
 │   ├── reporter/          # Output formatting
 │   └── rules/             # Analysis rules implementation
 └── main.go                # Application entry point
 ```
+
+### Documentation
+
+- **[Como usar o comando deps e gerar todos os tipos](docs/README-deps.md)** — Guia de uso do `arit deps`: grafo completo, subgrafos (--from, --entries, --dead-code, etc.), filtro por tipo de aresta (--edges) e exemplos para cada análise em HTML.
+- **[Grafo de dependências](docs/dependency-graph.md)** — O que é o grafo unificado, onde está no código, como é construído (duas fases) e como usar. Para quem nunca mexeu nesse código.
+- **[Navegação no grafo para regras](docs/graph-navigation.md)** — Como percorrer o grafo (EdgesFrom, EdgesTo, Kind) e exemplo completo de regra de **dependência cíclica** implementada em cima do grafo.
+- **[Análise do grafo](docs/dependency-graph-analysis.md)** — Níveis possíveis (namespace, função, var), abordagens e decisões de desenho.
 
 ### Key Components
 
