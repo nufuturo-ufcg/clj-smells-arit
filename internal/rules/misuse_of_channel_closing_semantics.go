@@ -47,14 +47,13 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 			return nil
 		}
 		a, b := node.Children[1], node.Children[2]
-		sentinel := ""
+		sentinel, other := "", (*reader.RichNode)(nil)
 		if a != nil && a.Type == reader.NodeKeyword && isSentinelKeyword(a.Value) {
-			sentinel = a.Value
+			sentinel, other = a.Value, b
+		} else if b != nil && b.Type == reader.NodeKeyword && isSentinelKeyword(b.Value) {
+			sentinel, other = b.Value, a
 		}
-		if b != nil && b.Type == reader.NodeKeyword && isSentinelKeyword(b.Value) {
-			sentinel = b.Value
-		}
-		if sentinel != "" {
+		if sentinel != "" && isChannelReadOrBinding(other) {
 			return &Finding{
 				RuleID:   r.ID,
 				Message:  fmt.Sprintf("Comparison with sentinel %s; if this signals channel termination, prefer closing the channel with close! and use (when-let [e (<! ch)] ...) so nil means closed.", sentinel),
@@ -74,6 +73,30 @@ func isPutSymbol(s string) bool {
 		return true
 	}
 	return strings.HasSuffix(s, "/put!") || strings.HasSuffix(s, "/>!") || strings.HasSuffix(s, "/>!!")
+}
+
+func isTakeSymbol(s string) bool {
+	switch s {
+	case "<!", "<!!":
+		return true
+	}
+	return strings.HasSuffix(s, "/<!") || strings.HasSuffix(s, "/<!!")
+}
+
+func isChannelReadOrBinding(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	if node.Type == reader.NodeSymbol {
+		return true
+	}
+	if node.Type == reader.NodeList && len(node.Children) > 0 {
+		head := node.Children[0]
+		if head != nil && head.Type == reader.NodeSymbol {
+			return isTakeSymbol(head.Value)
+		}
+	}
+	return false
 }
 
 func isSentinelKeyword(v string) bool {
