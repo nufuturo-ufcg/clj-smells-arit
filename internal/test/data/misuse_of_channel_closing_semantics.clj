@@ -51,3 +51,12 @@
     (when-let [event (a/<! ok-chan)]
       (prn "Processing" event)
       (recur))))
+
+;; --- Should not be reported: :done is alts!! default return, not channel sentinel ---
+(defn drain-channels
+  "Removes all messages from the given channels. Will not block."
+  [channels]
+  (when channels
+    (loop []
+      (when-not (= :done (first (a/alts!! (vec channels) :default :done)))
+        (recur)))))
