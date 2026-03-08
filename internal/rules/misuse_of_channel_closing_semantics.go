@@ -27,12 +27,12 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	headVal := head.Value
 
 	if isPutSymbol(headVal) {
-		for i := 1; i < len(node.Children); i++ {
-			child := node.Children[i]
-			if child != nil && child.Type == reader.NodeKeyword && isSentinelKeyword(child.Value) {
+		if len(node.Children) >= 3 {
+			valueArg := node.Children[2]
+			if valueArg != nil && valueArg.Type == reader.NodeKeyword && isSentinelKeyword(valueArg.Value) {
 				return &Finding{
 					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Using sentinel value %s in put!/>!/>!! to signal stream end. Prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", child.Value),
+					Message:  fmt.Sprintf("Using sentinel value %s in %s to signal stream end. Prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", valueArg.Value, headVal),
 					Filepath: filepath,
 					Location: node.Location,
 					Severity: r.Severity,
@@ -53,7 +53,7 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 		} else if b != nil && b.Type == reader.NodeKeyword && isSentinelKeyword(b.Value) {
 			sentinel, other = b.Value, a
 		}
-		if sentinel != "" && isChannelReadOrBinding(other) {
+		if sentinel != "" && isChannelTakeForm(other) {
 			return &Finding{
 				RuleID:   r.ID,
 				Message:  fmt.Sprintf("Comparison with sentinel %s; if this signals channel termination, prefer closing the channel with close! and use (when-let [e (<! ch)] ...) so nil means closed.", sentinel),
@@ -83,31 +83,47 @@ func isTakeSymbol(s string) bool {
 	return strings.HasSuffix(s, "/<!") || strings.HasSuffix(s, "/<!!")
 }
 
-func isChannelReadOrBinding(node *reader.RichNode) bool {
-	if node == nil {
+func isChannelTakeForm(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
 		return false
 	}
-	if node.Type == reader.NodeSymbol {
-		return true
+	head := node.Children[0]
+	if head == nil || head.Type != reader.NodeSymbol {
+		return false
 	}
-	if node.Type == reader.NodeList && len(node.Children) > 0 {
-		head := node.Children[0]
-		if head != nil && head.Type == reader.NodeSymbol {
-			return isTakeSymbol(head.Value)
+	return isTakeSymbol(head.Value)
+}
+
+var sentinelStems = []string{
+	"done", "end", "eof", "close", "stop", "exit",
+	"complete", "finish", "eos", "poison", "bye", "quit", "terminat",
+	"closed", "finished", "completed",
+	"synced", "return", "break", 
+}
+
+func isSentinelKeyword(v string) bool {
+	local := keywordLocalName(v)
+	if local == "" {
+		return false
+	}
+	lower := strings.ToLower(local)
+	for _, stem := range sentinelStems {
+		if strings.Contains(lower, stem) {
+			return true
 		}
 	}
 	return false
 }
 
-func isSentinelKeyword(v string) bool {
-	switch v {
-	case ":done", ":EOF", ":end", "::end", ":eof":
-		return true
+func keywordLocalName(kw string) string {
+	s := kw
+	for strings.HasPrefix(s, ":") {
+		s = s[1:]
 	}
-	if strings.HasSuffix(v, "/end") || strings.HasSuffix(v, "/done") || strings.HasSuffix(v, "/eof") {
-		return true
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
 	}
-	return false
+	return s
 }
 
 func init() {
@@ -115,7 +131,7 @@ func init() {
 		Rule: Rule{
 			ID:          "misuse-of-channel-closing-semantics",
 			Name:        "Misuse of Channel Closing Semantics",
-			Description: "Detects using a sentinel value (:done, :EOF, ::end) in put!/>!/>!! or in comparisons to signal channel end; prefer close! and nil from <!.",
+			Description: "Flags keywords that look like stream-end sentinels (done, end, close, stop, complete, etc., word-boundary) in put!/>!/>!! or in comparisons with <!/<!!. Avoids test/placeholder values (:foo, :test-val). Prefer close! and nil from <!.",
 			Severity:    SeverityWarning,
 		},
 	}
