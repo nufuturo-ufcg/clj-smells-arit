@@ -32,7 +32,7 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 			if valueArg != nil && valueArg.Type == reader.NodeKeyword && isSentinelKeyword(valueArg.Value) {
 				return &Finding{
 					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Using sentinel value %s in %s to signal stream end. Prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", valueArg.Value, headVal),
+					Message:  fmt.Sprintf("Sentinel value %s in %s: prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", valueArg.Value, headVal),
 					Filepath: filepath,
 					Location: node.Location,
 					Severity: r.Severity,
@@ -56,7 +56,7 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 		if sentinel != "" && isChannelTakeForm(other) {
 			return &Finding{
 				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Comparison with sentinel %s; if this signals channel termination, prefer closing the channel with close! and use (when-let [e (<! ch)] ...) so nil means closed.", sentinel),
+				Message:  fmt.Sprintf("Comparison with sentinel %s: prefer (close! ch) so that (<! ch) returns nil; use (when-let [e (<! ch)] ...) when closed.", sentinel),
 				Filepath: filepath,
 				Location: node.Location,
 				Severity: r.Severity,

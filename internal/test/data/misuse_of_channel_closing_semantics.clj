@@ -41,6 +41,20 @@
 ;; Sentinel with >!! (blocking put)
 (a/thread (a/>!! my-chan :EOF))
 
+;; Comparação com forma de take — deve ser reportada (sentinel em canal)
+(when (= :done (a/<! my-chan)) (prn "channel closed"))
+(when (not= (a/<! my-chan) :end) 1)
+
+;; More sentinels (stem-based): :close, :synced, :return, :break, :hb-terminating
+(a/go (a/put! my-chan :close))
+(a/go (a/put! my-chan :synced))
+(a/go (a/>! my-chan :return))
+(a/thread (a/>!! my-chan :break))
+(a/go (a/put! my-chan :hb-terminating))
+
+;; Should NOT be reported: arbitrary keyword (no stem match)
+(a/go (a/put! my-chan :foo))
+
 ;; --- Correct pattern (should not be reported): close! + when-let with nil ---
 (def ok-chan (a/chan 1))
 (a/go
