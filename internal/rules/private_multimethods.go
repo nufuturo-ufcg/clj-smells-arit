@@ -33,26 +33,6 @@ func (r *PrivateMultimethodsRule) Check(node *reader.RichNode, context map[strin
 	return nil
 }
 
-// func (r *PrivateMultimethodsRule) hasDefMulti(node *reader.RichNode) bool {
-// 	if node == nil {
-// 		return false
-// 	}
-
-// 	//ve se o nó é defmulti
-// 	if node.Type == reader.NodeList && len(node.Children) > 1 {
-// 		if node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "defmulti" {
-// 			return true
-// 		}
-// 	}
-
-// 	for _, child := range node.Children {
-// 		if r.hasDefMulti(child) {
-// 			return true
-// 		}
-// 	}
-
-// 	return false
-// }
 
 func (r *PrivateMultimethodsRule) hasDefMulti(node *reader.RichNode) bool {
 	if node == nil {
