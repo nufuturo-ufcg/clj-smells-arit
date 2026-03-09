@@ -21,7 +21,8 @@ func (r *PrivateMultimethodsRule) Check(node *reader.RichNode, context map[strin
 				if r.hasDefMulti(node) {
 					return &Finding{
 						RuleID:   r.ID,
-						Message:  fmt.Sprintf("Private multimethod"),
+						Message:  fmt.Sprintf("Private multimethod detected: defmulti or defmethod declared"+
+						"in a private context (defn-, letfn, or ^:private)"),
 						Filepath: filepath,
 						Location: node.Location,
 						Severity: r.Severity,
@@ -77,7 +78,8 @@ func init() {
 		Rule: Rule{
 			ID:          "private-multimethods",
 			Name:        "Private Multimethods",
-			Description: "Colocar descrição do catálogo",
+			Description: "Private multimethod definition: defmulti or defmethod declared in a private context (defn-, letfn, or ^:private). "+
+             "Multimethods should remain public to allow open extension.",
 			Severity:    SeverityWarning,
 		},
 	}
