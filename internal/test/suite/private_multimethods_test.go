@@ -11,17 +11,17 @@ func TestPrivateMultimethods(t *testing.T) {
             ExpectedFindings: []framework.ExpectedFinding{
                 {Message: "Private multimethod", StartLine: 6},
                 {Message: "Private multimethod", StartLine: 15},
+                {Message: "Private multimethod", StartLine: 29},
                 {Message: "Private multimethod", StartLine: 37},
                 {Message: "Private multimethod", StartLine: 46},
                 {Message: "Private multimethod", StartLine: 59},
-                //{Message: "Private multimethod", StartLine: 67},
-                {Message: "Private multimethod", StartLine: 73},
+                {Message: "Private multimethod", StartLine: 67},
             },
         },
     }
     for _, tc := range testCases {
         t.Run(tc.FileToAnalyze, func(t *testing.T) {
-            framework.DebugRuleTest(t, tc)
+            framework.RunRuleTest(t, tc)
         })
     }
 }

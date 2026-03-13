@@ -63,13 +63,7 @@
             (defmethod process-item :b [_] :B))]
     (inner)))
 
-;; Example 7: private multimethod using metadata (Analisar se faz sentido)
-(defmulti ^{:private true} internal-dispatch :kind)
-
-(defmethod internal-dispatch :alpha [_]
-  :alpha)
-
-;; Example 8: private function wrapping multimethod definition
+;; Example 7: private function wrapping multimethod definition
 (defn ^:private setup-handler []
   (defmulti handle-event :type)
 
@@ -81,7 +75,7 @@
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
 
-;; Example 9: public multimethod definition
+;; Example 8: public multimethod definition
 (defmulti handle-event :type)
 
 (defmethod handle-event :create [_]
@@ -90,15 +84,15 @@
 (defmethod handle-event :delete [_]
   (println "Delete"))
 
-;; Example 10: private function calling multimethod
+;; Example 9: private function calling multimethod
 (defn- run-handler [event]
   (handle-event event))
 
-;; Example 11: private helper without multimethod
+;; Example 10: private helper without multimethod
 (defn- helper [x]
   (+ x 1))
 
-;; Example 12: multimethod defined globally and used later
+;; Example 11: multimethod defined globally and used later
 (defmulti dispatch :kind)
 
 (defmethod dispatch :a [_]
@@ -110,18 +104,18 @@
 (defn run-dispatch [x]
   (dispatch x))
 
-;; Example 13: private function returning function (no multimethod)
+;; Example 12: private function returning function (no multimethod)
 (defn- build-handler []
   (fn [x] (* x 2)))
 
-;; Example 14: polymorphism using case instead of multimethod
+;; Example 13: polymorphism using case instead of multimethod
 (defn process-event [event]
   (case (:type event)
     :create (println "create")
     :delete (println "delete")
     :unknown))
 
-;; Example 15: multimethod with public visibility and external extension
+;; Example 14: multimethod with public visibility and external extension
 (defmulti format-output :format)
 
 (defmethod format-output :json [data]
@@ -130,12 +124,12 @@
 (defmethod format-output :xml [data]
   (str "xml:" data))
 
-;; Example 16: local function with letfn but no multimethod
+;; Example 15: local function with letfn but no multimethod
 (defn compute [x]
   (letfn [(double [y] (* y 2))]
     (double x)))
 
-;; Example 17: multimethod defined outside, private function uses it
+;; Example 16: multimethod defined outside, private function uses it
 (defmulti render :type)
 
 (defmethod render :text [_]
@@ -144,7 +138,7 @@
 (defn ^:private render-internal [x]
   (render x))
 
-;; Example 18: protocol-based polymorphism instead of multimethod
+;; Example 17: protocol-based polymorphism instead of multimethod
 (defprotocol Processor
   (process [this]))
 
@@ -152,7 +146,7 @@
   Processor
   (process [_] :done))
 
-;; Example 19: simple map-based dispatch
+;; Example 18: simple map-based dispatch
 (def handlers
   {:create #(println "create")
    :delete #(println "delete")})
@@ -160,6 +154,6 @@
 (defn run-handler-map [event]
   ((handlers (:type event)) event))
 
-;; Example 20: higher-order function instead of multimethod
+;; Example 19: higher-order function instead of multimethod
 (defn make-processor [f]
   (fn [x] (f x)))
