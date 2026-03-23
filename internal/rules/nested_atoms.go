@@ -21,8 +21,8 @@ func (r *NestedAtomsRule) Check(node *reader.RichNode, context map[string]interf
 				if r.hasAtoms(node) {
 					return &Finding{
 						RuleID: r.ID,
-						Message: fmt.Sprintf("Private multimethod detected: defmulti or defmethod declared" +
-							"in a private context (defn-, letfn, or ^:private)"),
+						Message: fmt.Sprintf("Found nested Atom/Ref/Volatile inside an Atom. " +
+"Breaking atomic state management - inner updates won't trigger watchers."),
 						Filepath: filepath,
 						Location: node.Location,
 						Severity: r.Severity,
