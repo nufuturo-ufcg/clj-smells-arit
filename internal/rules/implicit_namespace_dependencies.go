@@ -38,8 +38,12 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 }
 
 func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichNode, filepath string) *Finding {
-	namespaces := r.extractNamespacesFromDirective(node)
-	nsStr := strings.Join(namespaces, ", ")
+	implicitNamespaces := r.extractImplicitNamespacesFromUseDirective(node)
+	if len(implicitNamespaces) == 0 {
+		return nil
+	}
+
+	nsStr := strings.Join(implicitNamespaces, ", ")
 	if nsStr == "" {
 		nsStr = "unknown"
 	}
@@ -48,7 +52,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichN
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Implicit namespace dependency: :use directive imports all public symbols from [%s]. "+
-				"Replace (:use ...) with (:require [ns :refer [specific-symbols]]) to make dependencies explicit.",
+				"Replace (:use ...) with (:require [ns :refer [specific-symbols]]) or use (:use [ns :only [specific-symbols]]) to list imports explicitly.",
 			nsStr,
 		),
 		Filepath: filepath,
@@ -58,6 +62,10 @@ func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichN
 }
 
 func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.RichNode, filepath string) *Finding {
+	if r.standaloneUseHasExplicitOnly(node) {
+		return nil
+	}
+
 	namespaceName := r.extractNameFromStandaloneArg(node)
 	if namespaceName == "" {
 		namespaceName = "unknown namespace"
@@ -137,20 +145,55 @@ func (r *ImplicitNamespaceDependenciesRule) vectorContainsReferAll(v *reader.Ric
 	return false
 }
 
-func (r *ImplicitNamespaceDependenciesRule) extractNamespacesFromDirective(node *reader.RichNode) []string {
-	var namespaces []string
+func (r *ImplicitNamespaceDependenciesRule) extractImplicitNamespacesFromUseDirective(node *reader.RichNode) []string {
+	var implicit []string
 	for i := 1; i < len(node.Children); i++ {
 		child := node.Children[i]
 		switch child.Type {
 		case reader.NodeSymbol:
-			namespaces = append(namespaces, child.Value)
+			implicit = append(implicit, child.Value)
 		case reader.NodeVector:
+			if r.useSpecHasExplicitOnly(child) {
+				continue
+			}
 			if len(child.Children) > 0 && child.Children[0].Type == reader.NodeSymbol {
-				namespaces = append(namespaces, child.Children[0].Value)
+				implicit = append(implicit, child.Children[0].Value)
+			} else {
+				implicit = append(implicit, "unknown")
 			}
 		}
 	}
-	return namespaces
+	return implicit
+}
+
+func (r *ImplicitNamespaceDependenciesRule) useSpecHasExplicitOnly(spec *reader.RichNode) bool {
+	if spec == nil || spec.Type != reader.NodeVector {
+		return false
+	}
+	for i := 0; i < len(spec.Children)-1; i++ {
+		if spec.Children[i].Type != reader.NodeKeyword || spec.Children[i].Value != ":only" {
+			continue
+		}
+		next := spec.Children[i+1]
+		if next.Type == reader.NodeVector || next.Type == reader.NodeList {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *ImplicitNamespaceDependenciesRule) standaloneUseHasExplicitOnly(node *reader.RichNode) bool {
+	for i := 1; i < len(node.Children); i++ {
+		child := node.Children[i]
+		if child.Type != reader.NodeQuote || len(child.Children) == 0 {
+			continue
+		}
+		inner := child.Children[0]
+		if inner.Type == reader.NodeVector && r.useSpecHasExplicitOnly(inner) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *ImplicitNamespaceDependenciesRule) extractNameFromStandaloneArg(node *reader.RichNode) string {
@@ -179,7 +222,7 @@ func init() {
 		Rule: Rule{
 			ID:          "implicit-namespace-dependencies",
 			Name:        "Implicit Namespace Dependencies",
-			Description: "Detects implicit namespace dependencies introduced by :use directives, :refer :all in :require, or standalone (use ...) calls. These patterns import all symbols from a namespace without explicitly listing them, causing symbol ambiguity, namespace pollution, and implicit dependencies that static analysis tools cannot reliably resolve.",
+			Description: "Detects implicit namespace dependencies introduced by :use without :only, :refer :all in :require, or standalone (use ...) without :only. :use [ns :only [syms]] lists explicit imports and is not reported. Unrestricted imports cause symbol ambiguity, namespace pollution, and dependencies that static analysis tools cannot reliably resolve.",
 			Severity:    SeverityWarning,
 		},
 	}

@@ -14,8 +14,8 @@ func TestImplicitNamespaceDependencies(t *testing.T) {
 			ExpectedFindings: []framework.ExpectedFinding{
 				{Message: "Implicit namespace dependency: :use directive", StartLine: 2},
 				{Message: "Implicit namespace dependency: :use directive", StartLine: 3},
-				{Message: "Implicit namespace dependency: :refer :all", StartLine: 4},
-				{Message: "Implicit namespace dependency: standalone (use", StartLine: 9},
+				{Message: "Implicit namespace dependency: :refer :all", StartLine: 5},
+				{Message: "Implicit namespace dependency: standalone (use", StartLine: 10},
 			},
 		},
 	}

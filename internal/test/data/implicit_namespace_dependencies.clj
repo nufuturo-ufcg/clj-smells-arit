@@ -1,6 +1,7 @@
 (ns implicit-namespace-deps-example
   (:use [clojure.set])
   (:use clojure.walk)
+  (:use [clojure.set :only [union]])
   (:require [clojure.string :refer :all]
             [clojure.data :as data]
             [clojure.zip :refer [zipper]]))
@@ -17,3 +18,6 @@
 ;; Proper require with explicit refer
 (defn proper-refer-usage [t]
   (zipper sequential? seq identity t))
+
+;; Standalone use with :only
+(use '[clojure.string :only [join]])
