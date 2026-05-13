@@ -606,12 +606,14 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		parentIsInsideLoop, _ := currentContext["isInsideLoop"].(bool)
 		parentIsInsideBinding, _ := currentContext["isInsideBinding"].(bool)
 		parentIsInsideDosync, _ := currentContext["isInsideDosync"].(bool)
+		parentIsInsideWithOpen, _ := currentContext["isInsideWithOpen"].(bool)
 
 		currentNodeDefinesFunc := false
 		currentNodeDefinesLet := false
 		currentNodeDefinesLoop := false
 		currentNodeDefinesBinding := false
 		currentNodeDefinesDosync := false
+		currentNodeDefinesWithOpen := false
 
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			nodeVal := node.Children[0].Value
@@ -626,6 +628,8 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				currentNodeDefinesBinding = true
 			case "dosync":
 				currentNodeDefinesDosync = true
+			case "with-open":
+				currentNodeDefinesWithOpen = true
 			}
 		}
 
@@ -700,18 +704,25 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			}
 			traversalContext["isInsideDosync"] = childIsInsideDosync
 
+			childIsInsideWithOpen := parentIsInsideWithOpen
+			if currentNodeDefinesWithOpen && idx > 0 {
+				childIsInsideWithOpen = true
+			}
+			traversalContext["isInsideWithOpen"] = childIsInsideWithOpen
+
 			traverseAndAnalyze(child, traversalContext, currentChildScope)
 		}
 
 	}
 
 	initialContext := map[string]interface{}{
-		"isInEagerContext": false,
-		"isInsideFunction": false,
-		"isInsideLet":      false,
-		"isInsideLoop":     false,
-		"isInsideBinding":  false,
-		"isInsideDosync":   false,
+		"isInEagerContext":  false,
+		"isInsideFunction":  false,
+		"isInsideLet":       false,
+		"isInsideLoop":      false,
+		"isInsideBinding":   false,
+		"isInsideDosync":    false,
+		"isInsideWithOpen":  false,
 	}
 
 	for _, rootNode := range richRootNodes {
