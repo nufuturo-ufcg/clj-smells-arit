@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -12,6 +13,8 @@ type NestedFormsRule struct {
 	MaxConsecutiveSameForms int      `json:"max_consecutive_same_forms" yaml:"max_consecutive_same_forms"`
 	MaxConditionalDepth     int      `json:"max_conditional_depth" yaml:"max_conditional_depth"`
 	TrackedForms            []string `json:"tracked_forms" yaml:"tracked_forms"`
+	trackedMap              map[string]bool
+	once                    sync.Once
 }
 
 type NestingPattern struct {
@@ -83,13 +86,23 @@ func (r *NestedFormsRule) collectNestedForms(node *reader.RichNode, pattern *Nes
 			return
 		}
 
-		for _, grandchild := range child.Children {
-			if r.isTrackedForm(grandchild) {
-				r.collectNestedForms(grandchild, pattern, depth+1)
-				return
+		if isDoBlock(child) {
+			for _, grandchild := range child.Children {
+				if r.isTrackedForm(grandchild) {
+					r.collectNestedForms(grandchild, pattern, depth+1)
+					return
+				}
 			}
 		}
 	}
+}
+
+func isDoBlock(node *reader.RichNode) bool {
+	if node.Type != reader.NodeList || len(node.Children) == 0 {
+		return false
+	}
+	firstChild := node.Children[0]
+	return firstChild.Type == reader.NodeSymbol && firstChild.Value == "do"
 }
 
 func (r *NestedFormsRule) isProblematicPattern(pattern *NestingPattern) bool {
@@ -281,14 +294,14 @@ func (r *NestedFormsRule) isTrackedForm(node *reader.RichNode) bool {
 		return false
 	}
 
-	formName := firstChild.Value
-	for _, tracked := range r.TrackedForms {
-		if formName == tracked {
-			return true
+	r.once.Do(func() {
+		r.trackedMap = make(map[string]bool)
+		for _, tracked := range r.TrackedForms {
+			r.trackedMap[tracked] = true
 		}
-	}
+	})
 
-	return false
+	return r.trackedMap[firstChild.Value]
 }
 
 func (r *NestedFormsRule) getFormName(node *reader.RichNode) string {

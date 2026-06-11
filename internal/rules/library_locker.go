@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -11,6 +12,8 @@ type LibraryLockerRule struct {
 	Rule
 	ExcludedLibraries []string `json:"excluded_libraries" yaml:"excluded_libraries"`
 	MinParamCount     int      `json:"min_param_count" yaml:"min_param_count"`
+	excludedMap       map[string]bool
+	once              sync.Once
 }
 
 func (r *LibraryLockerRule) Meta() Rule {
@@ -121,10 +124,15 @@ func (r *LibraryLockerRule) extractLibraryCall(node *reader.RichNode) *LibraryCa
 	library := parts[0]
 	function := parts[1]
 
-	for _, excluded := range r.ExcludedLibraries {
-		if library == excluded {
-			return nil
+	r.once.Do(func() {
+		r.excludedMap = make(map[string]bool)
+		for _, excluded := range r.ExcludedLibraries {
+			r.excludedMap[excluded] = true
 		}
+	})
+
+	if r.excludedMap[library] {
+		return nil
 	}
 
 	return &LibraryCall{

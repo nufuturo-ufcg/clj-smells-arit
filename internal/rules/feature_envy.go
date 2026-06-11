@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -13,6 +14,8 @@ type FeatureEnvyRule struct {
 	MinExternalCalls int      `json:"min_external_calls" yaml:"min_external_calls"`
 	MinTotalCalls    int      `json:"min_total_calls" yaml:"min_total_calls"`
 	IgnoreNamespaces []string `json:"ignore_namespaces" yaml:"ignore_namespaces"`
+	ignoredMap       map[string]bool
+	once             sync.Once
 }
 
 type CallAnalysis struct {
@@ -169,12 +172,13 @@ func (r *FeatureEnvyRule) isSpecialForm(call string) bool {
 }
 
 func (r *FeatureEnvyRule) shouldIgnoreNamespace(namespace string) bool {
-	for _, ignored := range r.IgnoreNamespaces {
-		if namespace == ignored {
-			return true
+	r.once.Do(func() {
+		r.ignoredMap = make(map[string]bool)
+		for _, ignored := range r.IgnoreNamespaces {
+			r.ignoredMap[ignored] = true
 		}
-	}
-	return false
+	})
+	return r.ignoredMap[namespace]
 }
 
 func (r *FeatureEnvyRule) meetsMinimumCriteria(analysis *CallAnalysis) bool {

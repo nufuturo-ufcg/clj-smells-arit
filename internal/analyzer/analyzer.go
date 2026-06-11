@@ -489,12 +489,21 @@ func NewAnalyzer(cfg *config.Config) *Analyzer {
 		}
 
 		ruleMetaID := checkerRule.Meta().ID
+		ruleGroup := rules.GetRuleGroup(ruleMetaID)
 
-		isEnabledInGlobalConfig, specifiedInGlobalConfig := cfg.EnabledRules[ruleMetaID]
-		shouldProcessRule := !specifiedInGlobalConfig || isEnabledInGlobalConfig
+		groupEnabled, groupSpecified := cfg.EnabledGroups[ruleGroup]
+		ruleEnabled, ruleSpecified := cfg.EnabledRules[ruleMetaID]
+
+		var shouldProcessRule bool
+		if groupSpecified {
+			shouldProcessRule = groupEnabled
+		} else if ruleSpecified {
+			shouldProcessRule = ruleEnabled
+		} else {
+			shouldProcessRule = true
+		}
 
 		if !shouldProcessRule {
-
 			continue
 		}
 
@@ -572,14 +581,14 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			return
 		}
 
-		for _, rule := range a.Rules {
-			ruleContext := make(map[string]interface{})
-			for k, v := range currentContext {
-				ruleContext[k] = v
-			}
-			ruleContext["scope"] = scope
-			ruleContext["config"] = a.Config
+		ruleContext := make(map[string]interface{}, len(currentContext)+2)
+		for k, v := range currentContext {
+			ruleContext[k] = v
+		}
+		ruleContext["scope"] = scope
+		ruleContext["config"] = a.Config
 
+		for _, rule := range a.Rules {
 			if finding := rule.Check(node, ruleContext, filepath); finding != nil {
 				findingsMutex.Lock()
 				allFindings = append(allFindings, finding)

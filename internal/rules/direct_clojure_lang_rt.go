@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -10,6 +11,8 @@ import (
 type DirectClojureLangRTRule struct {
 	Rule
 	AllowedFunctions []string `json:"allowed_functions" yaml:"allowed_functions"`
+	allowedMap       map[string]bool
+	once             sync.Once
 }
 
 func (r *DirectClojureLangRTRule) Meta() Rule {
@@ -80,12 +83,13 @@ func (r *DirectClojureLangRTRule) extractRTFunction(symbol string) string {
 }
 
 func (r *DirectClojureLangRTRule) isAllowedFunction(function string) bool {
-	for _, allowed := range r.AllowedFunctions {
-		if function == allowed {
-			return true
+	r.once.Do(func() {
+		r.allowedMap = make(map[string]bool)
+		for _, allowed := range r.AllowedFunctions {
+			r.allowedMap[allowed] = true
 		}
-	}
-	return false
+	})
+	return r.allowedMap[function]
 }
 
 func (r *DirectClojureLangRTRule) getSuggestionForFunction(function string) string {

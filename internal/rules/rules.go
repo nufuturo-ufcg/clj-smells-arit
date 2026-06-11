@@ -14,6 +14,7 @@ type Rule struct {
 	Name        string   `json:"name" yaml:"name"`
 	Description string   `json:"description" yaml:"description"`
 	Severity    Severity `json:"severity" yaml:"severity"`
+	Group       string   `json:"group" yaml:"group"`
 }
 
 func (r *Rule) IsInside(context map[string]interface{}, formNames ...string) bool {
@@ -149,4 +150,67 @@ func AllRules() []RegisteredRule {
 	result := make([]RegisteredRule, len(snapshot.sorted))
 	copy(result, snapshot.sorted)
 	return result
+}
+
+var RuleGroups = map[string]string{
+	"blocking-inside-go":                  "clojure-specific",
+	"direct-use-of-clojure-lang-rt":       "clojure-specific",
+	"implicit-namespace-dependencies":     "clojure-specific",
+	"improper-emptiness-check":            "clojure-specific",
+	"misuse-of-channel-closing-semantics": "clojure-specific",
+	"monolithic-namespace-split":          "clojure-specific",
+	"multiple-evaluation-in-macros":       "clojure-specific",
+	"namespace-load-side-effects":         "clojure-specific",
+	"private-multimethods":                "clojure-specific",
+	"production-doall":                    "clojure-specific",
+	"redundant-do-block":                  "clojure-specific",
+	"single-segment-namespace":            "clojure-specific",
+	"thread-ignorance":                    "clojure-specific",
+	"unnecessary-into":                    "clojure-specific",
+	"verbose-checks":                      "clojure-specific",
+	"namespaced-keys-neglect":             "clojure-specific",
+	"library-locker":                      "clojure-specific",
+	"accessing-nonexistent-map-fields":    "clojure-specific",
+	"conditional-build-up":                "clojure-specific",
+	"nested-forms":                        "clojure-specific",
+
+	"immutability-violation":            "functional",
+	"lazy-side-effects":                 "functional",
+	"explicit-recursion":                "functional",
+	"inefficient-filtering":             "functional",
+	"potentially-inefficient-generator": "functional",
+	"premature-optimization":            "functional",
+	"trivial-lambda":                    "functional",
+	"underutilizing-features":           "functional",
+	"overuse-of-high-order-functions":   "functional",
+	"overabstracted-composition":        "functional",
+
+	"circular-dependency":          "traditional",
+	"comments":                     "traditional",
+	"data-clumps":                  "traditional",
+	"deeply-nested":                "traditional",
+	"direct-external-schema-usage": "traditional",
+	"divergent-change":             "traditional",
+	"duplicated-code":              "traditional",
+	"external-data-coupling":       "traditional",
+	"feature-envy":                 "traditional",
+	"hidden-side-effects":          "traditional",
+	"inappropriate-collection":     "traditional",
+	"linear-collection-scan":       "traditional",
+	"long-function":                "traditional",
+	"long-parameter-list":          "traditional",
+	"message-chains":               "traditional",
+	"middle-man":                   "traditional",
+	"positional-return-values":     "traditional",
+	"primitive-obsession":          "traditional",
+	"shotgun-surgery":              "traditional",
+	"string-map-keys":              "traditional",
+	"unnecessary-abstraction":      "traditional",
+}
+
+func GetRuleGroup(id string) string {
+	if grp, ok := RuleGroups[id]; ok {
+		return grp
+	}
+	return "clojure-specific" // default group
 }
