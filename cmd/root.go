@@ -104,9 +104,15 @@ Arit - Static Analysis for Clojure Code
 				for parentDir != "/" && parentDir != "." {
 					gitPath := filepath.Join(parentDir, ".git")
 					modPath := filepath.Join(parentDir, "go.mod")
+					projCljPath := filepath.Join(parentDir, "project.clj")
+					depsEdnPath := filepath.Join(parentDir, "deps.edn")
+
 					gitInfo, gitErr := os.Stat(gitPath)
 					modInfo, modErr := os.Stat(modPath)
-					if (gitErr == nil && gitInfo.IsDir()) || (modErr == nil && !modInfo.IsDir()) {
+					_, projErr := os.Stat(projCljPath)
+					_, depsErr := os.Stat(depsEdnPath)
+
+					if (gitErr == nil && gitInfo.IsDir()) || (modErr == nil && !modInfo.IsDir()) || projErr == nil || depsErr == nil {
 						configDir = parentDir
 						break
 					}

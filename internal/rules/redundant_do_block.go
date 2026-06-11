@@ -196,11 +196,11 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 	case "if", "if-not":
 
 		if doNodeIndex == 2 {
-			if r.hasMultipleExpressions(node) {
+			if !r.hasMultipleExpressions(node) {
 				isRedundant = true
 			}
 		} else if doNodeIndex == 3 && len(parent.Children) == 4 {
-			if r.hasMultipleExpressions(node) {
+			if !r.hasMultipleExpressions(node) {
 				isRedundant = true
 			}
 		}
@@ -208,11 +208,11 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 	case "if-let", "if-some":
 
 		if doNodeIndex == 2 {
-			if r.hasMultipleExpressions(node) {
+			if !r.hasMultipleExpressions(node) {
 				isRedundant = true
 			}
 		} else if doNodeIndex == 3 && len(parent.Children) == 4 {
-			if r.hasMultipleExpressions(node) {
+			if !r.hasMultipleExpressions(node) {
 				isRedundant = true
 			}
 		}

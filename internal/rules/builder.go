@@ -253,18 +253,7 @@ func FilepathContains(substrs ...string) Predicate {
 // IsInside checks if the node is nested under any of the specified form names in the context hierarchy.
 func IsInside(formNames ...string) Predicate {
 	return func(_ *reader.RichNode, context map[string]interface{}, _ string) bool {
-		enclosingForms, ok := context["enclosingForms"].([]string)
-		if !ok {
-			return false
-		}
-		for _, enclosing := range enclosingForms {
-			for _, target := range formNames {
-				if enclosing == target {
-					return true
-				}
-			}
-		}
-		return false
+		return isInsideContext(context, formNames)
 	}
 }
 

@@ -481,13 +481,6 @@ func NewAnalyzer(cfg *config.Config) *Analyzer {
 
 	allRuleInstances := rules.AllRules()
 
-	for _, ruleInst := range allRuleInstances {
-
-		if _ = ruleInst.(rules.CheckerRule); true {
-
-		}
-	}
-
 	for _, ruleInstance := range allRuleInstances {
 		checkerRule, ok := ruleInstance.(rules.CheckerRule)
 		if !ok {

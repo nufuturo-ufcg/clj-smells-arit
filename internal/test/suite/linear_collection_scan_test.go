@@ -19,7 +19,7 @@ func TestLinearCollectionScan(t *testing.T) {
 
 				{Message: "Using sort for min/max detected", StartLine: 34},
 
-				{Message: "Counting filtered results", StartLine: 43},
+				{Message: "Using count/filter for existence check", StartLine: 43},
 
 				{Message: "Counting filtered results", StartLine: 43},
 

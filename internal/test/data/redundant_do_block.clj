@@ -28,10 +28,8 @@
 (defn handle-response [status]
   (if (= status 200)
     (do
-      (println "Success")
       :ok)
     (do
-      (println "Error occurred")
       :error)))
 
 ;; Example 4: Redundant do in defn body (single expression)
@@ -62,10 +60,8 @@
   (loop [i n]
     (if (pos? i)
       (do
-        (println "Count:" i)
         (recur (dec i)))
       (do
-        (println "Done!")
         :finished))))
 
 ;; ----------------------------------------------------------------------------

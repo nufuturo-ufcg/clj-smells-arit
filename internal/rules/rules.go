@@ -17,6 +17,10 @@ type Rule struct {
 }
 
 func (r *Rule) IsInside(context map[string]interface{}, formNames ...string) bool {
+	return isInsideContext(context, formNames)
+}
+
+func isInsideContext(context map[string]interface{}, formNames []string) bool {
 	enclosingForms, ok := context["enclosingForms"].([]string)
 	if !ok {
 		return false

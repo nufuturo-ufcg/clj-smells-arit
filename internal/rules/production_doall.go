@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -30,7 +31,7 @@ func (r *ProductionDoallRule) isTestFile(filepath string) bool {
 	}
 
 	for _, indicator := range testIndicators {
-		if contains(filepath, indicator) {
+		if strings.Contains(filepath, indicator) {
 			return true
 		}
 	}
@@ -51,27 +52,11 @@ func (r *ProductionDoallRule) isDevCode(filepath string) bool {
 	}
 
 	for _, indicator := range devIndicators {
-		if contains(filepath, indicator) {
+		if strings.Contains(filepath, indicator) {
 			return true
 		}
 	}
 
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(s == substr ||
-			(len(s) > len(substr) &&
-				anySubstring(s, substr)))
-}
-
-func anySubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
 	return false
 }
 
@@ -84,7 +69,7 @@ func (r *ProductionDoallRule) isInREPLContext(node *reader.RichNode, filepath st
 	}
 
 	for _, indicator := range replIndicators {
-		if contains(filepath, indicator) {
+		if strings.Contains(filepath, indicator) {
 			return true
 		}
 	}

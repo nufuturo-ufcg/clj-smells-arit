@@ -20,7 +20,23 @@ type RuleSettings map[string]interface{}
 func LoadConfig(startDir string) (*Config, error) {
 	filePath, found := findConfigFile(startDir)
 	if !found {
+		// Fallback 1: Try current working directory
+		if cwd, err := os.Getwd(); err == nil {
+			filePath, found = findConfigFile(cwd)
+		}
+	}
+	if !found {
+		// Fallback 2: Try user home directory
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			homeFilePath := filepath.Join(homeDir, configFileName)
+			if _, err := os.Stat(homeFilePath); err == nil {
+				filePath = homeFilePath
+				found = true
+			}
+		}
+	}
 
+	if !found {
 		return &Config{
 			EnabledRules: make(map[string]bool),
 			RuleConfig:   make(map[string]RuleSettings),
