@@ -1,14 +1,14 @@
 # Arquivos e diretórios ignorados pelo Git para o projeto ARIT
 
 # IDEs e editores
-/.idea/          # Arquivos de configuração do IntelliJ IDEA / GoLand
+/.idea/
 
 # Binários compilados
-*.exe           # Executáveis Windows
-arit            # Binário principal do projeto (Linux/macOS)
-*.md            # Arquivos markdown
-*.clj           # Código Clojure
-*.html          # Html
+*.exe
+arit
+*.md
+*.clj
+*.html
 
 # Arquivos temporários
 *.tmp
@@ -18,11 +18,11 @@ arit            # Binário principal do projeto (Linux/macOS)
 .arit.local.yaml
 
 # Diretórios de teste e documentação
-teste/          # Diretório com exemplos de teste e casos de uso
-docs/           # Diretório com documentação e catálogos de code smells
+teste/
+docs/
 
 # Configurações do editor
-.vscode/        # Configurações específicas do VS Code/Cursor
+.vscode/
 *.swp           # Arquivos temporários do Vim
 *.swo           # Arquivos temporários do Vim
 *~              # Arquivos de backup

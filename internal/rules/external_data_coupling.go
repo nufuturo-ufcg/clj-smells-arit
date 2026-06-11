@@ -193,23 +193,28 @@ func (r *ExternalDataCouplingRule) findUnsanitizedIoDataSource(
 	}
 }
 
-func (r *ExternalDataCouplingRule) Check(rootNode *reader.RichNode, _ map[string]interface{}, filepath string) *Finding {
+func (r *ExternalDataCouplingRule) Check(rootNode *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+	if parent, ok := context["parent"]; ok && parent != nil {
+		return nil
+	}
+
 	var finding *Finding
 
-	var walkFn func(node *reader.RichNode, parentLetBindings map[string]*reader.RichNode)
+	var walkFn func(node *reader.RichNode, currentLetBindings map[string]*reader.RichNode)
 	walkFn = func(node *reader.RichNode, currentLetBindings map[string]*reader.RichNode) {
 		if finding != nil {
 			return
 		}
 
-		localBindings := make(map[string]*reader.RichNode)
-		for k, v := range currentLetBindings {
-			localBindings[k] = v
-		}
+		localBindings := currentLetBindings
 
 		if node.Type == reader.NodeList && len(node.Children) > 1 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "let" {
 			bindingsVec := node.Children[1]
 			if bindingsVec.Type == reader.NodeVector {
+				localBindings = make(map[string]*reader.RichNode, len(currentLetBindings)+len(bindingsVec.Children)/2)
+				for k, v := range currentLetBindings {
+					localBindings[k] = v
+				}
 				for i := 0; i+1 < len(bindingsVec.Children); i += 2 {
 					boundSymNode := bindingsVec.Children[i]
 					valueNode := bindingsVec.Children[i+1]
@@ -266,7 +271,7 @@ func (r *ExternalDataCouplingRule) Check(rootNode *reader.RichNode, _ map[string
 	}
 
 	if rootNode != nil {
-		walkFn(rootNode, make(map[string]*reader.RichNode))
+		walkFn(rootNode, nil)
 	}
 
 	return finding

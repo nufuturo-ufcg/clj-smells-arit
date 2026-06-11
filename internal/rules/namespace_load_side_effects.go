@@ -24,24 +24,27 @@ func (r *NamespaceLoadSideEffectsRule) checkRequire(symbol string) bool {
 }
 
 func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *Finding {
+	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
+		if r.checkRequire(node.Children[0].Value) {
+			isInsideNs := false
+			if enclosing, ok := context["enclosingForms"].([]string); ok {
+				for _, f := range enclosing {
+					if f == "ns" {
+						isInsideNs = true
+						break
+					}
+				}
+			}
 
-	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol{
-		if node.Children[0].Value == "ns" {
-			context["inside-ns"] = true
-			return nil
-		}
-		if r.checkRequire(node.Children[0].Value){
-			isInsideNs, ok := context["inside-ns"].(bool)
-
-			if !ok || !isInsideNs {
-                return &Finding{
-                    RuleID:   r.ID,
-                    Message:  fmt.Sprintf("Side effect: '%s' detected outside of ns macro.", node.Children[0].Value),
-                    Filepath: filepath,
-                    Location: node.Location,
-                    Severity: r.Severity,
-                }
-            }
+			if !isInsideNs {
+				return &Finding{
+					RuleID:   r.ID,
+					Message:  fmt.Sprintf("Side effect: '%s' detected outside of ns macro.", node.Children[0].Value),
+					Filepath: filepath,
+					Location: node.Location,
+					Severity: r.Severity,
+				}
+			}
 		}
 	}
 	return nil

@@ -6,59 +6,55 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-var mutatingSymbols = map[string]struct{}{
-	"set!":           {},
-	"alter-var-root": {},
-	"agent-send":     {},
-	"agent-send-off": {},
-	"intern":         {},
-	"aset":           {},
-}
-
-var sideEffectSymbols = map[string]struct{}{
-	"println": {},
-	"print":   {},
-	"prn":     {},
-	"printf":  {},
-	"spit":    {},
-	"def":     {},
-	"defonce": {},
-	"intern":  {},
-}
-
 func init() {
+	isSideEffectCall := Any(
+		FirstChildValueEquals("println"),
+		FirstChildValueEquals("print"),
+		FirstChildValueEquals("prn"),
+		FirstChildValueEquals("printf"),
+		FirstChildValueEquals("spit"),
+		FirstChildValueEquals("def"),
+		FirstChildValueEquals("defonce"),
+		FirstChildValueEquals("intern"),
+	)
+
 	NewRule("immutability-violation").
 		Name("Immutability Violation").
 		Description("Detects direct state mutation and violations of functional purity. Follows Clojure Style Guide recommendations for proper use of refs, atoms, agents, and avoiding global state mutation in local scopes.").
 		Severity(SeverityWarning).
 		When(IsList()).
 		When(HasMinChildren(1)).
-		When(ChildMatches(0, IsSymbol())).
+		When(ChildIsSymbol(0)).
 		When(Any(
 			// 1. Chamada direta de função de mutação
-			ChildMatches(0, func(n *reader.RichNode, _ map[string]interface{}, _ string) bool {
-				_, ok := mutatingSymbols[n.Value]
-				return ok
-			}),
+			Any(
+				ChildValueEquals(0, "set!"),
+				ChildValueEquals(0, "alter-var-root"),
+				ChildValueEquals(0, "agent-send"),
+				ChildValueEquals(0, "agent-send-off"),
+				ChildValueEquals(0, "intern"),
+				ChildValueEquals(0, "aset"),
+			),
 			// 2. def ou defonce dentro de escopo local
 			All(
-				ChildMatches(0, Any(ValueEquals("def"), ValueEquals("defonce"))),
+				Any(ChildValueEquals(0, "def"), ChildValueEquals(0, "defonce")),
 				IsLocalScope(),
 			),
 			// 3. ref-set fora de dosync
 			All(
-				ChildMatches(0, ValueEquals("ref-set")),
+				ChildValueEquals(0, "ref-set"),
 				Not(IsInside("dosync")),
 			),
 			// 4. Chamada de reset!
-			ChildMatches(0, ValueEquals("reset!")),
+			ChildValueEquals(0, "reset!"),
 			// 5. Chamada de send ou send-off passando uma função com efeitos colaterais
 			All(
-				ChildMatches(0, Any(ValueEquals("send"), ValueEquals("send-off"))),
+				Any(ChildValueEquals(0, "send"), ChildValueEquals(0, "send-off")),
 				HasMinChildren(3),
-				func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
-					return containsSideEffects(node.Children[2])
-				},
+				ChildMatches(2, Any(
+					isSideEffectCall,
+					HasDescendant(isSideEffectCall),
+				)),
 			),
 		)).
 		MessageFunc(func(node *reader.RichNode, _ map[string]interface{}) string {
@@ -83,24 +79,4 @@ func init() {
 			return defaultSev
 		}).
 		Register()
-}
-
-func containsSideEffects(node *reader.RichNode) bool {
-	if node == nil {
-		return false
-	}
-	if node.Type == reader.NodeList && len(node.Children) > 0 {
-		symbol := node.Children[0]
-		if symbol.Type == reader.NodeSymbol {
-			if _, hasSideEffect := sideEffectSymbols[symbol.Value]; hasSideEffect {
-				return true
-			}
-		}
-	}
-	for _, child := range node.Children {
-		if containsSideEffects(child) {
-			return true
-		}
-	}
-	return false
 }

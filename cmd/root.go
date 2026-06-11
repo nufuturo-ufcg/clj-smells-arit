@@ -21,10 +21,11 @@ import (
 )
 
 var (
-	formatFlag  string
-	verboseFlag bool
-	timingFlag  bool
-	quietFlag bool
+	formatFlag       string
+	verboseFlag      bool
+	timingFlag       bool
+	quietFlag        bool
+	countFindingFlag bool
 )
 
 var rootCmd = &cobra.Command{
@@ -193,6 +194,7 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		semaphore := make(chan struct{}, numWorkers)
+		analyzerInstance := analyzer.NewAnalyzer(cfg)
 
 		for _, fileToAnalyze := range filesToAnalyze {
 			wg.Add(1)
@@ -214,7 +216,7 @@ Arit - Static Analysis for Clojure Code
 					fmt.Fprintf(os.Stderr, "Analyzing file: %s\n", filePath)
 				}
 
-				analysisResult, analyzeErr := analyzer.AnalyzeFile(filePath, cfg)
+				analysisResult, analyzeErr := analyzerInstance.AnalyzeFile(filePath)
 
 				if analyzeErr != nil {
 					if verboseFlag {
@@ -294,6 +296,11 @@ Arit - Static Analysis for Clojure Code
 			}
 		}
 
+		if countFindingFlag {
+			fmt.Println(len(allFindings))
+			return nil
+		}
+
 		rep := reporter.NewReporter(outputFormat)
 		if rep == nil {
 			return fmt.Errorf("unsupported report format: %s", outputFormat)
@@ -323,6 +330,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
+	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
 }
 
 func findClojureFiles(dir string) ([]string, error) {

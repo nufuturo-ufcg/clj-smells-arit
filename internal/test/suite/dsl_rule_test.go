@@ -86,3 +86,57 @@ func TestDSLConfigLookup(t *testing.T) {
 	assert.NotNil(t, findingCorrect)
 	assert.Equal(t, "Config matched!", findingCorrect.Message)
 }
+
+func TestNewPredicates(t *testing.T) {
+	// 1. HasDescendant
+	descendantRule := rules.NewRule("test-has-descendant").
+		When(rules.HasDescendant(rules.ValueEquals("target-value"))).
+		Message("Found target-value").
+		Register()
+
+	nodeWithDescendant := &reader.RichNode{
+		Type: reader.NodeList,
+		Children: []*reader.RichNode{
+			{
+				Type: reader.NodeList,
+				Children: []*reader.RichNode{
+					{Type: reader.NodeSymbol, Value: "target-value"},
+				},
+			},
+		},
+	}
+	assert.NotNil(t, descendantRule.Check(nodeWithDescendant, map[string]interface{}{}, "test.clj"))
+
+	// 2. ChildValueEquals e ChildIsSymbol
+	childRule := rules.NewRule("test-child-shortcuts").
+		When(rules.ChildValueEquals(0, "reset!")).
+		When(rules.ChildIsSymbol(1)).
+		Message("reset! shortcuts matched").
+		Register()
+
+	nodeShortcuts := &reader.RichNode{
+		Type: reader.NodeList,
+		Children: []*reader.RichNode{
+			{Type: reader.NodeSymbol, Value: "reset!"},
+			{Type: reader.NodeSymbol, Value: "my-atom"},
+		},
+	}
+	assert.NotNil(t, childRule.Check(nodeShortcuts, map[string]interface{}{}, "test.clj"))
+
+	// 3. HasBindingPair
+	bindingRule := rules.NewRule("test-binding-pair").
+		When(rules.HasBindingPair(rules.ValueEquals("x"), rules.IsNumber())).
+		Message("binding matched").
+		Register()
+
+	bindingVector := &reader.RichNode{
+		Type: reader.NodeVector,
+		Children: []*reader.RichNode{
+			{Type: reader.NodeSymbol, Value: "y"},
+			{Type: reader.NodeString, Value: "hello"},
+			{Type: reader.NodeSymbol, Value: "x"},
+			{Type: reader.NodeNumber, Value: "42"},
+		},
+	}
+	assert.NotNil(t, bindingRule.Check(bindingVector, map[string]interface{}{}, "test.clj"))
+}

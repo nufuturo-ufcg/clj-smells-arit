@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"reflect"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/config"
@@ -314,4 +315,155 @@ func GetConfigBool(context map[string]interface{}, ruleID string, key string, de
 		}
 	}
 	return defaultValue
+}
+
+// GetConfigStringSlice retrieves a slice of strings setting for the rule from the context.
+func GetConfigStringSlice(context map[string]interface{}, ruleID string, key string) []string {
+	if cfgVal, ok := context["config"]; ok {
+		if cfg, ok := cfgVal.(*config.Config); ok && cfg != nil {
+			if ruleSettings, ok := cfg.RuleConfig[ruleID]; ok {
+				if value, ok := ruleSettings[key]; ok {
+					if slice, ok := value.([]interface{}); ok {
+						var res []string
+						for _, item := range slice {
+							if str, ok := item.(string); ok {
+								res = append(res, str)
+							}
+						}
+						return res
+					} else if slice, ok := value.([]string); ok {
+						return slice
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// HasDescendant checks recursively if any descendant of the current node satisfies the predicate.
+func HasDescendant(pred Predicate) Predicate {
+	return func(node *reader.RichNode, context map[string]interface{}, filepath string) bool {
+		if node == nil {
+			return false
+		}
+		var walk func(n *reader.RichNode) bool
+		walk = func(n *reader.RichNode) bool {
+			if n == nil {
+				return false
+			}
+			if pred(n, context, filepath) {
+				return true
+			}
+			for _, child := range n.Children {
+				if walk(child) {
+					return true
+				}
+			}
+			return false
+		}
+		for _, child := range node.Children {
+			if walk(child) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// ChildValueEquals is a shortcut that checks if a child at the given index has a specific value.
+func ChildValueEquals(index int, val string) Predicate {
+	return ChildMatches(index, ValueEquals(val))
+}
+
+// ChildIsSymbol is a shortcut that checks if a child at the given index is a symbol.
+func ChildIsSymbol(index int) Predicate {
+	return ChildMatches(index, IsSymbol())
+}
+
+// HasBindingPair checks if a binding vector (e.g. in let/loop) contains a key-value pair matching the predicates.
+func HasBindingPair(keyPred, valPred Predicate) Predicate {
+	return func(node *reader.RichNode, context map[string]interface{}, filepath string) bool {
+		if node == nil || node.Type != reader.NodeVector {
+			return false
+		}
+		for i := 0; i+1 < len(node.Children); i += 2 {
+			if keyPred(node.Children[i], context, filepath) && valPred(node.Children[i+1], context, filepath) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// IsResolvedTo checks if the node's resolved symbol matches the specified type name (e.g., "parameter", "variable").
+func IsResolvedTo(symType string) Predicate {
+	return func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
+		if node == nil || node.SymbolRef == nil {
+			return false
+		}
+		val := reflect.ValueOf(node.SymbolRef)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+		if val.Kind() != reflect.Struct {
+			return false
+		}
+		typeField := val.FieldByName("Type")
+		if !typeField.IsValid() {
+			return false
+		}
+		return typeField.String() == symType
+	}
+}
+
+// IsResolvedPrivate checks if the node resolves to a private symbol.
+func IsResolvedPrivate() Predicate {
+	return func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
+		if node == nil || node.SymbolRef == nil {
+			return false
+		}
+		val := reflect.ValueOf(node.SymbolRef)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+		if val.Kind() != reflect.Struct {
+			return false
+		}
+		pField := val.FieldByName("IsPrivate")
+		if !pField.IsValid() {
+			return false
+		}
+		return pField.Bool()
+	}
+}
+
+// AnyChildMatches checks if at least one direct child of the node satisfies the predicate.
+func AnyChildMatches(pred Predicate) Predicate {
+	return func(node *reader.RichNode, context map[string]interface{}, filepath string) bool {
+		if node == nil {
+			return false
+		}
+		for _, child := range node.Children {
+			if pred(child, context, filepath) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// AllChildrenMatch checks if all direct children of the node satisfy the predicate.
+func AllChildrenMatch(pred Predicate) Predicate {
+	return func(node *reader.RichNode, context map[string]interface{}, filepath string) bool {
+		if node == nil || len(node.Children) == 0 {
+			return false
+		}
+		for _, child := range node.Children {
+			if !pred(child, context, filepath) {
+				return false
+			}
+		}
+		return true
+	}
 }

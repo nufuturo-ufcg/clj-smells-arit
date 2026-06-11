@@ -15,7 +15,7 @@ type DuplicatedCodeRule struct {
 	Rule
 
 	globalBlocks map[string][]CodeBlockInfo
-	mu           sync.Mutex
+	mu           *sync.Mutex
 
 	exactMinLines            int
 	exactMinTokens           int
@@ -365,22 +365,24 @@ func (r *DuplicatedCodeRule) fastHash(data string) string {
 	return fmt.Sprintf("%x", h.Sum64())
 }
 
+var coreFunctions = map[string]bool{
+	"map": true, "filter": true, "reduce": true, "apply": true, "partial": true, "comp": true,
+	"let": true, "when": true, "if": true, "cond": true, "case": true, "defn": true, "def": true,
+	"assoc": true, "dissoc": true, "get": true, "get-in": true, "update": true, "update-in": true,
+	"first": true, "rest": true, "last": true, "count": true, "empty?": true, "seq": true,
+	"+": true, "-": true, "*": true, "/": true, "=": true, "<": true, ">": true, "<=": true, ">=": true, "not=": true,
+}
+
 func (r *DuplicatedCodeRule) isCoreFunctionSymbol(symbol string) bool {
-	coreFunctions := map[string]bool{
-		"map": true, "filter": true, "reduce": true, "apply": true, "partial": true, "comp": true,
-		"let": true, "when": true, "if": true, "cond": true, "case": true, "defn": true, "def": true,
-		"assoc": true, "dissoc": true, "get": true, "get-in": true, "update": true, "update-in": true,
-		"first": true, "rest": true, "last": true, "count": true, "empty?": true, "seq": true,
-		"+": true, "-": true, "*": true, "/": true, "=": true, "<": true, ">": true, "<=": true, ">=": true, "not=": true,
-	}
 	return coreFunctions[symbol]
 }
 
+var importantKeywords = map[string]bool{
+	"require": true, "import": true, "refer": true, "as": true, "exclude": true, "only": true,
+	"keys": true, "vals": true, "strs": true, "syms": true,
+}
+
 func (r *DuplicatedCodeRule) isImportantKeyword(keyword string) bool {
-	importantKeywords := map[string]bool{
-		"require": true, "import": true, "refer": true, "as": true, "exclude": true, "only": true,
-		"keys": true, "vals": true, "strs": true, "syms": true,
-	}
 	return importantKeywords[keyword]
 }
 
@@ -453,6 +455,7 @@ func init() {
 			Severity:    SeverityWarning,
 		},
 		globalBlocks:             make(map[string][]CodeBlockInfo),
+		mu:                       &sync.Mutex{},
 		exactMinLines:            1,
 		exactMinTokens:           5,
 		maxBlocksPerFile:         1000,
