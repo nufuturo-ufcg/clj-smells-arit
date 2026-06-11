@@ -20,6 +20,8 @@ arit
 # Diretórios de teste e documentação
 teste/
 docs/
+Common-Metadata-Repository/
+clj-smells-catalog/
 
 # Configurações do editor
 .vscode/
