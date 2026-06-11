@@ -16,6 +16,21 @@ type Rule struct {
 	Severity    Severity `json:"severity" yaml:"severity"`
 }
 
+func (r *Rule) IsInside(context map[string]interface{}, formNames ...string) bool {
+	enclosingForms, ok := context["enclosingForms"].([]string)
+	if !ok {
+		return false
+	}
+	for _, enclosing := range enclosingForms {
+		for _, target := range formNames {
+			if enclosing == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type RegisteredRule interface {
 	Meta() Rule
 }

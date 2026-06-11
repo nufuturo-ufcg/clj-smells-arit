@@ -31,3 +31,5 @@ docs/           # Diretório com documentação e catálogos de code smells
 /.clj-kondo/
 /output_test/
 /testes/
+.arit.yaml
+arit

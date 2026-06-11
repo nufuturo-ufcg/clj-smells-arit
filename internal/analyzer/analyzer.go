@@ -470,11 +470,14 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 }
 
 type Analyzer struct {
-	Rules []rules.CheckerRule
+	Rules  []rules.CheckerRule
+	Config *config.Config
 }
 
 func NewAnalyzer(cfg *config.Config) *Analyzer {
-	analyzer := &Analyzer{}
+	analyzer := &Analyzer{
+		Config: cfg,
+	}
 
 	allRuleInstances := rules.AllRules()
 
@@ -582,6 +585,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				ruleContext[k] = v
 			}
 			ruleContext["scope"] = scope
+			ruleContext["config"] = a.Config
 
 			if finding := rule.Check(node, ruleContext, filepath); finding != nil {
 				findingsMutex.Lock()
@@ -597,6 +601,15 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			childContext[k] = v
 		}
 		childContext["parent"] = node
+
+		if enclosing, ok := currentContext["enclosingForms"].([]string); ok {
+			newEnclosing := make([]string, len(enclosing))
+			copy(newEnclosing, enclosing)
+			if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
+				newEnclosing = append(newEnclosing, node.Children[0].Value)
+			}
+			childContext["enclosingForms"] = newEnclosing
+		}
 
 		isParentEager, _ := currentContext["isInEagerContext"].(bool)
 		childContext["isInEagerContext"] = isParentEager || isNodeEagerConsumer(node)
@@ -716,13 +729,14 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	}
 
 	initialContext := map[string]interface{}{
-		"isInEagerContext":  false,
-		"isInsideFunction":  false,
-		"isInsideLet":       false,
-		"isInsideLoop":      false,
-		"isInsideBinding":   false,
-		"isInsideDosync":    false,
-		"isInsideWithOpen":  false,
+		"isInEagerContext": false,
+		"isInsideFunction": false,
+		"isInsideLet":      false,
+		"isInsideLoop":     false,
+		"isInsideBinding":  false,
+		"isInsideDosync":   false,
+		"isInsideWithOpen": false,
+		"enclosingForms":   []string{},
 	}
 
 	for _, rootNode := range richRootNodes {
@@ -736,6 +750,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				ruleContext[k] = v
 			}
 			ruleContext["scope"] = globalScope
+			ruleContext["config"] = a.Config
 
 			if finding := rule.Check(commentNode, ruleContext, filepath); finding != nil {
 				findingsMutex.Lock()
