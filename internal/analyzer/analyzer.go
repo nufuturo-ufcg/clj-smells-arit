@@ -9,6 +9,7 @@ import (
 	"github.com/thlaurentino/arit/internal/config"
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/clojurespecific"
 )
 
 type AnalysisResult struct {
@@ -527,7 +528,8 @@ func NewAnalyzer(cfg *config.Config) *Analyzer {
 		} else if ruleSpecified {
 			shouldProcessRule = ruleEnabled
 		} else {
-			shouldProcessRule = true
+			// By default, if nothing is specified in config, only clojure-specific is enabled
+			shouldProcessRule = (ruleGroup == "clojure-specific")
 		}
 
 		if !shouldProcessRule {
@@ -563,16 +565,16 @@ func configureRule(rule rules.CheckerRule, cfg *config.Config) rules.CheckerRule
 		return rule
 	}
 
-	if typedRule, ok := rule.(*rules.LazySideEffectsRule); ok {
-		newRule := &rules.LazySideEffectsRule{
+	if typedRule, ok := rule.(*clojurespecific.LazySideEffectsRule); ok {
+		newRule := &clojurespecific.LazySideEffectsRule{
 			LazyContextFuncs: make(map[string]bool),
 			SideEffectFuncs:  make(map[string]bool),
 		}
 
-		for k, v := range rules.DefaultLazyContextFunctions {
+		for k, v := range clojurespecific.DefaultLazyContextFunctions {
 			newRule.LazyContextFuncs[k] = v
 		}
-		for k, v := range rules.DefaultSideEffectFunctions {
+		for k, v := range clojurespecific.DefaultSideEffectFunctions {
 			newRule.SideEffectFuncs[k] = v
 		}
 
@@ -605,7 +607,7 @@ func isNodeEagerConsumer(node *reader.RichNode) bool {
 	if funcNode.Type != reader.NodeSymbol {
 		return false
 	}
-	_, isEager := rules.EagerConsumerFunctions[funcNode.Value]
+	_, isEager := clojurespecific.EagerConsumerFunctions[funcNode.Value]
 	return isEager
 }
 

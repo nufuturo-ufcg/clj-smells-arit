@@ -1,37 +1,41 @@
 # Arquivos e diretórios ignorados pelo Git para o projeto ARIT
 
-# IDEs e editores
-/.idea/
-
 # Binários compilados
-*.exe
 arit
-*.md
-*.clj
-*.html
+*.exe
 
-# Arquivos temporários
-*.tmp
-*.log
-
-# Arquivos de configuração local
-.arit.local.yaml
-
-# Diretórios de teste e documentação
-teste/
-docs/
+# Repositórios e projetos de benchmark externos
 Common-Metadata-Repository/
 clj-smells-catalog/
 
-# Configurações do editor
+# Lista de smells e arquivos auxiliares
+list.txt
+
+# Diretório de documentação e relatórios gerados
+docs/
+
+# Relatórios JSON de saída temporários
+cmr_analysis*.json
+*.json
+!/.vscode/*.json
+
+# Arquivos temporários e logs
+*.tmp
+*.log
+
+# IDEs e editores
 .vscode/
-*.swp           # Arquivos temporários do Vim
-*.swo           # Arquivos temporários do Vim
-*~              # Arquivos de backup
-.DS_Store       # Arquivos do macOS
-/.lsp/
-/.clj-kondo/
-/output_test/
-/testes/
+.idea/
+.clj-kondo/
+.lsp/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Configurações locais
+.arit.local.yaml
 .arit.yaml
-arit
+output_test/
+testes/
+teste/

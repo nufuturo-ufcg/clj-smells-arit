@@ -18,6 +18,10 @@ import (
 	"github.com/thlaurentino/arit/internal/config"
 	"github.com/thlaurentino/arit/internal/reporter"
 	"github.com/thlaurentino/arit/internal/rules"
+
+	_ "github.com/thlaurentino/arit/internal/rules/clojurespecific"
+	_ "github.com/thlaurentino/arit/internal/rules/functional"
+	"github.com/thlaurentino/arit/internal/rules/traditional"
 )
 
 var (
@@ -248,7 +252,7 @@ Arit - Static Analysis for Clojure Code
 
 		wg.Wait()
 
-		dataClumpsAnalyzer := rules.GetGlobalDataClumpsAnalyzer()
+		dataClumpsAnalyzer := traditional.GetGlobalDataClumpsAnalyzer()
 		dataClumpsFindings := dataClumpsAnalyzer.GenerateFindings()
 		if dataClumpsFindings != nil {
 			mu.Lock()
@@ -285,6 +289,8 @@ Arit - Static Analysis for Clojure Code
 			switch outputFormat {
 			case reporter.FormatJSON:
 				fmt.Fprintf(os.Stderr, "Report generated in JSON format.\n")
+			case reporter.FormatJSONSnippet, "json-extended", "jsonsnippet", "json_snippet":
+				fmt.Fprintf(os.Stderr, "Report generated in JSON format with code snippets.\n")
 			case reporter.FormatHTML:
 				fmt.Fprintf(os.Stderr, "Report generated in HTML format.\n")
 			case reporter.FormatMarkdown:
@@ -326,7 +332,7 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, html, markdown, csv)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, json-snippet, html, markdown, csv)")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")

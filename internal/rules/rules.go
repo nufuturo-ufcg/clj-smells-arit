@@ -173,9 +173,9 @@ var RuleGroups = map[string]string{
 	"accessing-nonexistent-map-fields":    "clojure-specific",
 	"conditional-build-up":                "clojure-specific",
 	"nested-forms":                        "clojure-specific",
+	"immutability-violation":              "clojure-specific",
+	"lazy-side-effects":                   "clojure-specific",
 
-	"immutability-violation":            "functional",
-	"lazy-side-effects":                 "functional",
 	"explicit-recursion":                "functional",
 	"inefficient-filtering":             "functional",
 	"potentially-inefficient-generator": "functional",

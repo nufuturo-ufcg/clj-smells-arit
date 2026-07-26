@@ -10,6 +10,10 @@ import (
 	"github.com/thlaurentino/arit/internal/analyzer"
 	"github.com/thlaurentino/arit/internal/config"
 	rules "github.com/thlaurentino/arit/internal/rules"
+
+	_ "github.com/thlaurentino/arit/internal/rules/clojurespecific"
+	_ "github.com/thlaurentino/arit/internal/rules/functional"
+	_ "github.com/thlaurentino/arit/internal/rules/traditional"
 )
 
 type ExpectedFinding struct {
