@@ -12,6 +12,7 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 			RuleID:        "multiple-evaluation-in-macros",
 			ExpectedFindings: []framework.ExpectedFinding{
 				{Message: "The macro bad-macro presents multiple calls to the input arguments x", StartLine: 3},
+				{Message: "The macro docstring-bad-macro presents multiple calls to the input arguments x", StartLine: 15},
 			},
 		},
 	}

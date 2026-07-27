@@ -178,14 +178,17 @@ var RuleGroups = map[string]string{
 
 	"explicit-recursion":                "functional",
 	"inefficient-filtering":             "functional",
+	"inefficient-generator":             "functional",
 	"potentially-inefficient-generator": "functional",
 	"premature-optimization":            "functional",
 	"trivial-lambda":                    "functional",
 	"underutilizing-features":           "functional",
+	"underutilizing-features: use-mapcat": "functional",
 	"overuse-of-high-order-functions":   "functional",
 	"overabstracted-composition":        "functional",
 
 	"circular-dependency":          "traditional",
+	"cyclic-dependency":            "traditional",
 	"comments":                     "traditional",
 	"data-clumps":                  "traditional",
 	"deeply-nested":                "traditional",

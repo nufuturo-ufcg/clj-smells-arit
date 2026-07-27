@@ -9,3 +9,13 @@
   `(let [x# ~x]
      (println x#)
      (println x#)))
+
+(defmacro no-body-macro [x])
+
+(defmacro docstring-bad-macro
+  "This macro has a docstring and multiple evaluations."
+  [x]
+  `(do
+     (println ~x)
+     (println ~x)))
+
