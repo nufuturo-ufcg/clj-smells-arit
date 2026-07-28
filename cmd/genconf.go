@@ -23,7 +23,8 @@ with all available rules listed. You can then edit this file
 to enable or disable rules and configure their parameters.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defaultConfig := config.Config{
-			EnabledRules: make(map[string]bool),
+			EnabledRules:  make(map[string]bool),
+			EnabledGroups: make(map[string]bool),
 			RuleConfig:   make(map[string]config.RuleSettings),
 		}
 
@@ -34,10 +35,15 @@ to enable or disable rules and configure their parameters.`,
 
 		fmt.Println("Generating default configuration for all available rules...")
 
+		defaultConfig.EnabledGroups["clojure-specific"] = true
+		defaultConfig.EnabledGroups["functional"] = false
+		defaultConfig.EnabledGroups["traditional"] = false
+
 		for _, rule := range allRules {
 			meta := rule.Meta()
-			defaultConfig.EnabledRules[meta.ID] = true
-
+			
+			// We no longer enable all rules individually by default, 
+			// we rely on EnabledGroups. We still extract rule configs.
 			if ruleConfig := extractRuleConfig(rule); ruleConfig != nil {
 				defaultConfig.RuleConfig[meta.ID] = ruleConfig
 			}
@@ -51,8 +57,10 @@ to enable or disable rules and configure their parameters.`,
 		headerComment := []byte(
 			`# Arit configuration file.
 #
-# You can enable or disable rules by setting them to true or false in the 'enabled_rules' section.
-# Specific parameters for rules can be configured in the 'rule_config' section.
+# You can enable or disable rule groups by setting them to true or false in the 'enabled-groups' section.
+# Available groups: clojure-specific, functional, traditional.
+# Specific parameters for rules can be configured in the 'rule-config' section.
+# You can also enable/disable individual rules in the 'enabled-rules' section.
 #
 `)
 		finalYamlData := append(headerComment, yamlData...)

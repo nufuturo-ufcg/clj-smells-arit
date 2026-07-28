@@ -2,7 +2,9 @@ package rules
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -14,6 +16,26 @@ type Rule struct {
 	Name        string   `json:"name" yaml:"name"`
 	Description string   `json:"description" yaml:"description"`
 	Severity    Severity `json:"severity" yaml:"severity"`
+	Group       string   `json:"group" yaml:"group"`
+}
+
+func (r *Rule) IsInside(context map[string]interface{}, formNames ...string) bool {
+	return isInsideContext(context, formNames)
+}
+
+func isInsideContext(context map[string]interface{}, formNames []string) bool {
+	enclosingForms, ok := context["enclosingForms"].([]string)
+	if !ok {
+		return false
+	}
+	for _, enclosing := range enclosingForms {
+		for _, target := range formNames {
+			if enclosing == target {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type RegisteredRule interface {
@@ -36,6 +58,7 @@ var (
 	registry       = make(map[string]RegisteredRule)
 	registryMu     sync.Mutex
 	cachedSnapshot atomic.Value
+	ruleGroupsMap  = make(map[string]string)
 )
 
 func RegisterRule(rule RegisteredRule) {
@@ -47,6 +70,25 @@ func RegisterRule(rule RegisteredRule) {
 		panic(fmt.Sprintf("rule: rule with ID %q already registered", id))
 	}
 	registry[id] = rule
+
+	group := rule.Meta().Group
+	if group == "" {
+		t := reflect.TypeOf(rule)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		pkgPath := t.PkgPath()
+		if strings.Contains(pkgPath, "/clojurespecific") {
+			group = "clojure-specific"
+		} else if strings.Contains(pkgPath, "/functional") {
+			group = "functional"
+		} else if strings.Contains(pkgPath, "/traditional") {
+			group = "traditional"
+		} else {
+			group = "clojure-specific"
+		}
+	}
+	ruleGroupsMap[id] = group
 
 	cachedSnapshot.Store((*registrySnapshot)(nil))
 }
@@ -130,4 +172,13 @@ func AllRules() []RegisteredRule {
 	result := make([]RegisteredRule, len(snapshot.sorted))
 	copy(result, snapshot.sorted)
 	return result
+}
+
+func GetRuleGroup(id string) string {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	if grp, ok := ruleGroupsMap[id]; ok {
+		return grp
+	}
+	return "clojure-specific" // default group
 }

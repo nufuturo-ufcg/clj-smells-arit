@@ -18,13 +18,18 @@ import (
 	"github.com/thlaurentino/arit/internal/config"
 	"github.com/thlaurentino/arit/internal/reporter"
 	"github.com/thlaurentino/arit/internal/rules"
+
+	_ "github.com/thlaurentino/arit/internal/rules/clojurespecific"
+	_ "github.com/thlaurentino/arit/internal/rules/functional"
+	"github.com/thlaurentino/arit/internal/rules/traditional"
 )
 
 var (
-	formatFlag  string
-	verboseFlag bool
-	timingFlag  bool
-	quietFlag bool
+	formatFlag       string
+	verboseFlag      bool
+	timingFlag       bool
+	quietFlag        bool
+	countFindingFlag bool
 )
 
 var rootCmd = &cobra.Command{
@@ -104,9 +109,15 @@ Arit - Static Analysis for Clojure Code
 				for parentDir != "/" && parentDir != "." {
 					gitPath := filepath.Join(parentDir, ".git")
 					modPath := filepath.Join(parentDir, "go.mod")
+					projCljPath := filepath.Join(parentDir, "project.clj")
+					depsEdnPath := filepath.Join(parentDir, "deps.edn")
+
 					gitInfo, gitErr := os.Stat(gitPath)
 					modInfo, modErr := os.Stat(modPath)
-					if (gitErr == nil && gitInfo.IsDir()) || (modErr == nil && !modInfo.IsDir()) {
+					_, projErr := os.Stat(projCljPath)
+					_, depsErr := os.Stat(depsEdnPath)
+
+					if (gitErr == nil && gitInfo.IsDir()) || (modErr == nil && !modInfo.IsDir()) || projErr == nil || depsErr == nil {
 						configDir = parentDir
 						break
 					}
@@ -187,6 +198,7 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		semaphore := make(chan struct{}, numWorkers)
+		analyzerInstance := analyzer.NewAnalyzer(cfg)
 
 		for _, fileToAnalyze := range filesToAnalyze {
 			wg.Add(1)
@@ -208,7 +220,7 @@ Arit - Static Analysis for Clojure Code
 					fmt.Fprintf(os.Stderr, "Analyzing file: %s\n", filePath)
 				}
 
-				analysisResult, analyzeErr := analyzer.AnalyzeFile(filePath, cfg)
+				analysisResult, analyzeErr := analyzerInstance.AnalyzeFile(filePath)
 
 				if analyzeErr != nil {
 					if verboseFlag {
@@ -240,7 +252,7 @@ Arit - Static Analysis for Clojure Code
 
 		wg.Wait()
 
-		dataClumpsAnalyzer := rules.GetGlobalDataClumpsAnalyzer()
+		dataClumpsAnalyzer := traditional.GetGlobalDataClumpsAnalyzer()
 		dataClumpsFindings := dataClumpsAnalyzer.GenerateFindings()
 		if dataClumpsFindings != nil {
 			mu.Lock()
@@ -277,6 +289,8 @@ Arit - Static Analysis for Clojure Code
 			switch outputFormat {
 			case reporter.FormatJSON:
 				fmt.Fprintf(os.Stderr, "Report generated in JSON format.\n")
+			case reporter.FormatJSONSnippet, "json-extended", "jsonsnippet", "json_snippet":
+				fmt.Fprintf(os.Stderr, "Report generated in JSON format with code snippets.\n")
 			case reporter.FormatHTML:
 				fmt.Fprintf(os.Stderr, "Report generated in HTML format.\n")
 			case reporter.FormatMarkdown:
@@ -286,6 +300,11 @@ Arit - Static Analysis for Clojure Code
 			default:
 				fmt.Fprintf(os.Stderr, "Report generated in %s format.\n", outputFormat)
 			}
+		}
+
+		if countFindingFlag {
+			fmt.Println(len(allFindings))
+			return nil
 		}
 
 		rep := reporter.NewReporter(outputFormat)
@@ -313,10 +332,11 @@ func Execute() error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, html, markdown, csv)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, json-snippet, html, markdown, csv)")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
+	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
 }
 
 func findClojureFiles(dir string) ([]string, error) {
