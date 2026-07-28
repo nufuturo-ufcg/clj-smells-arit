@@ -2,6 +2,7 @@ package rules
 
 import (
 	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/config"
@@ -52,11 +53,32 @@ type Builder struct {
 
 // NewRule starts the configuration chain for a new rule with the given ID.
 func NewRule(id string) *Builder {
+	group := "clojure-specific" // default
+	for i := 1; i < 6; i++ {
+		_, file, _, ok := runtime.Caller(i)
+		if !ok {
+			break
+		}
+		if strings.Contains(file, "/internal/rules/") && !strings.HasSuffix(file, "builder.go") && !strings.HasSuffix(file, "rules.go") {
+			if strings.Contains(file, "/clojurespecific/") {
+				group = "clojure-specific"
+				break
+			} else if strings.Contains(file, "/functional/") {
+				group = "functional"
+				break
+			} else if strings.Contains(file, "/traditional/") {
+				group = "traditional"
+				break
+			}
+		}
+	}
+
 	return &Builder{
 		rule: DSLRule{
 			meta: Rule{
 				ID:       id,
 				Severity: SeverityWarning, // Default
+				Group:    group,
 			},
 		},
 	}

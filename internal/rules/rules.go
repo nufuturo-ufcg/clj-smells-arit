@@ -2,7 +2,9 @@ package rules
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -56,6 +58,7 @@ var (
 	registry       = make(map[string]RegisteredRule)
 	registryMu     sync.Mutex
 	cachedSnapshot atomic.Value
+	ruleGroupsMap  = make(map[string]string)
 )
 
 func RegisterRule(rule RegisteredRule) {
@@ -67,6 +70,25 @@ func RegisterRule(rule RegisteredRule) {
 		panic(fmt.Sprintf("rule: rule with ID %q already registered", id))
 	}
 	registry[id] = rule
+
+	group := rule.Meta().Group
+	if group == "" {
+		t := reflect.TypeOf(rule)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		pkgPath := t.PkgPath()
+		if strings.Contains(pkgPath, "/clojurespecific") {
+			group = "clojure-specific"
+		} else if strings.Contains(pkgPath, "/functional") {
+			group = "functional"
+		} else if strings.Contains(pkgPath, "/traditional") {
+			group = "traditional"
+		} else {
+			group = "clojure-specific"
+		}
+	}
+	ruleGroupsMap[id] = group
 
 	cachedSnapshot.Store((*registrySnapshot)(nil))
 }
@@ -152,67 +174,10 @@ func AllRules() []RegisteredRule {
 	return result
 }
 
-var RuleGroups = map[string]string{
-	"blocking-inside-go":                  "clojure-specific",
-	"direct-use-of-clojure-lang-rt":       "clojure-specific",
-	"implicit-namespace-dependencies":     "clojure-specific",
-	"improper-emptiness-check":            "clojure-specific",
-	"misuse-of-channel-closing-semantics": "clojure-specific",
-	"monolithic-namespace-split":          "clojure-specific",
-	"multiple-evaluation-in-macros":       "clojure-specific",
-	"namespace-load-side-effects":         "clojure-specific",
-	"private-multimethods":                "clojure-specific",
-	"production-doall":                    "clojure-specific",
-	"redundant-do-block":                  "clojure-specific",
-	"single-segment-namespace":            "clojure-specific",
-	"thread-ignorance":                    "clojure-specific",
-	"unnecessary-into":                    "clojure-specific",
-	"verbose-checks":                      "clojure-specific",
-	"namespaced-keys-neglect":             "clojure-specific",
-	"library-locker":                      "clojure-specific",
-	"accessing-nonexistent-map-fields":    "clojure-specific",
-	"conditional-build-up":                "clojure-specific",
-	"nested-forms":                        "clojure-specific",
-	"immutability-violation":              "clojure-specific",
-	"lazy-side-effects":                   "clojure-specific",
-
-	"explicit-recursion":                "functional",
-	"inefficient-filtering":             "functional",
-	"inefficient-generator":             "functional",
-	"potentially-inefficient-generator": "functional",
-	"premature-optimization":            "functional",
-	"trivial-lambda":                    "functional",
-	"underutilizing-features":           "functional",
-	"underutilizing-features: use-mapcat": "functional",
-	"overuse-of-high-order-functions":   "functional",
-	"overabstracted-composition":        "functional",
-
-	"circular-dependency":          "traditional",
-	"cyclic-dependency":            "traditional",
-	"comments":                     "traditional",
-	"data-clumps":                  "traditional",
-	"deeply-nested":                "traditional",
-	"direct-external-schema-usage": "traditional",
-	"divergent-change":             "traditional",
-	"duplicated-code":              "traditional",
-	"external-data-coupling":       "traditional",
-	"feature-envy":                 "traditional",
-	"hidden-side-effects":          "traditional",
-	"inappropriate-collection":     "traditional",
-	"linear-collection-scan":       "traditional",
-	"long-function":                "traditional",
-	"long-parameter-list":          "traditional",
-	"message-chains":               "traditional",
-	"middle-man":                   "traditional",
-	"positional-return-values":     "traditional",
-	"primitive-obsession":          "traditional",
-	"shotgun-surgery":              "traditional",
-	"string-map-keys":              "traditional",
-	"unnecessary-abstraction":      "traditional",
-}
-
 func GetRuleGroup(id string) string {
-	if grp, ok := RuleGroups[id]; ok {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	if grp, ok := ruleGroupsMap[id]; ok {
 		return grp
 	}
 	return "clojure-specific" // default group
