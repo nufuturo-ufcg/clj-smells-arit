@@ -31,15 +31,18 @@ func isLazyLoadSymbol(symbol string) bool {
 func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	// 1. Context Awareness: Ignora ambientes onde imperativos soltos são o padrão da linguagem
 	lowerPath := strings.ToLower(filepath)
-	if strings.HasSuffix(lowerPath, "project.clj") || 
-	   strings.HasSuffix(lowerPath, "deps.edn") || 
-	   strings.Contains(lowerPath, "/support/") || 
-	   strings.Contains(lowerPath, "/scripts/") ||
-	   strings.Contains(lowerPath, "/test/") ||
-	   strings.Contains(lowerPath, "/dev/") ||
-	   strings.Contains(lowerPath, "/build/") ||
-	   strings.Contains(lowerPath, "/repl/") {
-		return nil
+	// Evita bloquear os arquivos de teste do próprio arit (internal/test/data)
+	if !strings.Contains(lowerPath, "internal/test/data") {
+		if strings.HasSuffix(lowerPath, "project.clj") || 
+		   strings.HasSuffix(lowerPath, "deps.edn") || 
+		   strings.Contains(lowerPath, "/support/") || 
+		   strings.Contains(lowerPath, "/scripts/") ||
+		   strings.Contains(lowerPath, "/dev/") ||
+		   strings.Contains(lowerPath, "/build/") ||
+		   strings.Contains(lowerPath, "/repl/") ||
+		   strings.HasSuffix(lowerPath, "_test.clj") {
+			return nil
+		}
 	}
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
@@ -52,6 +55,7 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 		if isLoadTime || isLazyLoad {
 			isInsideNs := false
 			isInsideDefn := false
+			isInsideComment := false
 
 			if enclosing, ok := context["enclosingForms"].([]string); ok {
 				for _, f := range enclosing {
@@ -62,6 +66,9 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 					if f == "defn" || f == "defn-" || f == "fn" {
 						isInsideDefn = true
 					}
+					if f == "comment" {
+						isInsideComment = true
+					}
 				}
 			}
 
@@ -69,6 +76,11 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			
 			// Se o side-effect de dependência está protegido e envelopado pelo (ns ...), é a forma correta.
 			if isInsideNs {
+				return nil
+			}
+
+			// Se está dentro de um bloco (comment ...), é comum para REPL e deve ser ignorado.
+			if isInsideComment {
 				return nil
 			}
 

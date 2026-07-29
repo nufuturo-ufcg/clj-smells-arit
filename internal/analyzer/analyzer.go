@@ -225,7 +225,7 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol {
 			funcNameNode := node.Children[0]
 			switch funcNameNode.Value {
-			case "defn", "defn-":
+			case "defn", "defn-", "defmacro", "defmethod", "defmulti":
 				if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeSymbol {
 					funcSymbolNode := node.Children[1]
 					var typeHint string
@@ -386,7 +386,7 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			funcNameNodeVal := node.Children[0].Value
 			switch funcNameNodeVal {
-			case "defn", "defn-":
+			case "defn", "defn-", "defmacro", "defmethod", "defmulti":
 				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
 
 					newFnScope := NewScope(currentScope)
@@ -673,7 +673,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			nodeVal := node.Children[0].Value
 			switch nodeVal {
-			case "defn", "defn-", "fn":
+			case "defn", "defn-", "defmacro", "defmethod", "defmulti", "fn":
 				currentNodeDefinesFunc = true
 			case "let":
 				currentNodeDefinesLet = true
@@ -925,7 +925,7 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 	if parentNode.Type == reader.NodeList && len(parentNode.Children) > 0 && parentNode.Children[0].Type == reader.NodeSymbol {
 		funcName := parentNode.Children[0].Value
 		switch funcName {
-		case "defn", "defn-":
+		case "defn", "defn-", "defmacro", "defmethod", "defmulti":
 
 			if childIndex == 1 {
 				return true

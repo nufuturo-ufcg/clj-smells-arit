@@ -25,6 +25,11 @@ var threadingCandidateFunctions = map[string]bool{
 	"assoc": true, "dissoc": true, "update": true, "merge": true, "select-keys": true,
 	"str/replace": true, "str/trim": true, "str/upper-case": true, "str/lower-case": true, "str/split": true,
 	"vec": true, "set": true, "seq": true, "into": true,
+	// Adicionados para consertar Falsos Negativos
+	"mapv": true, "filterv": true, "reduce-kv": true, "keys": true, "vals": true,
+	"first": true, "last": true, "rest": true, "next": true,
+	"assoc-in": true, "update-in": true, "get": true, "get-in": true, "concat": true, "reverse": true,
+	"upper-case": true, "lower-case": true, "trim": true, "replace": true, "split": true,
 }
 
 func isThreadingCandidate(funcName string) bool {
@@ -43,33 +48,41 @@ func countNestedCalls(node *reader.RichNode, depth int) int {
 	if node == nil || depth > 10 {
 		return 0
 	}
+	if node.Type != reader.NodeList || len(node.Children) == 0 {
+		return 0
+	}
+	funcNode := node.Children[0]
+	if funcNode.Type != reader.NodeSymbol {
+		return 0
+	}
+	
+	funcName := funcNode.Value
+	switch funcName {
+	case "fn", "let", "loop", "if", "when", "cond", "case", "def", "defn", "defn-", "try", "catch", "for", "doseq":
+		return 0
+	}
+
 	count := 0
-	if node.Type == reader.NodeList && len(node.Children) > 0 {
-		if funcNode := node.Children[0]; funcNode.Type == reader.NodeSymbol {
-			if isThreadingCandidate(funcNode.Value) {
-				count = 1
-			}
-		}
-		
-		maxChildDepth := 0
-		for i := 1; i < len(node.Children); i++ {
-			d := countNestedCalls(node.Children[i], depth+1)
-			if d > maxChildDepth {
-				maxChildDepth = d
-			}
-		}
-		count += maxChildDepth
-	} else {
-		maxChildDepth := 0
-		for _, child := range node.Children {
+	if isThreadingCandidate(funcName) {
+		count = 1
+	}
+
+	maxChildDepth := 0
+	for i := 1; i < len(node.Children); i++ {
+		child := node.Children[i]
+		// Only recurse into direct function calls
+		if child.Type == reader.NodeList {
 			d := countNestedCalls(child, depth+1)
 			if d > maxChildDepth {
 				maxChildDepth = d
 			}
 		}
-		count += maxChildDepth
 	}
-	return count
+	
+	if count > 0 {
+	    return count + maxChildDepth
+	}
+	return maxChildDepth
 }
 
 func nodeContainsSymbol(node *reader.RichNode, symbol string) bool {

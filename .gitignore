@@ -8,8 +8,8 @@ arit
 Common-Metadata-Repository/
 clj-smells-catalog/
 
-# Lista de smells e arquivos auxiliares
-list.txt
+
+*.txt
 
 # Diretório de documentação e relatórios gerados
 docs/
@@ -17,6 +17,14 @@ docs/
 # Relatórios JSON de saída temporários
 cmr_analysis*.json
 *.json
+*.html
+
+# Scripts de avaliação
+*.py
+
+# Arquivos de configuração
+.clj-kondo/*.clj-kondo
+
 !/.vscode/*.json
 
 # Arquivos temporários e logs
@@ -39,3 +47,6 @@ cmr_analysis*.json
 output_test/
 testes/
 teste/
+tmp/test_if.clj
+internal/test_if.clj
+internal/test_ast/

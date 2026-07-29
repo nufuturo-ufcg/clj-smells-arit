@@ -210,8 +210,8 @@ func init() {
 			Severity:    rules.SeverityWarning,
 		},
 		CheckDirectKeywordAccess: false,
-		CheckThreadingMacros:     true,
-		CheckNestedAccess:        true,
+		CheckThreadingMacros:     false,
+		CheckNestedAccess:        false,
 		MinNestingLevel:          3,
 	}
 

@@ -39,6 +39,12 @@ func initVerboseChecksMaps() {
 			"<": {
 				"0": "neg?",
 			},
+			">=": {
+				"0": "nat-int?",
+			},
+			"<=": {
+				"0": "nonpos",
+			},
 		}
 
 		booleanComparisons = map[string]string{
@@ -88,18 +94,26 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 			if operator == "=" {
 				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
 			} else if operator == ">" && constantValue == "0" {
-
 				suggestion = fmt.Sprintf("(neg? %s)", variableExpr)
 			} else if operator == "<" && constantValue == "0" {
-
 				suggestion = fmt.Sprintf("(pos? %s)", variableExpr)
+			} else if operator == ">=" && constantValue == "0" {
+				suggestion = fmt.Sprintf("(not (pos? %s))", variableExpr)
+			} else if operator == "<=" && constantValue == "0" {
+				suggestion = fmt.Sprintf("(nat-int? %s)", variableExpr)
 			}
 		}
 	} else if arg2.Type == reader.NodeNumber {
 		constantValue = arg2.Value
 		variableExpr = getVerboseNodeText(arg1)
 		if idiomaticFunc, exists := comparisons[constantValue]; exists {
-			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
+			if operator == "=" || operator == ">" || operator == "<" {
+				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
+			} else if operator == ">=" && constantValue == "0" {
+				suggestion = fmt.Sprintf("(nat-int? %s)", variableExpr)
+			} else if operator == "<=" && constantValue == "0" {
+				suggestion = fmt.Sprintf("(not (pos? %s))", variableExpr)
+			}
 		}
 	}
 
@@ -125,7 +139,7 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 	}
 
 	opNode := node.Children[0]
-	if opNode.Type != reader.NodeSymbol || opNode.Value != "=" {
+	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") {
 		return nil
 	}
 
@@ -135,18 +149,26 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 	var constantValue, variableExpr string
 	var suggestion string
 
-	if arg1.Type == reader.NodeSymbol && (arg1.Value == "true" || arg1.Value == "false") {
+	if arg1.Type == reader.NodeBool && (arg1.Value == "true" || arg1.Value == "false") {
 		constantValue = arg1.Value
 		variableExpr = getVerboseNodeText(arg2)
-	} else if arg2.Type == reader.NodeSymbol && (arg2.Value == "true" || arg2.Value == "false") {
+	} else if arg2.Type == reader.NodeBool && (arg2.Value == "true" || arg2.Value == "false") {
 		constantValue = arg2.Value
 		variableExpr = getVerboseNodeText(arg1)
 	}
 
 	if constantValue != "" {
 		if idiomaticFunc, exists := booleanComparisons[constantValue]; exists {
-			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
-			originalExpr := fmt.Sprintf("(= %s %s)", getVerboseNodeText(arg1), getVerboseNodeText(arg2))
+			if opNode.Value == "=" {
+				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
+			} else {
+				if constantValue == "true" {
+					suggestion = fmt.Sprintf("(false? %s)", variableExpr)
+				} else {
+					suggestion = fmt.Sprintf("(true? %s)", variableExpr)
+				}
+			}
+			originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 			return &rules.Finding{
 				RuleID:   r.ID,
 				Message:  fmt.Sprintf("Verbose boolean comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
@@ -166,7 +188,7 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	}
 
 	opNode := node.Children[0]
-	if opNode.Type != reader.NodeSymbol || opNode.Value != "=" {
+	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") {
 		return nil
 	}
 
@@ -176,17 +198,22 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	var variableExpr string
 	var isNilComparison bool
 
-	if arg1.Type == reader.NodeSymbol && arg1.Value == "nil" {
+	if arg1.Type == reader.NodeNil {
 		variableExpr = getVerboseNodeText(arg2)
 		isNilComparison = true
-	} else if arg2.Type == reader.NodeSymbol && arg2.Value == "nil" {
+	} else if arg2.Type == reader.NodeNil {
 		variableExpr = getVerboseNodeText(arg1)
 		isNilComparison = true
 	}
 
 	if isNilComparison {
-		suggestion := fmt.Sprintf("(nil? %s)", variableExpr)
-		originalExpr := fmt.Sprintf("(= %s %s)", getVerboseNodeText(arg1), getVerboseNodeText(arg2))
+		var suggestion string
+		if opNode.Value == "=" {
+			suggestion = fmt.Sprintf("(nil? %s)", variableExpr)
+		} else {
+			suggestion = fmt.Sprintf("(some? %s)", variableExpr)
+		}
+		originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
 			RuleID:   r.ID,
 			Message:  fmt.Sprintf("Verbose nil comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
@@ -256,13 +283,95 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *rules.Fi
 	return nil
 }
 
+func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode) *rules.Finding {
+	if node.Type != reader.NodeList || len(node.Children) != 4 {
+		return nil
+	}
+	opNode := node.Children[0]
+	if opNode.Type != reader.NodeSymbol || opNode.Value != "if" {
+		return nil
+	}
+	cond := node.Children[1]
+	thenBranch := node.Children[2]
+	elseBranch := node.Children[3]
+
+	if thenBranch.Type == reader.NodeBool && elseBranch.Type == reader.NodeBool {
+		if thenBranch.Value == "true" && elseBranch.Value == "false" {
+			suggestion := fmt.Sprintf("(boolean %s)", getVerboseNodeText(cond))
+			originalExpr := fmt.Sprintf("(if %s true false)", getVerboseNodeText(cond))
+			return &rules.Finding{
+				RuleID:   r.ID,
+				Message:  fmt.Sprintf("Verbose boolean if: `%s`. Consider using `%s`.", originalExpr, suggestion),
+				Location: node.Location,
+				Severity: r.Severity,
+			}
+		}
+		if thenBranch.Value == "false" && elseBranch.Value == "true" {
+			suggestion := fmt.Sprintf("(not %s)", getVerboseNodeText(cond))
+			originalExpr := fmt.Sprintf("(if %s false true)", getVerboseNodeText(cond))
+			return &rules.Finding{
+				RuleID:   r.ID,
+				Message:  fmt.Sprintf("Verbose boolean if: `%s`. Consider using `%s`.", originalExpr, suggestion),
+				Location: node.Location,
+				Severity: r.Severity,
+			}
+		}
+	}
+	return nil
+}
+
+func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Finding {
+	if node.Type != reader.NodeList || len(node.Children) != 3 {
+		return nil
+	}
+	opNode := node.Children[0]
+	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") {
+		return nil
+	}
+	
+	arg1 := node.Children[1]
+	arg2 := node.Children[2]
+	
+	isMod := false
+	var modArg string
+	
+	if arg1.Type == reader.NodeList && len(arg1.Children) == 3 && arg1.Children[0].Type == reader.NodeSymbol && (arg1.Children[0].Value == "mod" || arg1.Children[0].Value == "rem") && arg1.Children[2].Type == reader.NodeNumber && arg1.Children[2].Value == "2" {
+		if arg2.Type == reader.NodeNumber && arg2.Value == "0" {
+			isMod = true
+			modArg = getVerboseNodeText(arg1.Children[1])
+		}
+	} else if arg2.Type == reader.NodeList && len(arg2.Children) == 3 && arg2.Children[0].Type == reader.NodeSymbol && (arg2.Children[0].Value == "mod" || arg2.Children[0].Value == "rem") && arg2.Children[2].Type == reader.NodeNumber && arg2.Children[2].Value == "2" {
+		if arg1.Type == reader.NodeNumber && arg1.Value == "0" {
+			isMod = true
+			modArg = getVerboseNodeText(arg2.Children[1])
+		}
+	}
+	
+	if isMod {
+		var suggestion string
+		if opNode.Value == "=" {
+			suggestion = fmt.Sprintf("(even? %s)", modArg)
+		} else {
+			suggestion = fmt.Sprintf("(odd? %s)", modArg)
+		}
+		originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
+		return &rules.Finding{
+			RuleID:   r.ID,
+			Message:  fmt.Sprintf("Verbose parity check: `%s`. Consider using `%s`.", originalExpr, suggestion),
+			Location: node.Location,
+			Severity: r.Severity,
+		}
+	}
+	return nil
+}
+
 func getVerboseNodeText(node *reader.RichNode) string {
 	if node == nil {
 		return "nil"
 	}
 
 	switch node.Type {
-	case reader.NodeSymbol, reader.NodeKeyword, reader.NodeString, reader.NodeNumber:
+	case reader.NodeSymbol, reader.NodeKeyword, reader.NodeString, reader.NodeNumber, reader.NodeBool, reader.NodeNil:
 		return node.Value
 	case reader.NodeList:
 		if len(node.Children) > 0 {
@@ -312,6 +421,16 @@ func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]inte
 			finding.Filepath = filepath
 			return finding
 		}
+	}
+
+	if finding := r.detectVerboseIf(node); finding != nil {
+		finding.Filepath = filepath
+		return finding
+	}
+	
+	if finding := r.detectModComparison(node); finding != nil {
+		finding.Filepath = filepath
+		return finding
 	}
 
 	return nil
