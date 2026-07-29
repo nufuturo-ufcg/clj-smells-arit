@@ -11,8 +11,7 @@ func TestThreadIgnorance(t *testing.T) {
 			FileToAnalyze: "thread_ignorance.clj",
 			RuleID:        "thread-ignorance",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "3 threading candidates", StartLine: 4},
-				{Message: "2 threading candidates", StartLine: 4},
+				{Message: "depth 3", StartLine: 4},
 			},
 		},
 	}

@@ -16,10 +16,25 @@ func (r *BlockingInsideGoRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-// ok
 func (r *BlockingInsideGoRule) checkBlockingFunction(symbol string) bool {
-
 	if strings.Contains(symbol, "!!") {
+		return true
+	}
+	
+	switch symbol {
+	case "Thread/sleep", "slurp", "spit", "await", "deref", "future-call", "locking", "@":
+		return true
+	}
+	
+	if strings.HasPrefix(symbol, "clj-http.client/") || strings.HasPrefix(symbol, "http/") {
+		return true
+	}
+	
+	if strings.Contains(symbol, "jdbc/execute!") {
+		return true
+	}
+	
+	if symbol == ".readLine" || symbol == ".acquire" || symbol == "java.net.Socket." {
 		return true
 	}
 
@@ -29,24 +44,44 @@ func (r *BlockingInsideGoRule) checkBlockingFunction(symbol string) bool {
 // ok
 func (r *BlockingInsideGoRule) findGoBlock(symbol string) bool {
 
-	if symbol == "go" {
+	if symbol == "go" || symbol == "go-loop" {
 		return true
 	}
 
-	if strings.HasSuffix(symbol, "/go") {
+	if strings.HasSuffix(symbol, "/go") || strings.HasSuffix(symbol, "/go-loop") {
 		return true
 	}
 
 	return false
 }
 
-func (r *BlockingInsideGoRule) findBlockingFunction(node []*reader.RichNode) bool {
-
+func (r *BlockingInsideGoRule) findBlockingFunction(node []*reader.RichNode, visited map[*reader.RichNode]bool) bool {
+	if visited == nil {
+		visited = make(map[*reader.RichNode]bool)
+	}
+	
 	for _, child := range node {
-		if child.Type == reader.NodeSymbol && r.checkBlockingFunction(child.Value) {
-			return true
+		if child == nil {
+			continue
 		}
-		if r.findBlockingFunction(child.Children) {
+		if visited[child] {
+			continue
+		}
+		visited[child] = true
+
+		if child.Type == reader.NodeSymbol {
+			if r.checkBlockingFunction(child.Value) {
+				return true
+			}
+			
+			if child.ResolvedDefinition != nil {
+				if r.findBlockingFunction([]*reader.RichNode{child.ResolvedDefinition}, visited) {
+					return true
+				}
+			}
+		}
+		
+		if r.findBlockingFunction(child.Children, visited) {
 			return true
 		}
 	}
@@ -57,7 +92,7 @@ func (r *BlockingInsideGoRule) Check(node *reader.RichNode, _ map[string]interfa
 
 	if node.Type == reader.NodeList && len(node.Children) > 0 &&
 		node.Children[0].Type == reader.NodeSymbol &&
-		r.findGoBlock(node.Children[0].Value) && r.findBlockingFunction(node.Children[1:]) {
+		r.findGoBlock(node.Children[0].Value) && r.findBlockingFunction(node.Children[1:], nil) {
 		return &rules.Finding{
 			RuleID:   r.ID,
 			Message:  fmt.Sprintf("Blocking function detected within the GO block %s.", node.Children[0].Value),
