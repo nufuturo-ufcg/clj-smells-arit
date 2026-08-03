@@ -19,13 +19,11 @@ func (r *UnmanagedResourceIORule) Meta() rules.Rule {
 }
 
 func (r *UnmanagedResourceIORule) checkIoOperations(symbol string) bool {
-	alvos := []string{"reader", "writer", "stream"}
-
-	if strings.Contains(symbol, "io") {
-		for _, opcao := range alvos {
-			if strings.Contains(strings.ToLower(symbol), opcao) {
-				return true
-			}
+	alvos := []string{"reader", "writer", "stream", "socket", "connection"}
+	symLower := strings.ToLower(symbol)
+	for _, opcao := range alvos {
+		if strings.Contains(symLower, opcao) {
+			return true
 		}
 	}
 	return false

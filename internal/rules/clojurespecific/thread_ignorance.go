@@ -30,6 +30,7 @@ var threadingCandidateFunctions = map[string]bool{
 	"first": true, "last": true, "rest": true, "next": true,
 	"assoc-in": true, "update-in": true, "get": true, "get-in": true, "concat": true, "reverse": true,
 	"upper-case": true, "lower-case": true, "trim": true, "replace": true, "split": true,
+	"count": true, "join": true, "str/join": true, "capitalize": true, "str/capitalize": true, "boolean": true,
 }
 
 func isThreadingCandidate(funcName string) bool {
@@ -100,6 +101,33 @@ func nodeContainsSymbol(node *reader.RichNode, symbol string) bool {
 	return false
 }
 
+func countSymbolOccurrences(node *reader.RichNode, symbol string) int {
+	if node == nil {
+		return 0
+	}
+	count := 0
+	if node.Type == reader.NodeSymbol && node.Value == symbol {
+		count++
+	}
+	for _, child := range node.Children {
+		count += countSymbolOccurrences(child, symbol)
+	}
+	return count
+}
+
+func isDirectArgument(node *reader.RichNode, symbol string) bool {
+	if node == nil || node.Type != reader.NodeList {
+		return false
+	}
+	for i := 1; i < len(node.Children); i++ {
+		child := node.Children[i]
+		if child.Type == reader.NodeSymbol && child.Value == symbol {
+			return true
+		}
+	}
+	return false
+}
+
 func countLetChaining(node *reader.RichNode) int {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
 		return 0
@@ -117,7 +145,7 @@ func countLetChaining(node *reader.RichNode) int {
 	currentChain := 0
 	count := len(bindings.Children)
 	
-	for i := 2; i < count; i += 2 {
+	for i := 2; i+1 < count; i += 2 {
 		prevVarNode := bindings.Children[i-2]
 		if prevVarNode == nil || prevVarNode.Type != reader.NodeSymbol {
 			currentChain = 0
@@ -126,7 +154,7 @@ func countLetChaining(node *reader.RichNode) int {
 		prevVarName := prevVarNode.Value
 		
 		currExpr := bindings.Children[i+1]
-		if nodeContainsSymbol(currExpr, prevVarName) {
+		if isDirectArgument(currExpr, prevVarName) && countSymbolOccurrences(node, prevVarName) == 2 {
 			currentChain++
 			if currentChain > maxChain {
 				maxChain = currentChain

@@ -7,7 +7,6 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-var recordFUnctions []string
 
 type NonIdiomaticRecordConstructionRule struct {
 	rules.Rule
@@ -17,8 +16,8 @@ func (r *NonIdiomaticRecordConstructionRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-func (r *NonIdiomaticRecordConstructionRule) verifiesPositionalConstructor(value string) string {
-	for _, function := range recordFUnctions {
+func (r *NonIdiomaticRecordConstructionRule) verifiesPositionalConstructor(value string, recordFuncs []string) string {
+	for _, function := range recordFuncs {
 		if value == "->"+function || value == function+"." {
 			return function
 		}
@@ -28,17 +27,23 @@ func (r *NonIdiomaticRecordConstructionRule) verifiesPositionalConstructor(value
 
 func (r *NonIdiomaticRecordConstructionRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 
+	var recordFuncs []string
+	if rf, ok := context["recordFunctions"].([]string); ok {
+		recordFuncs = rf
+	}
+
 	if node.Type != reader.NodeList || len(node.Children) <= 0 || node.Children[0].Type != reader.NodeSymbol {
 		return nil
 	}
 
 	firstChild := node.Children[0].Value
 
-	if firstChild == "defrecord" && node.Children[1].Type == reader.NodeSymbol {
-		recordFUnctions = append(recordFUnctions, node.Children[1].Value)
+	if firstChild == "defrecord" && len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
+		recordFuncs = append(recordFuncs, node.Children[1].Value)
+		context["recordFunctions"] = recordFuncs
 	} else {
 
-		function := r.verifiesPositionalConstructor(firstChild)
+		function := r.verifiesPositionalConstructor(firstChild, recordFuncs)
 
 		if function != "" {
 			return &rules.Finding{

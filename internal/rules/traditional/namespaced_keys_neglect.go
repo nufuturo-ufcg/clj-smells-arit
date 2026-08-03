@@ -1,4 +1,4 @@
-package clojurespecific
+package traditional
 
 import (
 	"github.com/thlaurentino/arit/internal/rules"

@@ -64,11 +64,51 @@ func (r *PrivateMultimethodsRule) isDefMulti(node *reader.RichNode) bool {
 }
 
 func (r *PrivateMultimethodsRule) hasPrivateMetadata(node *reader.RichNode) bool {
-	// analisa os children for :private keyword (for ^:private syntax)
-	for _, child := range node.Children {
-		if child != nil && child.Type == reader.NodeKeyword &&
-			(child.Value == ":private" || child.Value == "private" || child.Value == "private true") {
+	if node == nil {
+		return false
+	}
+
+	var checkMeta func(metaNode *reader.RichNode) bool
+	checkMeta = func(metaNode *reader.RichNode) bool {
+		if metaNode == nil {
+			return false
+		}
+		if metaNode.Type == reader.NodeKeyword && (metaNode.Value == ":private" || metaNode.Value == "private") {
 			return true
+		}
+		if metaNode.Type == reader.NodeMap {
+			for i := 0; i+1 < len(metaNode.Children); i += 2 {
+				k := metaNode.Children[i]
+				if k != nil && k.Type == reader.NodeKeyword && (k.Value == ":private" || k.Value == "private") {
+					return true
+				}
+			}
+		}
+		if metaNode.Type == reader.NodeMetadata {
+			for _, c := range metaNode.Children {
+				if checkMeta(c) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	if checkMeta(node.Metadata) {
+		return true
+	}
+
+	for _, child := range node.Children {
+		if child != nil {
+			if child.Type == reader.NodeKeyword && (child.Value == ":private" || child.Value == "private" || child.Value == "private true") {
+				return true
+			}
+			if checkMeta(child) {
+				return true
+			}
+			if checkMeta(child.Metadata) {
+				return true
+			}
 		}
 	}
 	return false
