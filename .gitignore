@@ -50,3 +50,4 @@ teste/
 tmp/test_if.clj
 internal/test_if.clj
 internal/test_ast/
+tmp/

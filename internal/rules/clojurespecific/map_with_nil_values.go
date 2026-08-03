@@ -1,9 +1,10 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
 	"strings"
+
+	"github.com/thlaurentino/arit/internal/rules"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
@@ -204,9 +205,9 @@ func (r *AccessingNonexistentMapFieldsRule) formatThreadingMessage(macro string,
 func init() {
 	defaultRule := &AccessingNonexistentMapFieldsRule{
 		Rule: rules.Rule{
-			ID:          "accessing-nonexistent-map-fields",
-			Name:        "Accessing Non-Existent Map Fields",
-			Description: "Detects potentially unsafe access to map fields that may not exist. Suggests using safe access patterns with defaults or validation to prevent runtime errors.",
+			ID:          "map-with-nil-values",
+			Name:        "Map With Nil Values",
+			Description: "Detects the use of nil values as keys or values in maps.",
 			Severity:    rules.SeverityWarning,
 		},
 		CheckDirectKeywordAccess: false,

@@ -21,94 +21,122 @@ func (r *ImproperEmptinessCheckRule) Meta() rules.Rule {
 }
 
 func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	if node.Type != reader.NodeList || len(node.Children) == 0 {
+	if (node.Type != reader.NodeList && node.Type != reader.NodeFnLiteral) || len(node.Children) == 0 {
 		return nil
 	}
 
-	if len(node.Children) == 2 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "not" {
-		isEmptyCall := node.Children[1]
-		if isEmptyCall.Type == reader.NodeList && len(isEmptyCall.Children) == 2 &&
-			isEmptyCall.Children[0].Type == reader.NodeSymbol && isEmptyCall.Children[0].Value == "empty?" {
-
-			collectionExpr := isEmptyCall.Children[1].Value
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Improper emptiness check: `(not (empty? %s))`. Consider using `(seq %s)` for checking non-emptiness.", collectionExpr, collectionExpr),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
-			}
-		}
-	}
-
-	if len(node.Children) == 3 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "=" {
-		arg1 := node.Children[1]
-		arg2 := node.Children[2]
-
-		var countNode *reader.RichNode
-		var zeroNode *reader.RichNode
-
-		if arg1.Type == reader.NodeList && len(arg1.Children) == 2 && arg1.Children[0].Type == reader.NodeSymbol && arg1.Children[0].Value == "count" && arg2.Type == reader.NodeNumber && arg2.Value == "0" {
-			countNode = arg1
-			zeroNode = arg2
-		} else if arg2.Type == reader.NodeList && len(arg2.Children) == 2 && arg2.Children[0].Type == reader.NodeSymbol && arg2.Children[0].Value == "count" && arg1.Type == reader.NodeNumber && arg1.Value == "0" {
-			countNode = arg2
-			zeroNode = arg1
-		}
-
-		if countNode != nil && zeroNode != nil {
-
-			collectionNode := countNode.Children[1]
-			collectionExpr := collectionNode.Value
-			zeroExpr := zeroNode.Value
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Improper emptiness check: `(= %s (count %s))`. Consider using `(empty? %s)`.", zeroExpr, collectionExpr, collectionExpr),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
-			}
-		}
-	}
-
-	if len(node.Children) == 3 && node.Children[0].Type == reader.NodeSymbol && (node.Children[0].Value == "<" || node.Children[0].Value == ">") {
+	if len(node.Children) >= 2 && node.Children[0].Type == reader.NodeSymbol {
 		op := node.Children[0].Value
-		arg1 := node.Children[1]
-		arg2 := node.Children[2]
 
-		var countNode *reader.RichNode
-		var zeroNode *reader.RichNode
-		var isLessThan bool
+		if op == "not" || op == "when-not" || op == "if-not" {
+			arg := node.Children[1]
+			if arg.Type == reader.NodeList && len(arg.Children) == 2 &&
+				arg.Children[0].Type == reader.NodeSymbol && arg.Children[0].Value == "empty?" {
 
-		if op == "<" && arg1.Type == reader.NodeNumber && arg1.Value == "0" && arg2.Type == reader.NodeList && len(arg2.Children) == 2 && arg2.Children[0].Type == reader.NodeSymbol && arg2.Children[0].Value == "count" {
+				collectionExpr := arg.Children[1].Value
+				opMap := map[string]string{
+					"not":      fmt.Sprintf("(seq %s)", collectionExpr),
+					"when-not": fmt.Sprintf("(when (seq %s) ...)", collectionExpr),
+					"if-not":   fmt.Sprintf("(if (seq %s) ...)", collectionExpr),
+				}
 
-			zeroNode = arg1
-			countNode = arg2
-			isLessThan = true
-		} else if op == ">" && arg1.Type == reader.NodeList && len(arg1.Children) == 2 && arg1.Children[0].Type == reader.NodeSymbol && arg1.Children[0].Value == "count" && arg2.Type == reader.NodeNumber && arg2.Value == "0" {
-
-			countNode = arg1
-			zeroNode = arg2
-			isLessThan = false
+				return &rules.Finding{
+					RuleID:   r.ID,
+					Message:  fmt.Sprintf("Improper emptiness check: `(%s (empty? %s))`. Consider using `%s`.", op, collectionExpr, opMap[op]),
+					Filepath: filepath,
+					Location: node.Location,
+					Severity: r.Severity,
+				}
+			}
 		}
 
-		if countNode != nil && zeroNode != nil {
-
-			collectionNode := countNode.Children[1]
-			collectionExpr := collectionNode.Value
-			zeroExpr := zeroNode.Value
-			originalExpression := ""
-			if isLessThan {
-				originalExpression = fmt.Sprintf("(< %s (count %s))", zeroExpr, collectionExpr)
-			} else {
-				originalExpression = fmt.Sprintf("(> (count %s) %s)", collectionExpr, zeroExpr)
+		if op == "zero?" || op == "pos?" {
+			arg := node.Children[1]
+			if arg.Type == reader.NodeList && len(arg.Children) == 2 &&
+				arg.Children[0].Type == reader.NodeSymbol && arg.Children[0].Value == "count" {
+				
+				collectionExpr := arg.Children[1].Value
+				var replacement string
+				if op == "zero?" {
+					replacement = fmt.Sprintf("(empty? %s)", collectionExpr)
+				} else {
+					replacement = fmt.Sprintf("(seq %s)", collectionExpr)
+				}
+				
+				return &rules.Finding{
+					RuleID:   r.ID,
+					Message:  fmt.Sprintf("Improper emptiness check: `(%s (count %s))`. Consider using `%s`.", op, collectionExpr, replacement),
+					Filepath: filepath,
+					Location: node.Location,
+					Severity: r.Severity,
+				}
 			}
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Improper emptiness check: `%s`. Consider using `(seq %s)` for checking non-emptiness.", originalExpression, collectionExpr),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+		}
+
+		if len(node.Children) == 3 && (op == "=" || op == "==" || op == "not=" || op == "<" || op == ">" || op == "<=" || op == ">=") {
+			arg1 := node.Children[1]
+			arg2 := node.Children[2]
+
+			isCount := func(n *reader.RichNode) bool {
+				return n.Type == reader.NodeList && len(n.Children) == 2 &&
+					n.Children[0].Type == reader.NodeSymbol && n.Children[0].Value == "count"
+			}
+			isNum := func(n *reader.RichNode, v string) bool {
+				return n.Type == reader.NodeNumber && n.Value == v
+			}
+
+			var collectionExpr string
+			var pattern string 
+
+			if isCount(arg1) {
+				collectionExpr = arg1.Children[1].Value
+				if isNum(arg2, "0") {
+					switch op {
+					case "=", "==":
+						pattern = "count=0"
+					case "not=":
+						pattern = "count!=0"
+					case ">":
+						pattern = "count>0"
+					}
+				} else if isNum(arg2, "1") {
+					if op == ">=" {
+						pattern = "count>=1"
+					}
+				}
+			} else if isCount(arg2) {
+				collectionExpr = arg2.Children[1].Value
+				if isNum(arg1, "0") {
+					switch op {
+					case "=", "==":
+						pattern = "count=0"
+					case "not=":
+						pattern = "count!=0"
+					case "<":
+						pattern = "count>0"
+					}
+				} else if isNum(arg1, "1") {
+					if op == "<=" {
+						pattern = "count>=1"
+					}
+				}
+			}
+
+			if pattern != "" {
+				var replacement string
+				if pattern == "count=0" {
+					replacement = fmt.Sprintf("(empty? %s)", collectionExpr)
+				} else { 
+					replacement = fmt.Sprintf("(seq %s)", collectionExpr)
+				}
+
+				return &rules.Finding{
+					RuleID:   r.ID,
+					Message:  fmt.Sprintf("Improper emptiness check: using `%s` with `count`. Consider using `%s`.", op, replacement),
+					Filepath: filepath,
+					Location: node.Location,
+					Severity: r.Severity,
+				}
 			}
 		}
 	}

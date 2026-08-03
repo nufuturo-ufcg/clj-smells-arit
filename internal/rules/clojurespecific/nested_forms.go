@@ -115,19 +115,15 @@ func (r *NestedFormsRule) isProblematicPattern(pattern *NestingPattern) bool {
 		return true
 	}
 
-	if r.hasConsecutiveSameForms(pattern.Forms, "doseq", 2) {
+	if r.hasCountOfForms(pattern.Forms, "doseq", 2) {
 		return true
 	}
 
-	if r.hasConsecutiveSameForms(pattern.Forms, "for", 2) {
+	if r.hasCountOfForms(pattern.Forms, "for", 2) {
 		return true
 	}
 
-	if r.hasSpecificPattern(pattern.Forms, []string{"let", "when", "let"}) {
-		return true
-	}
-
-	if r.hasSpecificPattern(pattern.Forms, []string{"let", "if", "let"}) {
+	if r.hasCountOfForms(pattern.Forms, "let", r.MaxConsecutiveSameForms) {
 		return true
 	}
 
@@ -135,7 +131,11 @@ func (r *NestedFormsRule) isProblematicPattern(pattern *NestingPattern) bool {
 		return true
 	}
 
-	if r.hasConsecutiveSameForms(pattern.Forms, "when-let", 2) {
+	if r.hasCountOfForms(pattern.Forms, "when-let", 2) {
+		return true
+	}
+
+	if r.hasCountOfForms(pattern.Forms, "if-let", 2) {
 		return true
 	}
 
@@ -156,6 +156,19 @@ func (r *NestedFormsRule) hasConsecutiveSameForms(forms []string, formName strin
 			}
 		} else {
 			consecutiveCount = 0
+		}
+	}
+	return false
+}
+
+func (r *NestedFormsRule) hasCountOfForms(forms []string, formName string, minCount int) bool {
+	count := 0
+	for _, form := range forms {
+		if form == formName {
+			count++
+			if count >= minCount {
+				return true
+			}
 		}
 	}
 	return false
@@ -322,7 +335,7 @@ func init() {
 			Severity:    rules.SeverityWarning,
 		},
 		MaxConsecutiveSameForms: 2,
-		MaxConditionalDepth:     4,
+		MaxConditionalDepth:     3,
 		TrackedForms: []string{
 			"let", "when", "if", "when-let", "if-let", "when-some", "if-some",
 			"when-not", "if-not", "loop", "binding", "with-open", "with-local-vars",
