@@ -264,6 +264,7 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 		if metaHintNodeRaw == nil {
 			return richActualNode
 		}
+		richActualNode.Metadata = buildRichNode(metaHintNodeRaw, ignoreComments)
 
 		var typeHintFromMeta string
 		switch meta := metaHintNodeRaw.(type) {

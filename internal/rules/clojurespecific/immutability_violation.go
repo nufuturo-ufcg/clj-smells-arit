@@ -20,6 +20,22 @@ func init() {
 		rules.FirstChildValueEquals("intern"),
 	)
 
+	isAsetCall := func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
+		return node != nil && len(node.Children) > 0 && node.Children[0] != nil && strings.HasPrefix(node.Children[0].Value, "aset")
+	}
+
+	isJavaMutator := func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
+		if node == nil || len(node.Children) == 0 || node.Children[0] == nil {
+			return false
+		}
+		val := node.Children[0].Value
+		switch val {
+		case ".add", ".put", ".remove", ".clear", ".addAll", ".putAll", ".removeAll", ".retainAll", ".set", ".insert", ".delete", ".append":
+			return true
+		}
+		return false
+	}
+
 	rules.NewRule("immutability-violation").
 		Name("Immutability Violation").
 		Description("Detects direct state mutation and violations of functional purity. Follows Clojure Style Guide recommendations for proper use of refs, atoms, agents, and avoiding global state mutation in local scopes.").Severity(rules.SeverityWarning).
@@ -38,7 +54,8 @@ func init() {
 				rules.ChildValueEquals(0, "agent-send"),
 				rules.ChildValueEquals(0, "agent-send-off"),
 				rules.ChildValueEquals(0, "intern"),
-				rules.ChildValueEquals(0, "aset"),
+				isAsetCall,
+				isJavaMutator,
 			),
 			// 2. def ou defonce dentro de escopo local
 			rules.All(
@@ -74,6 +91,12 @@ func init() {
 			case "send", "send-off":
 				return "Found side effects in function passed to agent. Agent functions should be pure."
 			default:
+				if strings.HasPrefix(sym, "aset") {
+					return fmt.Sprintf("Found array mutation function call: `%s`. This mutates the array in place and violates immutability principles.", sym)
+				}
+				if strings.HasPrefix(sym, ".") {
+					return fmt.Sprintf("Found Java mutating method call: `%s`. This mutates the object in place and violates immutability principles.", sym)
+				}
 				return fmt.Sprintf("Found state mutation function call: `%s`. This can lead to side effects and violates immutability principles.", sym)
 			}
 		}).

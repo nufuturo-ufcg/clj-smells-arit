@@ -9,7 +9,7 @@ import (
 	"github.com/thlaurentino/arit/internal/config"
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
-	"github.com/thlaurentino/arit/internal/rules/clojurespecific"
+	"github.com/thlaurentino/arit/internal/rules/functional"
 )
 
 type AnalysisResult struct {
@@ -565,16 +565,16 @@ func configureRule(rule rules.CheckerRule, cfg *config.Config) rules.CheckerRule
 		return rule
 	}
 
-	if typedRule, ok := rule.(*clojurespecific.LazySideEffectsRule); ok {
-		newRule := &clojurespecific.LazySideEffectsRule{
+	if typedRule, ok := rule.(*functional.LazySideEffectsRule); ok {
+		newRule := &functional.LazySideEffectsRule{
 			LazyContextFuncs: make(map[string]bool),
 			SideEffectFuncs:  make(map[string]bool),
 		}
 
-		for k, v := range clojurespecific.DefaultLazyContextFunctions {
+		for k, v := range functional.DefaultLazyContextFunctions {
 			newRule.LazyContextFuncs[k] = v
 		}
-		for k, v := range clojurespecific.DefaultSideEffectFunctions {
+		for k, v := range functional.DefaultSideEffectFunctions {
 			newRule.SideEffectFuncs[k] = v
 		}
 
@@ -607,7 +607,7 @@ func isNodeEagerConsumer(node *reader.RichNode) bool {
 	if funcNode.Type != reader.NodeSymbol {
 		return false
 	}
-	_, isEager := clojurespecific.EagerConsumerFunctions[funcNode.Value]
+	_, isEager := functional.EagerConsumerFunctions[funcNode.Value]
 	return isEager
 }
 

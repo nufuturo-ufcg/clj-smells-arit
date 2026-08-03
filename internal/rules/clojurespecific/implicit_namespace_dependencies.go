@@ -4,12 +4,15 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
 type ImplicitNamespaceDependenciesRule struct {
 	rules.Rule
+	fileNamespaces map[string]map[string]bool
+	mu             sync.Mutex
 }
 
 func (r *ImplicitNamespaceDependenciesRule) Meta() rules.Rule {
@@ -17,6 +20,37 @@ func (r *ImplicitNamespaceDependenciesRule) Meta() rules.Rule {
 }
 
 func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	r.collectNamespaces(node, filepath)
+
+	if node.Type == reader.NodeSymbol {
+		if strings.Contains(node.Value, "/") {
+			parts := strings.Split(node.Value, "/")
+			prefix := parts[0]
+			
+			if isCommonOrCoreNamespace(prefix) {
+				return nil
+			}
+
+			r.mu.Lock()
+			fileNs := r.fileNamespaces[filepath]
+			r.mu.Unlock()
+
+			if fileNs != nil && !fileNs[prefix] {
+				return &rules.Finding{
+					RuleID: r.ID,
+					Message: fmt.Sprintf(
+						"Implicit namespace dependency: fully-qualified symbol `%s` is used, but `%s` is not declared in the ns macro or explicit require.",
+						node.Value, prefix,
+					),
+					Filepath: filepath,
+					Location: node.Location,
+					Severity: r.Severity,
+				}
+			}
+		}
+		return nil
+	}
+
 	if node.Type != reader.NodeList || len(node.Children) < 2 {
 		return nil
 	}
@@ -244,6 +278,93 @@ func (r *ImplicitNamespaceDependenciesRule) extractNameFromStandaloneArg(node *r
 		}
 	}
 	return ""
+}
+
+func isCommonOrCoreNamespace(prefix string) bool {
+	// Ignore clojure.core, java.lang, user, keyword namespaces, etc.
+	if prefix == "clojure.core" || prefix == "cljs.core" || strings.HasPrefix(prefix, "java.") {
+		return true
+	}
+	// Keywords starting with :: resolves to current or aliased namespace, but a normal keyword like :foo/bar is ignored here
+	// wait, keywords are NodeKeyword, not NodeSymbol. So this is fine.
+	return false
+}
+
+func (r *ImplicitNamespaceDependenciesRule) collectNamespaces(node *reader.RichNode, filepath string) {
+	if node.Type != reader.NodeList || len(node.Children) == 0 {
+		return
+	}
+	first := node.Children[0]
+	if first.Type != reader.NodeSymbol {
+		return
+	}
+
+	r.mu.Lock()
+	if r.fileNamespaces == nil {
+		r.fileNamespaces = make(map[string]map[string]bool)
+	}
+	if r.fileNamespaces[filepath] == nil {
+		r.fileNamespaces[filepath] = make(map[string]bool)
+	}
+	allowed := r.fileNamespaces[filepath]
+	r.mu.Unlock()
+
+	if first.Value == "ns" {
+		for i := 1; i < len(node.Children); i++ {
+			child := node.Children[i]
+			if child.Type == reader.NodeList && len(child.Children) > 0 {
+				kwd := child.Children[0].Value
+				if kwd == ":require" || kwd == ":use" || kwd == "require" || kwd == "use" {
+					r.extractNamespacesFromArgs(child, allowed)
+				}
+			}
+		}
+	} else if first.Value == "require" || first.Value == "use" {
+		r.extractNamespacesFromArgs(node, allowed)
+	}
+}
+
+func (r *ImplicitNamespaceDependenciesRule) extractNamespacesFromArgs(reqNode *reader.RichNode, allowed map[string]bool) {
+	for i := 1; i < len(reqNode.Children); i++ {
+		child := reqNode.Children[i]
+		if child.Type == reader.NodeSymbol {
+			allowed[child.Value] = true
+		} else if child.Type == reader.NodeQuote && len(child.Children) > 0 {
+			r.extractNamespacesFromArgs(&reader.RichNode{Children: append([]*reader.RichNode{nil}, child.Children[0])}, allowed)
+		} else if child.Type == reader.NodeVector && len(child.Children) > 0 {
+			if child.Children[0].Type == reader.NodeSymbol {
+				nsName := child.Children[0].Value
+				allowed[nsName] = true
+				for j := 1; j < len(child.Children)-1; j++ {
+					if child.Children[j].Type == reader.NodeKeyword && child.Children[j].Value == ":as" {
+						if child.Children[j+1].Type == reader.NodeSymbol {
+							allowed[child.Children[j+1].Value] = true
+						}
+					}
+				}
+			}
+		} else if child.Type == reader.NodeList && len(child.Children) > 0 {
+			if child.Children[0].Type == reader.NodeSymbol {
+				prefix := child.Children[0].Value
+				for j := 1; j < len(child.Children); j++ {
+					sub := child.Children[j]
+					if sub.Type == reader.NodeSymbol {
+						allowed[prefix+"."+sub.Value] = true
+					} else if sub.Type == reader.NodeVector && len(sub.Children) > 0 && sub.Children[0].Type == reader.NodeSymbol {
+						subNs := sub.Children[0].Value
+						allowed[prefix+"."+subNs] = true
+						for k := 1; k < len(sub.Children)-1; k++ {
+							if sub.Children[k].Type == reader.NodeKeyword && sub.Children[k].Value == ":as" {
+								if sub.Children[k+1].Type == reader.NodeSymbol {
+									allowed[sub.Children[k+1].Value] = true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 func init() {

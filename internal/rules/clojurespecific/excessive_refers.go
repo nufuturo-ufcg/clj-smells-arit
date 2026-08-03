@@ -7,9 +7,7 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
 )
-
-const maxRefers = 5
-
+const maxRefers = 0
 type ExcessiveRefersRule struct {
 	rules.Rule
 }
@@ -28,6 +26,8 @@ func (r *ExcessiveRefersRule) findReferencesNumber(nodes []*reader.RichNode) int
 
 				if nextNode.Type == reader.NodeVector {
 					return len(nextNode.Children)
+				} else if nextNode.Type == reader.NodeKeyword && nextNode.Value == ":all" {
+					return 999
 				}
 			}
 		}

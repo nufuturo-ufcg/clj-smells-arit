@@ -70,27 +70,7 @@ func isIfAssocRebindPattern(valueNode *reader.RichNode, sym string) bool {
 		return false
 	}
 
-	if thenBranch == nil || thenBranch.Type != reader.NodeList || len(thenBranch.Children) < 4 {
-		return false
-	}
-
-	assocSym := thenBranch.Children[0]
-	if assocSym == nil || assocSym.Type != reader.NodeSymbol {
-		return false
-	}
-
-	assocName := assocSym.Value
-	if assocName != "assoc" &&
-		assocName != "clojure.core/assoc" &&
-		assocName != "cljs.core/assoc" &&
-		!strings.HasSuffix(assocName, "/assoc") {
-		return false
-	}
-
-	firstArg := thenBranch.Children[1]
-	return firstArg != nil &&
-		firstArg.Type == reader.NodeSymbol &&
-		firstArg.Value == sym
+	return referencesSymbol(thenBranch, sym)
 }
 
 func referencesSymbol(node *reader.RichNode, sym string) bool {
@@ -136,8 +116,8 @@ func makeConditionalBuildUpFinding(r rules.Rule, letNode *reader.RichNode, filep
 	return &rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
-			"Same symbol '%s' is rebound with %d successive conditional %s using `(if ... (assoc %s ...) %s)`. Prefer `cond->` for clarity.",
-			name, count, updateWord, name, name,
+			"Same symbol '%s' is rebound with %d successive conditional %s using `(if ... (...) %s)`. Prefer `cond->` or `cond->>` for clarity.",
+			name, count, updateWord, name,
 		),
 		Filepath: filepath,
 		Location: letNode.Location,

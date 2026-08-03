@@ -30,6 +30,7 @@ var threadingCandidateFunctions = map[string]bool{
 	"first": true, "last": true, "rest": true, "next": true,
 	"assoc-in": true, "update-in": true, "get": true, "get-in": true, "concat": true, "reverse": true,
 	"upper-case": true, "lower-case": true, "trim": true, "replace": true, "split": true,
+	"count": true, "join": true, "str/join": true, "capitalize": true, "str/capitalize": true, "boolean": true,
 }
 
 func isThreadingCandidate(funcName string) bool {
@@ -117,7 +118,7 @@ func countLetChaining(node *reader.RichNode) int {
 	currentChain := 0
 	count := len(bindings.Children)
 	
-	for i := 2; i < count; i += 2 {
+	for i := 2; i+1 < count; i += 2 {
 		prevVarNode := bindings.Children[i-2]
 		if prevVarNode == nil || prevVarNode.Type != reader.NodeSymbol {
 			currentChain = 0
