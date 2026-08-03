@@ -101,6 +101,33 @@ func nodeContainsSymbol(node *reader.RichNode, symbol string) bool {
 	return false
 }
 
+func countSymbolOccurrences(node *reader.RichNode, symbol string) int {
+	if node == nil {
+		return 0
+	}
+	count := 0
+	if node.Type == reader.NodeSymbol && node.Value == symbol {
+		count++
+	}
+	for _, child := range node.Children {
+		count += countSymbolOccurrences(child, symbol)
+	}
+	return count
+}
+
+func isDirectArgument(node *reader.RichNode, symbol string) bool {
+	if node == nil || node.Type != reader.NodeList {
+		return false
+	}
+	for i := 1; i < len(node.Children); i++ {
+		child := node.Children[i]
+		if child.Type == reader.NodeSymbol && child.Value == symbol {
+			return true
+		}
+	}
+	return false
+}
+
 func countLetChaining(node *reader.RichNode) int {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
 		return 0
@@ -127,7 +154,7 @@ func countLetChaining(node *reader.RichNode) int {
 		prevVarName := prevVarNode.Value
 		
 		currExpr := bindings.Children[i+1]
-		if nodeContainsSymbol(currExpr, prevVarName) {
+		if isDirectArgument(currExpr, prevVarName) && countSymbolOccurrences(node, prevVarName) == 2 {
 			currentChain++
 			if currentChain > maxChain {
 				maxChain = currentChain
