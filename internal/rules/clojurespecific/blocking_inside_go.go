@@ -69,6 +69,18 @@ func (r *BlockingInsideGoRule) findBlockingFunction(node []*reader.RichNode, vis
 		}
 		visited[child] = true
 
+		// Boundary check to prevent false positives
+		if child.Type == reader.NodeList && len(child.Children) > 0 {
+			first := child.Children[0]
+			if first != nil && first.Type == reader.NodeSymbol {
+				val := first.Value
+				if val == "thread" || val == "future" || val == "delay" || val == "lazy-seq" ||
+					strings.HasSuffix(val, "/thread") || strings.HasSuffix(val, "/future") {
+					continue
+				}
+			}
+		}
+
 		if child.Type == reader.NodeSymbol {
 			if r.checkBlockingFunction(child.Value) {
 				return true

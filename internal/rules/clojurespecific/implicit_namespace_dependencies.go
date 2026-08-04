@@ -12,6 +12,7 @@ import (
 type ImplicitNamespaceDependenciesRule struct {
 	rules.Rule
 	fileNamespaces map[string]map[string]bool
+	fileHasNs      map[string]bool
 	mu             sync.Mutex
 }
 
@@ -20,6 +21,9 @@ func (r *ImplicitNamespaceDependenciesRule) Meta() rules.Rule {
 }
 
 func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if strings.HasSuffix(filepath, "project.clj") {
+		return nil
+	}
 	r.collectNamespaces(node, filepath)
 
 	if node.Type == reader.NodeSymbol {
@@ -27,15 +31,16 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 			parts := strings.Split(node.Value, "/")
 			prefix := parts[0]
 			
-			if isCommonOrCoreNamespace(prefix) {
+			if prefix == "" || (len(prefix) > 0 && prefix[0] >= 'A' && prefix[0] <= 'Z') || isCommonOrCoreNamespace(prefix) {
 				return nil
 			}
 
 			r.mu.Lock()
+			hasNs := r.fileHasNs[filepath]
 			fileNs := r.fileNamespaces[filepath]
 			r.mu.Unlock()
 
-			if fileNs != nil && !fileNs[prefix] {
+			if hasNs && fileNs != nil && !fileNs[prefix] {
 				return &rules.Finding{
 					RuleID: r.ID,
 					Message: fmt.Sprintf(
@@ -302,6 +307,7 @@ func (r *ImplicitNamespaceDependenciesRule) collectNamespaces(node *reader.RichN
 	r.mu.Lock()
 	if r.fileNamespaces == nil {
 		r.fileNamespaces = make(map[string]map[string]bool)
+		r.fileHasNs = make(map[string]bool)
 	}
 	if r.fileNamespaces[filepath] == nil {
 		r.fileNamespaces[filepath] = make(map[string]bool)
@@ -310,6 +316,9 @@ func (r *ImplicitNamespaceDependenciesRule) collectNamespaces(node *reader.RichN
 	r.mu.Unlock()
 
 	if first.Value == "ns" {
+		r.mu.Lock()
+		r.fileHasNs[filepath] = true
+		r.mu.Unlock()
 		for i := 1; i < len(node.Children); i++ {
 			child := node.Children[i]
 			if child.Type == reader.NodeList && len(child.Children) > 0 {
