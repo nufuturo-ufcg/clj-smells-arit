@@ -11,9 +11,10 @@ const (
 )
 
 type Finding struct {
-	RuleID   string           `json:"rule_id"`
-	Message  string           `json:"message"`
-	Filepath string           `json:"filepath"`
-	Location *reader.Location `json:"location"`
-	Severity Severity         `json:"severity"`
+	RuleID         string           `json:"rule_id"`
+	Message        string           `json:"message"`
+	Filepath       string           `json:"filepath"`
+	Location       *reader.Location `json:"location"`
+	Severity       Severity         `json:"severity"`
+	ASTFingerprint string           `json:"ast_fingerprint,omitempty"`
 }

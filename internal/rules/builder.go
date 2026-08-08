@@ -38,11 +38,12 @@ func (r *DSLRule) Check(node *reader.RichNode, context map[string]interface{}, f
 		sev = r.severityBuilder(node, context, sev)
 	}
 	return &Finding{
-		RuleID:   r.meta.ID,
-		Message:  message,
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: sev,
+		RuleID:         r.meta.ID,
+		Message:        message,
+		Filepath:       filepath,
+		Location:       node.Location,
+		Severity:       sev,
+		ASTFingerprint: ComputeFingerprint(node),
 	}
 }
 

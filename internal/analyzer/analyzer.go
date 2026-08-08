@@ -629,6 +629,11 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 
 		for _, rule := range a.Rules {
 			if finding := rule.Check(node, currentContext, filepath); finding != nil {
+				// Inject fingerprint centrally: covers both DSL rules (via builder)
+				// and hand-written detectors that instantiate Finding directly.
+				if finding.ASTFingerprint == "" {
+					finding.ASTFingerprint = rules.ComputeFingerprint(node)
+				}
 				findingsMutex.Lock()
 				allFindings = append(allFindings, finding)
 				findingsMutex.Unlock()
