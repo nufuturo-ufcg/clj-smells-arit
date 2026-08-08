@@ -52,7 +52,7 @@ func (r *UnmanagedResourceIORule) Check(node *reader.RichNode, context map[strin
 func init() {
 	defaultRule := &UnmanagedResourceIORule{
 		Rule: rules.Rule{
-			ID:          "unmanaged-resource_io",
+			ID:          "unmanaged-resource-io",
 			Name:        "Unmanaged Resource I/O",
 			Description: "Detects I/O resources (reader, writer, stream) used without with-open, which can cause resource leaks.",
 			Severity:    rules.SeverityWarning,
