@@ -8,7 +8,7 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-const minConditionalRebinds = 1
+const minConditionalRebinds = 2
 
 type ConditionalBuildupRule struct {
 	rules.Rule

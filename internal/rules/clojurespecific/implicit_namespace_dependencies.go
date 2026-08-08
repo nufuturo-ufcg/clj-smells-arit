@@ -27,32 +27,6 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 	r.collectNamespaces(node, filepath)
 
 	if node.Type == reader.NodeSymbol {
-		if strings.Contains(node.Value, "/") {
-			parts := strings.Split(node.Value, "/")
-			prefix := parts[0]
-			
-			if prefix == "" || (len(prefix) > 0 && prefix[0] >= 'A' && prefix[0] <= 'Z') || isCommonOrCoreNamespace(prefix) {
-				return nil
-			}
-
-			r.mu.Lock()
-			hasNs := r.fileHasNs[filepath]
-			fileNs := r.fileNamespaces[filepath]
-			r.mu.Unlock()
-
-			if hasNs && fileNs != nil && !fileNs[prefix] {
-				return &rules.Finding{
-					RuleID: r.ID,
-					Message: fmt.Sprintf(
-						"Implicit namespace dependency: fully-qualified symbol `%s` is used, but `%s` is not declared in the ns macro or explicit require.",
-						node.Value, prefix,
-					),
-					Filepath: filepath,
-					Location: node.Location,
-					Severity: r.Severity,
-				}
-			}
-		}
 		return nil
 	}
 
@@ -286,12 +260,27 @@ func (r *ImplicitNamespaceDependenciesRule) extractNameFromStandaloneArg(node *r
 }
 
 func isCommonOrCoreNamespace(prefix string) bool {
-	// Ignore clojure.core, java.lang, user, keyword namespaces, etc.
-	if prefix == "clojure.core" || prefix == "cljs.core" || strings.HasPrefix(prefix, "java.") {
+	// clojure.core e cljs.core são sempre disponíveis sem :require
+	if prefix == "clojure.core" || prefix == "cljs.core" {
 		return true
 	}
-	// Keywords starting with :: resolves to current or aliased namespace, but a normal keyword like :foo/bar is ignored here
-	// wait, keywords are NodeKeyword, not NodeSymbol. So this is fine.
+	// java.lang é importado automaticamente pela JVM
+	if strings.HasPrefix(prefix, "java.lang.") || prefix == "java.lang" {
+		return true
+	}
+	// ClojureScript host/browser namespaces — sempre globais, nunca declaradas em :require
+	switch prefix {
+	case "js", "goog", "Math", "console", "window", "document", "navigator",
+		"location", "history", "XMLHttpRequest", "Promise", "Error",
+		"Object", "Array", "JSON", "Date", "RegExp", "String", "Number",
+		"Boolean", "Symbol", "Map", "Set", "WeakMap", "WeakSet",
+		"setTimeout", "clearTimeout", "setInterval", "clearInterval",
+		"requestAnimationFrame", "cancelAnimationFrame",
+		"fetch", "Headers", "Request", "Response",
+		"localStorage", "sessionStorage", "indexedDB",
+		"performance", "crypto":
+		return true
+	}
 	return false
 }
 

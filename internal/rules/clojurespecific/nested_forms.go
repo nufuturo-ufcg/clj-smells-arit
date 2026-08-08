@@ -334,8 +334,8 @@ func init() {
 			Description: "Detects problematic nesting patterns like multiple consecutive let forms or unnecessary nested binding forms. This smell occurs when multiple binding or iteration forms are unnecessarily nested instead of being combined in a single, flat form, making code harder to read and reason about.",
 			Severity:    rules.SeverityWarning,
 		},
-		MaxConsecutiveSameForms: 2,
-		MaxConditionalDepth:     3,
+		MaxConsecutiveSameForms: 3,
+		MaxConditionalDepth:     4,
 		TrackedForms: []string{
 			"let", "when", "if", "when-let", "if-let", "when-some", "if-some",
 			"when-not", "if-not", "loop", "binding", "with-open", "with-local-vars",

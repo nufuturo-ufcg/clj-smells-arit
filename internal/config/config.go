@@ -11,6 +11,7 @@ import (
 const configFileName = ".arit.yaml"
 
 type Config struct {
+	AnalyzeTests  bool                    `yaml:"analyze-tests"`
 	EnabledRules  map[string]bool         `yaml:"enabled-rules"`
 	EnabledGroups map[string]bool         `yaml:"enabled-groups"`
 	RuleConfig    map[string]RuleSettings `yaml:"rule-config"`

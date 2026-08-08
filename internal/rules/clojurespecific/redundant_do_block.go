@@ -117,11 +117,26 @@ func (r *RedundantDoBlockRule) isInValidRefactoredContext(doNode *reader.RichNod
 
 	parentSymbol := parentFirstElement.Value
 
-	if parentSymbol == "cond" && doNodeIndex >= 2 && doNodeIndex%2 == 0 {
-
-		if r.hasMultipleExpressions(doNode) {
-
-			return false
+	// Para estruturas que aceitam apenas UMA expressão por branch,
+	// o bloco `do` é OBRIGATÓRIO (não redundante) se tivermos múltiplas expressões.
+	if r.hasMultipleExpressions(doNode) {
+		switch parentSymbol {
+		case "if", "if-not", "if-let", "if-some":
+			// branches do if precisam de `do` para múltiplas expressões
+			return true
+		case "cond":
+			// result branches do cond precisam de `do`
+			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+				return true
+			}
+		case "condp":
+			if doNodeIndex >= 3 && doNodeIndex%2 == 1 {
+				return true
+			}
+		case "case":
+			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+				return true
+			}
 		}
 	}
 
@@ -196,10 +211,34 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 	redundantInForm := parentSymbol
 
 	switch parentSymbol {
-	case "let", "loop", "letfn", "binding", "with-local-vars", "with-open", "with-out-str", "with-in-str", "locking", "future", "promise", "testing", "comment", "doto", "doseq", "dotimes":
+	case "let", "loop", "letfn", "binding", "with-local-vars", "with-open", "with-out-str", "with-in-str", "locking", "future", "promise", "testing", "doseq", "dotimes", "deftest", "go", "go-loop", "thread", "alt!", "alts!", "with-redefs", "with-bindings":
 
 		if doNodeIndex >= 2 {
 			isRedundant = true
+		}
+
+	case "doto":
+		if doNodeIndex >= 2 {
+			message := "Invalid `do` block within `doto`. `doto` injects its first argument into subsequent forms. Using `do` here breaks Java Interop chaining."
+			return &rules.Finding{
+				RuleID:   r.Meta().ID,
+				Message:  message,
+				Filepath: filepath,
+				Location: node.Location,
+				Severity: r.Meta().Severity,
+			}
+		}
+
+	case "->", "->>", "some->", "some->>":
+		if doNodeIndex >= 1 {
+			message := fmt.Sprintf("Redundant `do` block found within threading macro `%s`. This interrupts the data transformation pipeline and is usually a mistake.", parentSymbol)
+			return &rules.Finding{
+				RuleID:   r.Meta().ID,
+				Message:  message,
+				Filepath: filepath,
+				Location: node.Location,
+				Severity: r.Meta().Severity,
+			}
 		}
 
 	case "when", "when-not":
