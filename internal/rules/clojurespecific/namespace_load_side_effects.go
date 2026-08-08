@@ -3,13 +3,26 @@ package clojurespecific
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
+// NamespaceLoadSideEffectsRule detecta require/use/import em locais problemáticos:
+// 1. Dentro do corpo de funções (defn, fn)
+// 2. No top-level APÓS outras definições (segundo ns, defn, def, etc.)
+//
+// O padrão idiomático em Clojure é declarar todas as dependências no bloco (ns ...) :require.
+// require top-level imediatamente após o (ns ...) é tolerado (estilo de scripts).
+// O smell real é quando require aparece DEPOIS de definições no arquivo.
 type NamespaceLoadSideEffectsRule struct {
 	rules.Rule
+	// fileNsCount rastreia quantos (ns ...) foram encontrados por arquivo
+	fileNsCount map[string]int
+	// filePrecedingDefs rastreia se arquivo tem defs antes do require candidato
+	filePrecedingDefs map[string]bool
+	mu                sync.Mutex
 }
 
 func (r *NamespaceLoadSideEffectsRule) Meta() rules.Rule {
@@ -29,89 +42,126 @@ func isLazyLoadSymbol(symbol string) bool {
 }
 
 func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	// 1. Context Awareness: Ignora ambientes onde imperativos soltos são o padrão da linguagem
 	lowerPath := strings.ToLower(filepath)
-	// Evita bloquear os arquivos de teste do próprio arit (internal/test/data)
 	if !strings.Contains(lowerPath, "internal/test/data") {
-		if strings.HasSuffix(lowerPath, "project.clj") || 
-		   strings.HasSuffix(lowerPath, "deps.edn") || 
-		   strings.Contains(lowerPath, "/support/") || 
-		   strings.Contains(lowerPath, "/scripts/") ||
-		   strings.Contains(lowerPath, "/dev/") ||
-		   strings.Contains(lowerPath, "/build/") ||
-		   strings.Contains(lowerPath, "/repl/") ||
-		   strings.HasSuffix(lowerPath, "_test.clj") {
+		if strings.HasSuffix(lowerPath, "project.clj") ||
+			strings.HasSuffix(lowerPath, "deps.edn") ||
+			strings.Contains(lowerPath, "/support/") ||
+			strings.Contains(lowerPath, "/scripts/") ||
+			strings.Contains(lowerPath, "/dev/") ||
+			strings.Contains(lowerPath, "/build/") ||
+			strings.Contains(lowerPath, "/repl/") ||
+			strings.HasSuffix(lowerPath, "_test.clj") {
 			return nil
 		}
 	}
 
-	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
-		symbol := node.Children[0].Value
+	if node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0].Type != reader.NodeSymbol {
+		return nil
+	}
 
-		isLoadTime := isLoadTimeSideEffectSymbol(symbol)
-		isLazyLoad := isLazyLoadSymbol(symbol)
+	symbol := node.Children[0].Value
 
-		// 2. Expansão de Símbolos: Captura tanto require clássico quanto requerimentos dinâmicos
-		if isLoadTime || isLazyLoad {
-			isInsideNs := false
-			isInsideDefn := false
-			isInsideComment := false
+	// Rastreia estado de arquivo: conta ns e defs
+	r.mu.Lock()
+	if r.fileNsCount == nil {
+		r.fileNsCount = make(map[string]int)
+		r.filePrecedingDefs = make(map[string]bool)
+	}
+	if symbol == "ns" {
+		r.fileNsCount[filepath]++
+		r.mu.Unlock()
+		return nil
+	}
+	if symbol == "defn" || symbol == "defn-" || symbol == "def" || symbol == "defonce" ||
+		symbol == "defmacro" || symbol == "defmulti" || symbol == "defprotocol" ||
+		symbol == "defrecord" || symbol == "deftype" {
+		r.filePrecedingDefs[filepath] = true
+		r.mu.Unlock()
+		return nil
+	}
+	nsCount := r.fileNsCount[filepath]
+	hasPrecedingDefs := r.filePrecedingDefs[filepath]
+	r.mu.Unlock()
 
-			if enclosing, ok := context["enclosingForms"].([]string); ok {
-				for _, f := range enclosing {
-					if f == "ns" {
-						isInsideNs = true
-					}
-					// Se estiver dentro de uma função, consideramos escopo de execução (Runtime)
-					if f == "defn" || f == "defn-" || f == "fn" {
-						isInsideDefn = true
-					}
-					if f == "comment" {
-						isInsideComment = true
-					}
-				}
+	isLoadTime := isLoadTimeSideEffectSymbol(symbol)
+	isLazyLoad := isLazyLoadSymbol(symbol)
+
+	if !isLoadTime && !isLazyLoad {
+		return nil
+	}
+
+	isInsideNs := false
+	isInsideDefn := false
+	isInsideComment := false
+
+	if enclosing, ok := context["enclosingForms"].([]string); ok {
+		for _, f := range enclosing {
+			if f == "ns" {
+				isInsideNs = true
 			}
-
-			// 3. Inspeção de Escopo Semântico
-			
-			// Se o side-effect de dependência está protegido e envelopado pelo (ns ...), é a forma correta.
-			if isInsideNs {
-				return nil
+			if f == "defn" || f == "defn-" || f == "fn" || f == "letfn" {
+				isInsideDefn = true
 			}
-
-			// Se está dentro de um bloco (comment ...), é comum para REPL e deve ser ignorado.
-			if isInsideComment {
-				return nil
-			}
-
-			// Se é um lazy load (requiring-resolve) executado dentro de uma função, não é Load-Time Side-Effect!
-			// O desenvolvedor está fazendo Lazy Loading propositalmente, o que é uma excelente prática.
-			if isLazyLoad && isInsideDefn {
-				return nil
-			}
-
-			// Caso contrário, é um verdadeiro side-effect em Load-Time (seja imperativo solto ou dentro de um def top-level)
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Side effect: '%s' detected outside of ns macro. This bypasses the static dependency graph and pollutes the load-time environment.", symbol),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+			if f == "comment" {
+				isInsideComment = true
 			}
 		}
 	}
+
+	// Dentro de (ns ...) é a forma correta
+	if isInsideNs {
+		return nil
+	}
+
+	// Dentro de (comment ...) é padrão REPL
+	if isInsideComment {
+		return nil
+	}
+
+	// requiring-resolve dentro de função é lazy loading proposital — aceitável
+	if isLazyLoad && isInsideDefn {
+		return nil
+	}
+
+	// Smell 1: require/use/import DENTRO do corpo de uma função
+	if isInsideDefn {
+		return &rules.Finding{
+			RuleID:   r.ID,
+			Message:  fmt.Sprintf("Side effect: '%s' called inside a function body. Move namespace dependencies to the (ns ...) :require form.", symbol),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
+		}
+	}
+
+	// Smell 2: require/use/import no top-level mas após outras definições no arquivo.
+	// Situação problemática: o arquivo tem um segundo (ns ...) ou definições antes do require.
+	// require imediatamente após o primeiro e único (ns ...) é idiomático — não reporta.
+	if nsCount > 1 || hasPrecedingDefs {
+		return &rules.Finding{
+			RuleID: r.ID,
+			Message: fmt.Sprintf(
+				"Namespace load side effect: '%s' appears after definitions in the file. "+
+					"All namespace dependencies should be declared inside the (ns ...) macro at the top of the file.",
+				symbol,
+			),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
+		}
+	}
+
 	return nil
 }
 
 func init() {
-	defaultRule := &NamespaceLoadSideEffectsRule{
+	rules.RegisterRule(&NamespaceLoadSideEffectsRule{
 		Rule: rules.Rule{
 			ID:          "namespace-load-side-effects",
 			Name:        "Namespace Load Side Effects",
-			Description: "Using require, use, or import outside a ns macro introduces hidden dependencies. requiring-resolve at top-level causes dynamic load side effects during compilation.",
+			Description: "Using require, use, or import inside function bodies or after other top-level definitions introduces hidden dependencies. Declare all namespace dependencies in the (ns ...) :require form.",
 			Severity:    rules.SeverityWarning,
 		},
-	}
-
-	rules.RegisterRule(defaultRule)
+	})
 }

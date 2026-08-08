@@ -1,128 +1,60 @@
 package clojurespecific
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/thlaurentino/arit/internal/rules"
 
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-type AccessingNonexistentMapFieldsRule struct {
+type MapWithNilValuesRule struct {
 	rules.Rule
-	CheckDirectKeywordAccess bool `json:"check_direct_keyword_access" yaml:"check_direct_keyword_access"`
-	CheckThreadingMacros     bool `json:"check_threading_macros" yaml:"check_threading_macros"`
-	CheckNestedAccess        bool `json:"check_nested_access" yaml:"check_nested_access"`
-	MinNestingLevel          int  `json:"min_nesting_level" yaml:"min_nesting_level"`
 }
 
-func (r *AccessingNonexistentMapFieldsRule) Meta() rules.Rule {
+func (r *MapWithNilValuesRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-func (r *AccessingNonexistentMapFieldsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+func (r *MapWithNilValuesRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 
-	if finding := r.checkDirectKeywordAccess(node, filepath); finding != nil {
-		return finding
-	}
-
-	if finding := r.checkThreadingMacroAccess(node, filepath); finding != nil {
-		return finding
-	}
-
-	if finding := r.checkGetInAccess(node, filepath); finding != nil {
-		return finding
-	}
-
-	if finding := r.checkNestedMapAccess(node, filepath); finding != nil {
-		return finding
-	}
-
-	return nil
-}
-
-func (r *AccessingNonexistentMapFieldsRule) checkDirectKeywordAccess(node *reader.RichNode, filepath string) *rules.Finding {
-	if !r.CheckDirectKeywordAccess {
-		return nil
-	}
-
-	if node.Type == reader.NodeList && len(node.Children) == 2 {
-		firstChild := node.Children[0]
-		secondChild := node.Children[1]
-
-		if firstChild.Type == reader.NodeKeyword && secondChild.Type == reader.NodeSymbol {
-			keyword := firstChild.Value
-			mapVar := secondChild.Value
-
-			if r.isCommonSafePattern(keyword, mapVar) {
-				return nil
-			}
-
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  r.formatDirectAccessMessage(keyword, mapVar),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
-			}
-		}
-	}
-
-	return nil
-}
-
-func (r *AccessingNonexistentMapFieldsRule) checkThreadingMacroAccess(node *reader.RichNode, filepath string) *rules.Finding {
-	if !r.CheckThreadingMacros {
-		return nil
-	}
-
-	if node.Type == reader.NodeList && len(node.Children) >= 3 {
-		firstChild := node.Children[0]
-
-		if firstChild.Type == reader.NodeSymbol && (firstChild.Value == "->" || firstChild.Value == "->>") {
-
-			keywordCount := 0
-			var keywords []string
-
-			for i := 2; i < len(node.Children); i++ {
-				child := node.Children[i]
-				if child.Type == reader.NodeKeyword {
-					keywordCount++
-					keywords = append(keywords, child.Value)
-				} else {
-					break
-				}
-			}
-
-			if keywordCount >= r.MinNestingLevel {
+	// 1. Check Map Literals: {:a nil}
+	if node.Type == reader.NodeMap {
+		// children come in pairs: key, value, key, value
+		for i := 1; i < len(node.Children); i += 2 {
+			valNode := node.Children[i]
+			if r.isNilOrImplicitNil(valNode) {
 				return &rules.Finding{
 					RuleID:   r.ID,
-					Message:  r.formatThreadingMessage(firstChild.Value, keywords),
+					Message:  "Explicit 'nil' value associated with a key in a map literal. Prefer omitting the key to represent absence of data.",
 					Filepath: filepath,
-					Location: node.Location,
+					Location: valNode.Location,
 					Severity: r.Severity,
 				}
 			}
 		}
 	}
 
-	return nil
-}
-
-func (r *AccessingNonexistentMapFieldsRule) checkGetInAccess(node *reader.RichNode, filepath string) *rules.Finding {
-
-	if node.Type == reader.NodeList && len(node.Children) == 3 {
-		firstChild := node.Children[0]
-
-		if firstChild.Type == reader.NodeSymbol && firstChild.Value == "get-in" {
-
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  "get-in without default value detected. Consider providing a default to handle missing keys safely.",
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+	// 2. Check assoc calls: (assoc m :a nil) or (assoc :a nil) inside ->
+	if node.Type == reader.NodeList && len(node.Children) > 0 {
+		first := node.Children[0]
+		if first != nil && first.Type == reader.NodeSymbol && (first.Value == "assoc" || first.Value == "clojure.core/assoc") {
+			args := node.Children[1:]
+			// If odd number of arguments, the first is the map. Skip it.
+			if len(args)%2 != 0 {
+				args = args[1:]
+			}
+			
+			// Now arguments should be strictly in key-value pairs
+			for i := 0; i < len(args)-1; i += 2 {
+				valNode := args[i+1]
+				if r.isNilOrImplicitNil(valNode) {
+					return &rules.Finding{
+						RuleID:   r.ID,
+						Message:  "Explicit 'nil' value associated with a key using 'assoc'. Prefer using 'cond->' or 'dissoc' instead of explicitly setting 'nil'.",
+						Filepath: filepath,
+						Location: valNode.Location,
+						Severity: r.Severity,
+					}
+				}
 			}
 		}
 	}
@@ -130,90 +62,26 @@ func (r *AccessingNonexistentMapFieldsRule) checkGetInAccess(node *reader.RichNo
 	return nil
 }
 
-func (r *AccessingNonexistentMapFieldsRule) checkNestedMapAccess(node *reader.RichNode, filepath string) *rules.Finding {
-	if !r.CheckNestedAccess {
-		return nil
+func (r *MapWithNilValuesRule) isNilOrImplicitNil(node *reader.RichNode) bool {
+	if node == nil {
+		return false
 	}
-
-	if r.isNestedKeywordAccess(node, 0) >= r.MinNestingLevel {
-		return &rules.Finding{
-			RuleID:   r.ID,
-			Message:  "Deeply nested map access detected without safety checks. Consider using get-in with defaults or validating intermediate values.",
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: r.Severity,
-		}
+	if node.Type == reader.NodeNil {
+		return true
 	}
-
-	return nil
-}
-
-func (r *AccessingNonexistentMapFieldsRule) isNestedKeywordAccess(node *reader.RichNode, depth int) int {
-	if node.Type == reader.NodeList && len(node.Children) == 2 {
-		firstChild := node.Children[0]
-		secondChild := node.Children[1]
-
-		if firstChild.Type == reader.NodeKeyword {
-
-			if secondChild.Type == reader.NodeList {
-				return 1 + r.isNestedKeywordAccess(secondChild, depth+1)
-			}
-
-			if secondChild.Type == reader.NodeSymbol {
-				return 1
-			}
-		}
-	}
-
-	return 0
-}
-
-func (r *AccessingNonexistentMapFieldsRule) isCommonSafePattern(keyword, mapVar string) bool {
-
-	safeKeywords := []string{":id", ":type", ":status", ":name"}
-	for _, safe := range safeKeywords {
-		if keyword == safe {
-			return true
-		}
-	}
-
-	safeVarPatterns := []string{"validated-", "checked-", "safe-", "verified-"}
-	for _, pattern := range safeVarPatterns {
-		if strings.HasPrefix(mapVar, pattern) {
-			return true
-		}
-	}
-
+	// Removed implicit nil checks for `when` and `if` because they generate excessive 
+	// noise in real-world codebases where {:key (when cond val)} is widely accepted.
 	return false
 }
 
-func (r *AccessingNonexistentMapFieldsRule) formatDirectAccessMessage(keyword, mapVar string) string {
-	return fmt.Sprintf(
-		"Direct map access (%s %s) without safety check detected. Consider using (get %s %s default-value) or validating the map structure first.",
-		keyword, mapVar, mapVar, keyword,
-	)
-}
-
-func (r *AccessingNonexistentMapFieldsRule) formatThreadingMessage(macro string, keywords []string) string {
-	keywordStr := strings.Join(keywords, " ")
-	return fmt.Sprintf(
-		"Potentially unsafe threading macro (%s) with multiple keyword accesses [%s]. Consider using get-in with defaults or validating intermediate values.",
-		macro, keywordStr,
-	)
-}
-
 func init() {
-	defaultRule := &AccessingNonexistentMapFieldsRule{
+	defaultRule := &MapWithNilValuesRule{
 		Rule: rules.Rule{
 			ID:          "map-with-nil-values",
 			Name:        "Map With Nil Values",
-			Description: "Detects the use of nil values as keys or values in maps.",
+			Description: "Detects the use of explicit nil values as values in map literals or assoc.",
 			Severity:    rules.SeverityWarning,
 		},
-		CheckDirectKeywordAccess: false,
-		CheckThreadingMacros:     false,
-		CheckNestedAccess:        false,
-		MinNestingLevel:          3,
 	}
 
 	rules.RegisterRule(defaultRule)

@@ -51,7 +51,6 @@ func isMapFunction(funcName string) bool {
 		"mapcat": true,
 		"mapv":   true,
 		"pmap":   true,
-		"for":    true,
 	}
 	return mapFunctions[funcName]
 }

@@ -218,8 +218,8 @@ func init() {
 			Description: "Detects nested function calls or sequential let bindings that would benefit from threading macros (-> or ->>).",
 			Severity:    rules.SeverityHint,
 		},
-		MinNestingDepth: 3, // Elevado de 2 para 3 para reduzir Falsos Positivos em aninhamentos básicos (Ex: (into [] (map ...)))
-		MinLetChain:     2, // Exige no mínimo 3 variáveis (2 links/passagens de bastão) para sugerir threading
+		MinNestingDepth: 5,
+		MinLetChain:     4,
 	}
 
 	rules.RegisterRule(defaultRule)

@@ -181,7 +181,7 @@ type EnrichedFinding struct {
 }
 
 func getProblemCode(finding *rules.Finding) (template.HTML, error) {
-	const contextLines = 4
+	const contextLines = 8
 
 	if finding.Location == nil || finding.Filepath == "" {
 		return "", nil
@@ -534,7 +534,6 @@ func (cr *CSVReporter) Report(findings []*rules.Finding, writer io.Writer) error
 
 	return w.Flush()
 }
-
 
 func NewReporter(format ReportFormat) Reporter {
 	switch format {

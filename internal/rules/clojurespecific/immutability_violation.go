@@ -67,8 +67,7 @@ func init() {
 				rules.ChildValueEquals(0, "ref-set"),
 				rules.Not(rules.IsInside("dosync")),
 			),
-			// 4. Chamada de reset!
-			rules.ChildValueEquals(0, "reset!"),
+
 			// 5. Chamada de send ou send-off passando uma função com efeitos colaterais
 			rules.All(
 				rules.Any(rules.ChildValueEquals(0, "send"), rules.ChildValueEquals(0, "send-off")),
@@ -86,8 +85,6 @@ func init() {
 				return fmt.Sprintf("Found `%s` inside a local scope. This mutates global state and should be avoided.", sym)
 			case "ref-set":
 				return "Found `ref-set` outside of `dosync`. Use `dosync` to ensure transactional safety with refs."
-			case "reset!":
-				return "Found `reset!`. Consider using `swap!` for atomic updates based on current value."
 			case "send", "send-off":
 				return "Found side effects in function passed to agent. Agent functions should be pure."
 			default:
@@ -101,9 +98,6 @@ func init() {
 			}
 		}).
 		SeverityFunc(func(node *reader.RichNode, _ map[string]interface{}, defaultSev rules.Severity) rules.Severity {
-			if len(node.Children) > 0 && node.Children[0].Value == "reset!" {
-				return rules.SeverityInfo
-			}
 			return defaultSev
 		}).
 		Register()

@@ -141,6 +141,17 @@ Arit - Static Analysis for Clojure Code
 			}
 		}
 
+		if !cfg.AnalyzeTests {
+			var filteredFiles []string
+			for _, file := range filesToAnalyze {
+				if strings.Contains(file, "/test/") || strings.Contains(file, "/tests/") || strings.HasSuffix(file, "_test.clj") || strings.HasSuffix(file, "-test.clj") {
+					continue
+				}
+				filteredFiles = append(filteredFiles, file)
+			}
+			filesToAnalyze = filteredFiles
+		}
+
 		outputFormat := reporter.ReportFormat(formatFlag)
 		allFindings := []*rules.Finding{}
 
