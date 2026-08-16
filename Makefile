@@ -1,44 +1,44 @@
-# Nome dos binários de saída
+# Output binary names
 BINARY_NAME=arit
 ARITD_BINARY_NAME=aritd
 
-# Diretório de saída
+# Output directory
 BIN_DIR=bin
 
-# Flags do Go para o Daemon
+# Go Flags for Daemon
 LDFLAGS=-ldflags="-s -w"
 
 .PHONY: all build build-aritd test clean help
 
-# Target padrão executado ao digitar apenas `make`
+# Default target executed when typing just `make`
 all: clean test build build-aritd
 
-## build: Compila o binário padrão da CLI do ARIT
+## build: Compiles the standard ARIT CLI binary
 build:
-	@echo "==> Compilando CLI padrão do ARIT..."
+	@echo "==> Compiling standard ARIT CLI..."
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(BINARY_NAME) .
-	@echo "==> Binário CLI gerado em $(BIN_DIR)/$(BINARY_NAME)"
+	@echo "==> CLI binary generated at $(BIN_DIR)/$(BINARY_NAME)"
 
-## build-aritd: Compila a versão daemon (aritd)
+## build-aritd: Compiles the daemon version (aritd)
 build-aritd:
-	@echo "==> Compilando versão daemon (aritd)..."
+	@echo "==> Compiling daemon version (aritd)..."
 	@mkdir -p $(BIN_DIR)
 	go build -tags aritd $(LDFLAGS) -o $(BIN_DIR)/$(ARITD_BINARY_NAME) .
-	@echo "==> Binário daemon gerado em $(BIN_DIR)/$(ARITD_BINARY_NAME)"
+	@echo "==> Daemon binary generated at $(BIN_DIR)/$(ARITD_BINARY_NAME)"
 
-## test: Roda todos os testes unitários do projeto
+## test: Runs all unit tests in the project
 test:
-	@echo "==> Rodando testes unitários..."
+	@echo "==> Running unit tests..."
 	go test -v ./...
 
-## clean: Remove os binários gerados
+## clean: Removes generated binaries
 clean:
-	@echo "==> Limpando artefatos de build..."
+	@echo "==> Cleaning build artifacts..."
 	rm -rf $(BIN_DIR)
-	@echo "==> Limpo."
+	@echo "==> Cleaned."
 
-## help: Exibe esta mensagem de ajuda
+## help: Displays this help message
 help:
-	@echo "Comandos disponíveis no Makefile:"
+	@echo "Available commands in Makefile:"
 	@sed -n 's/^##//p' $< | column -t -s ':'
