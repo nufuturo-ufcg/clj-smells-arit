@@ -12,6 +12,8 @@ import (
 	"github.com/thlaurentino/arit/internal/rules/functional"
 )
 
+var EnableExperimentalMacroExpansion bool
+
 type AnalysisResult struct {
 	Findings        []rules.Finding
 	RichRoots       []*reader.RichNode
@@ -1392,6 +1394,10 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 	}
 
 	richRoots, comments := reader.BuildRichTree(tree)
+
+	if EnableExperimentalMacroExpansion {
+		ExpandMacros(richRoots)
+	}
 
 	var namespaceName string
 	var aliases []NamespaceAlias

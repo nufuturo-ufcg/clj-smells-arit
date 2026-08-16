@@ -202,6 +202,8 @@ Arit - Static Analysis for Clojure Code
 			fmt.Fprintf(os.Stderr, "Using %d workers for %d files (detected %d CPUs)\n", numWorkers, len(filesToAnalyze), numCPUs)
 		}
 
+		analyzer.EnableExperimentalMacroExpansion = expMacroExpansionFlag
+
 		semaphore := make(chan struct{}, numWorkers)
 		analyzerInstance := analyzer.NewAnalyzer(cfg)
 
