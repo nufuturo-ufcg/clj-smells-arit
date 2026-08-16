@@ -1,8 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
+	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
@@ -57,7 +57,14 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 		return nil
 	}
 
-	if (headVal == "not=" || headVal == "=") && isInsideGoBlock(context) {
+	comparisonReadsChannel := false
+	for _, child := range node.Children[1:] {
+		if isChannelTakeForm(child) {
+			comparisonReadsChannel = true
+			break
+		}
+	}
+	if (headVal == "not=" || headVal == "=") && (isInsideGoBlock(context) || comparisonReadsChannel) {
 		var sentinel string
 		for _, child := range node.Children[1:] {
 			if s := findSentinelInNode(child); s != "" {

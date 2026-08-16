@@ -3,7 +3,6 @@ package clojurespecific
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
@@ -18,27 +17,19 @@ import (
 // O smell real é quando require aparece DEPOIS de definições no arquivo.
 type NamespaceLoadSideEffectsRule struct {
 	rules.Rule
-	// fileNsCount rastreia quantos (ns ...) foram encontrados por arquivo
-	fileNsCount map[string]int
-	// filePrecedingDefs rastreia se arquivo tem defs antes do require candidato
-	filePrecedingDefs map[string]bool
-	mu                sync.Mutex
 }
 
 func (r *NamespaceLoadSideEffectsRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-func isLoadTimeSideEffectSymbol(symbol string) bool {
-	switch symbol {
-	case "require", "use", "import", "load", "load-file":
-		return true
-	}
-	return false
+func isLoadTimeSideEffectCall(node *reader.RichNode) bool {
+	return rules.CallResolvesTo(node,
+		"clojure.core/require", "clojure.core/use", "clojure.core/import", "clojure.core/load-file")
 }
 
-func isLazyLoadSymbol(symbol string) bool {
-	return symbol == "requiring-resolve"
+func isLazyLoadCall(node *reader.RichNode) bool {
+	return rules.CallResolvesTo(node, "clojure.core/requiring-resolve")
 }
 
 func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
@@ -62,30 +53,15 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 
 	symbol := node.Children[0].Value
 
-	// Rastreia estado de arquivo: conta ns e defs
-	r.mu.Lock()
-	if r.fileNsCount == nil {
-		r.fileNsCount = make(map[string]int)
-		r.filePrecedingDefs = make(map[string]bool)
-	}
 	if symbol == "ns" {
-		r.fileNsCount[filepath]++
-		r.mu.Unlock()
 		return nil
 	}
-	if symbol == "defn" || symbol == "defn-" || symbol == "def" || symbol == "defonce" ||
-		symbol == "defmacro" || symbol == "defmulti" || symbol == "defprotocol" ||
-		symbol == "defrecord" || symbol == "deftype" {
-		r.filePrecedingDefs[filepath] = true
-		r.mu.Unlock()
+	if !rules.ExecutesAtLoad(context) {
 		return nil
 	}
-	nsCount := r.fileNsCount[filepath]
-	hasPrecedingDefs := r.filePrecedingDefs[filepath]
-	r.mu.Unlock()
 
-	isLoadTime := isLoadTimeSideEffectSymbol(symbol)
-	isLazyLoad := isLazyLoadSymbol(symbol)
+	isLoadTime := isLoadTimeSideEffectCall(node)
+	isLazyLoad := isLazyLoadCall(node)
 
 	if !isLoadTime && !isLazyLoad {
 		return nil
@@ -93,7 +69,6 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 
 	isInsideNs := false
 	isInsideDefn := false
-	isInsideComment := false
 
 	if enclosing, ok := context["enclosingForms"].([]string); ok {
 		for _, f := range enclosing {
@@ -103,9 +78,6 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			if f == "defn" || f == "defn-" || f == "fn" || f == "letfn" {
 				isInsideDefn = true
 			}
-			if f == "comment" {
-				isInsideComment = true
-			}
 		}
 	}
 
@@ -114,13 +86,15 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 		return nil
 	}
 
-	// Dentro de (comment ...) é padrão REPL
-	if isInsideComment {
+	// requiring-resolve dentro de função é lazy loading proposital — aceitável
+	if isLazyLoad && isInsideDefn {
 		return nil
 	}
 
-	// requiring-resolve dentro de função é lazy loading proposital — aceitável
-	if isLazyLoad && isInsideDefn {
+	// `(require ns-sym)` is a deliberate runtime plugin-loading pattern. Static
+	// dependency rules cannot prove it should be eager, so prefer a false
+	// negative to a false positive.
+	if symbol == "require" && len(node.Children) == 2 && node.Children[1].Type == reader.NodeSymbol {
 		return nil
 	}
 
@@ -135,14 +109,14 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 		}
 	}
 
-	// Smell 2: require/use/import no top-level mas após outras definições no arquivo.
-	// Situação problemática: o arquivo tem um segundo (ns ...) ou definições antes do require.
-	// require imediatamente após o primeiro e único (ns ...) é idiomático — não reporta.
-	if nsCount > 1 || hasPrecedingDefs {
+	// A direct top-level form is tolerated for scripts. Nested top-level
+	// execution (def initializers, conditionals, try, let, etc.) is hidden
+	// load-time behavior and is therefore reportable.
+	if parent, ok := context["parent"].(*reader.RichNode); ok && parent != nil {
 		return &rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
-				"Namespace load side effect: '%s' appears after definitions in the file. "+
+				"Namespace load side effect: '%s' is nested in a load-time expression. "+
 					"All namespace dependencies should be declared inside the (ns ...) macro at the top of the file.",
 				symbol,
 			),

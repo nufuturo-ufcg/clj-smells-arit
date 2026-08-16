@@ -90,3 +90,23 @@
 (defn fetch-telemetry []
   (when (System/getenv "ENABLE_TELEMETRY")
     ((requiring-resolve 'com.meu-app.telemetry/collect))))
+
+;; Unknown external macros may defer their bodies.
+(def routes
+  (external.routes/GET "/plugin" []
+    (require '[com.meu-app.plugin :as plugin])))
+
+;; Syntax-quoted dependency forms are generated data.
+(def generated-dependency
+  `(require '[com.meu-app.generated :as generated]))
+
+;; Known eager forms retain proof that the dependency loads now.
+(defonce eager-dependency
+  (do
+    (require '[com.meu-app.eager :as eager])
+    :ready))
+
+;; Local functions named like core dependency operations are unrelated.
+(defn require [value] value)
+(def local-require-result
+  (require :ordinary-value))

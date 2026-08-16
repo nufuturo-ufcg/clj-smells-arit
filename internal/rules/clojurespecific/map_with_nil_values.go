@@ -69,8 +69,16 @@ func (r *MapWithNilValuesRule) isNilOrImplicitNil(node *reader.RichNode) bool {
 	if node.Type == reader.NodeNil {
 		return true
 	}
-	// Removed implicit nil checks for `when` and `if` because they generate excessive 
-	// noise in real-world codebases where {:key (when cond val)} is widely accepted.
+	if node.Type == reader.NodeList && len(node.Children) >= 3 {
+		first := node.Children[0]
+		if first != nil && first.Type == reader.NodeSymbol && (first.Value == "if" || first.Value == "clojure.core/if") {
+			for _, branch := range node.Children[2:] {
+				if branch != nil && branch.Type == reader.NodeNil {
+					return true
+				}
+			}
+		}
+	}
 	return false
 }
 

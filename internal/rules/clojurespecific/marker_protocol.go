@@ -20,13 +20,11 @@ func (r *markerProtocolRule) Meta() rules.Rule {
 }
 
 func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	// Nó deve ser uma lista
-	if node.Type != reader.NodeList || len(node.Children) == 0 {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
 	}
 
-	first := node.Children[0]
-	if first.Type != reader.NodeSymbol || first.Value != "defprotocol" {
+	if !rules.CallResolvesTo(node, "clojure.core/defprotocol") {
 		return nil
 	}
 
@@ -40,21 +38,10 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 		protocolName = node.Children[1].Value
 	}
 
-	// Conta quantos filhos são declarações de método.
-	// Um método no defprotocol é uma lista: (method-name [args] ...)
-	// Pode haver docstring (NodeString) logo após o nome — não conta como método
 	methodCount := 0
 	for i := 2; i < len(node.Children); i++ {
-		child := node.Children[i]
-		// Docstring — não é método
-		if child.Type == reader.NodeString {
-			continue
-		}
-		// Declaração de método: (method-name [args] ...)
-		if child.Type == reader.NodeList && len(child.Children) >= 1 {
-			if child.Children[0].Type == reader.NodeSymbol {
-				methodCount++
-			}
+		if isProtocolMethodDeclaration(node.Children[i]) {
+			methodCount++
 		}
 	}
 
@@ -79,6 +66,29 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 	}
 
 	return nil
+}
+
+// goclj exposes metadata such as (^:export method [args]) as a leading
+// keyword in the method list. A valid declaration therefore is not limited to
+// lists whose first child is the method symbol: it is a list containing a
+// method symbol followed by at least one arity vector.
+func isProtocolMethodDeclaration(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList {
+		return false
+	}
+	methodSeen := false
+	for _, child := range node.Children {
+		if !methodSeen {
+			if child.Type == reader.NodeSymbol {
+				methodSeen = true
+			}
+			continue
+		}
+		if child.Type == reader.NodeVector {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

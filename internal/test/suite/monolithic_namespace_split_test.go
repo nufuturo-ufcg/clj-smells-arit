@@ -12,11 +12,16 @@ func TestMonolithicNamespaceSplit(t *testing.T) {
 			FileToAnalyze: "monolithic_namespace_split.clj",
 			RuleID:        "monolithic-namespace-split",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "Use of load stitches", StartLine: 6},
-				{Message: "Use of in-ns switches", StartLine: 12},
-				{Message: "Use of load stitches", StartLine: 17},
-				{Message: "Use of in-ns switches", StartLine: 18},
-				{Message: "Use of load stitches", StartLine: 22},
+				{Message: "Use of load stitches", StartLine: 8},
+				{Message: "Use of in-ns switches", StartLine: 14},
+				{Message: "Use of load stitches", StartLine: 19},
+				{Message: "Use of in-ns switches", StartLine: 20},
+				{Message: "Use of load stitches", StartLine: 24},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{
+				{StartLine: 29}, {StartLine: 30},
+				{StartLine: 33}, {StartLine: 34},
+				{StartLine: 38}, {StartLine: 42},
 			},
 		},
 	}

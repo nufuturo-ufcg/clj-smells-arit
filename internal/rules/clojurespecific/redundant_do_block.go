@@ -86,6 +86,9 @@ func (r *RedundantDoBlockRule) containsUnquoteSplice(node *reader.RichNode) bool
 	if node == nil {
 		return false
 	}
+	if node.Type == reader.NodeUnquoteSplice || node.Type == reader.NodeReaderCondSplice {
+		return true
+	}
 	if strings.HasPrefix(node.Value, "~@") || strings.Contains(node.Value, "~@") {
 		return true
 	}

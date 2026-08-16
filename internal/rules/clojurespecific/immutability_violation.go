@@ -8,97 +8,71 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-func init() {
-	isSideEffectCall := rules.Any(
-		rules.FirstChildValueEquals("println"),
-		rules.FirstChildValueEquals("print"),
-		rules.FirstChildValueEquals("prn"),
-		rules.FirstChildValueEquals("printf"),
-		rules.FirstChildValueEquals("spit"),
-		rules.FirstChildValueEquals("def"),
-		rules.FirstChildValueEquals("defonce"),
-		rules.FirstChildValueEquals("intern"),
-	)
+type immutabilityViolationRule struct{ rules.Rule }
 
-	isAsetCall := func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
-		return node != nil && len(node.Children) > 0 && node.Children[0] != nil && strings.HasPrefix(node.Children[0].Value, "aset")
-	}
+func (r *immutabilityViolationRule) Meta() rules.Rule { return r.Rule }
 
-	isJavaMutator := func(node *reader.RichNode, _ map[string]interface{}, _ string) bool {
-		if node == nil || len(node.Children) == 0 || node.Children[0] == nil {
-			return false
-		}
-		val := node.Children[0].Value
-		switch val {
-		case ".add", ".put", ".remove", ".clear", ".addAll", ".putAll", ".removeAll", ".retainAll", ".set", ".insert", ".delete", ".append":
+func isLocalRuntimeScope(context map[string]interface{}) bool {
+	for _, key := range []string{"isInsideFunction", "isInsideLet", "isInsideLoop", "isInsideBinding"} {
+		if inside, _ := context[key].(bool); inside {
 			return true
 		}
-		return false
+	}
+	return false
+}
+
+func isGeneratedOrMacroCode(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor == nil {
+			continue
+		}
+		switch ancestor.Type {
+		case reader.NodeQuote, reader.NodeSyntaxQuote, reader.NodeVarQuote, reader.NodeReaderDiscard:
+			return true
+		}
+		if ancestor.Type == reader.NodeList && len(ancestor.Children) > 0 &&
+			ancestor.Children[0].Type == reader.NodeSymbol && ancestor.Children[0].Value == "defmacro" {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *immutabilityViolationRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 ||
+		strings.HasSuffix(filepath, "user.clj") || strings.Contains(filepath, "/dev/") {
+		return nil
 	}
 
-	rules.NewRule("immutability-violation").
-		Name("Immutability Violation").
-		Description("Detects direct state mutation and violations of functional purity. Follows Clojure Style Guide recommendations for proper use of refs, atoms, agents, and avoiding global state mutation in local scopes.").Severity(rules.SeverityWarning).
-		When(func(_ *reader.RichNode, _ map[string]interface{}, filepath string) bool {
-			// Skip REPL dev files (user.clj, dev/) where alter-var-root and component state resets are standard
-			return !(strings.HasSuffix(filepath, "user.clj") || strings.Contains(filepath, "/dev/"))
-		}).
-		When(rules.IsList()).
-		When(rules.HasMinChildren(1)).
-		When(rules.ChildIsSymbol(0)).
-		When(rules.Any(
-			// 1. Chamada direta de função de mutação
-			rules.Any(
-				rules.ChildValueEquals(0, "set!"),
-				rules.ChildValueEquals(0, "alter-var-root"),
-				rules.ChildValueEquals(0, "agent-send"),
-				rules.ChildValueEquals(0, "agent-send-off"),
-				rules.ChildValueEquals(0, "intern"),
-				isAsetCall,
-				isJavaMutator,
-			),
-			// 2. def ou defonce dentro de escopo local
-			rules.All(
-				rules.Any(rules.ChildValueEquals(0, "def"), rules.ChildValueEquals(0, "defonce")),
-				rules.IsLocalScope(),
-			),
-			// 3. ref-set fora de dosync
-			rules.All(
-				rules.ChildValueEquals(0, "ref-set"),
-				rules.Not(rules.IsInside("dosync")),
-			),
+	if rules.CallResolvesTo(node, "clojure.core/def", "clojure.core/defonce") &&
+		isLocalRuntimeScope(context) && !isGeneratedOrMacroCode(context) {
+		name := node.Children[0].Value
+		return &rules.Finding{
+			RuleID:   r.ID,
+			Message:  fmt.Sprintf("Found `%s` inside a local scope. This mutates global state and should be avoided.", name),
+			Filepath: filepath, Location: node.Location, Severity: r.Severity,
+		}
+	}
 
-			// 5. Chamada de send ou send-off passando uma função com efeitos colaterais
-			rules.All(
-				rules.Any(rules.ChildValueEquals(0, "send"), rules.ChildValueEquals(0, "send-off")),
-				rules.HasMinChildren(3),
-				rules.ChildMatches(2, rules.Any(
-					isSideEffectCall,
-					rules.HasDescendant(isSideEffectCall),
-				)),
-			),
-		)).
-		MessageFunc(func(node *reader.RichNode, _ map[string]interface{}) string {
-			sym := node.Children[0].Value
-			switch sym {
-			case "def", "defonce":
-				return fmt.Sprintf("Found `%s` inside a local scope. This mutates global state and should be avoided.", sym)
-			case "ref-set":
-				return "Found `ref-set` outside of `dosync`. Use `dosync` to ensure transactional safety with refs."
-			case "send", "send-off":
-				return "Found side effects in function passed to agent. Agent functions should be pure."
-			default:
-				if strings.HasPrefix(sym, "aset") {
-					return fmt.Sprintf("Found array mutation function call: `%s`. This mutates the array in place and violates immutability principles.", sym)
-				}
-				if strings.HasPrefix(sym, ".") {
-					return fmt.Sprintf("Found Java mutating method call: `%s`. This mutates the object in place and violates immutability principles.", sym)
-				}
-				return fmt.Sprintf("Found state mutation function call: `%s`. This can lead to side effects and violates immutability principles.", sym)
+	if rules.CallResolvesTo(node, "clojure.core/ref-set") {
+		insideDosync, _ := context["isInsideDosync"].(bool)
+		if !insideDosync && !isGeneratedOrMacroCode(context) {
+			return &rules.Finding{
+				RuleID:   r.ID,
+				Message:  "Found `ref-set` outside of `dosync`. Use `dosync` to ensure transactional safety with refs.",
+				Filepath: filepath, Location: node.Location, Severity: r.Severity,
 			}
-		}).
-		SeverityFunc(func(node *reader.RichNode, _ map[string]interface{}, defaultSev rules.Severity) rules.Severity {
-			return defaultSev
-		}).
-		Register()
+		}
+	}
+
+	return nil
+}
+
+func init() {
+	rules.RegisterRule(&immutabilityViolationRule{Rule: rules.Rule{
+		ID: "immutability-violation", Name: "Immutability Violation",
+		Description: "Detects high-confidence global state definitions in local runtime scopes and invalid ref-set use outside dosync.",
+		Severity:    rules.SeverityWarning,
+	}})
 }

@@ -86,6 +86,13 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 
 	switch n := node.(type) {
 	case *parse.ListNode:
+		// Emulate Reader: prune (comment ...) blocks
+		if ignoreComments && len(n.Nodes) > 0 {
+			if sym, ok := n.Nodes[0].(*parse.SymbolNode); ok && sym.Val == "comment" {
+				return nil
+			}
+		}
+		
 		rNode.Type = NodeList
 		rNode.InferredType = "List"
 		if n.Nodes != nil && len(n.Nodes) > 0 {
@@ -214,6 +221,9 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 			rNode.Children = buildRichChildren(n.Nodes, ignoreComments)
 		}
 	case *parse.ReaderDiscardNode:
+		if ignoreComments {
+			return nil
+		}
 		rNode.Type = NodeReaderDiscard
 		if n.Node != nil {
 			if discarded := buildRichNode(n.Node, ignoreComments); discarded != nil {

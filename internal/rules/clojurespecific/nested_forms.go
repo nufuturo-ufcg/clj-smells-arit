@@ -1,28 +1,27 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules"
 )
 
+// NestedFormsRule intentionally keeps the legacy configuration fields so old
+// configuration files continue to load. MaxConditionalDepth and TrackedForms
+// are deprecated: depth and membership in a broad form list are not evidence
+// that a semantics-preserving rewrite exists.
 type NestedFormsRule struct {
 	rules.Rule
 	MaxConsecutiveSameForms int      `json:"max_consecutive_same_forms" yaml:"max_consecutive_same_forms"`
 	MaxConditionalDepth     int      `json:"max_conditional_depth" yaml:"max_conditional_depth"`
 	TrackedForms            []string `json:"tracked_forms" yaml:"tracked_forms"`
-	trackedMap              map[string]bool
-	once                    sync.Once
 }
 
-type NestingPattern struct {
-	Forms       []string
-	Depth       int
-	PatternType string
-	Nodes       []*reader.RichNode
+type nestedFormsCandidate struct {
+	subtype string
+	forms   []*reader.RichNode
 }
 
 func (r *NestedFormsRule) Meta() rules.Rule {
@@ -30,300 +29,273 @@ func (r *NestedFormsRule) Meta() rules.Rule {
 }
 
 func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	if !r.isTrackedForm(node) {
+	if node == nil || r.isExcludedContext(context) || r.isContinuationOfParentCandidate(node, context) {
 		return nil
 	}
 
-	pattern := r.buildNestingPattern(node, context)
+	candidate := r.safeCandidate(node)
+	if candidate == nil {
+		return nil
+	}
 
-	if r.isProblematicPattern(pattern) {
-		suggestion := r.getSuggestionForPattern(pattern)
-
-		message := fmt.Sprintf(
-			"Excessive nesting detected (depth: %d, forms: %s). %s",
-			pattern.Depth,
-			strings.Join(pattern.Forms, " → "),
-			suggestion,
+	var message string
+	switch candidate.subtype {
+	case "nested-let-flattening":
+		message = fmt.Sprintf(
+			"Safe nested let flattening detected (%d consecutive forms). The direct bodies contain no additional expressions and the binding vectors can be concatenated in evaluation order.",
+			len(candidate.forms),
 		)
+	case "nested-doseq-flattening":
+		message = fmt.Sprintf(
+			"Safe nested doseq flattening detected (%d consecutive forms). The inner doseq is the sole body expression and its bindings can be appended in iteration order.",
+			len(candidate.forms),
+		)
+	case "nested-when-flattening":
+		message = fmt.Sprintf(
+			"Safe nested when flattening detected (%d consecutive forms). The inner when is the sole body expression and conditions can be combined with and.",
+			len(candidate.forms),
+		)
+	default:
+		return nil
+	}
 
-		return &rules.Finding{
-			RuleID:   r.ID,
-			Message:  message,
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: r.Severity,
+	return &rules.Finding{
+		RuleID:   r.ID,
+		Message:  message,
+		Filepath: filepath,
+		Location: node.Location,
+		Severity: r.Severity,
+	}
+}
+
+func (r *NestedFormsRule) isExcludedContext(context map[string]interface{}) bool {
+	if r.IsInside(context, "__non-evaluated__", "delay", "lazy-seq", "future", "future-call") {
+		return true
+	}
+
+	// A candidate rooted in a binding vector is an initializer, not a chain in
+	// the form's direct body. The inner nodes are then suppressed as
+	// continuations of that excluded root.
+	parent, _ := context["parent"].(*reader.RichNode)
+	return parent != nil && parent.Type == reader.NodeVector
+}
+
+func (r *NestedFormsRule) safeCandidate(node *reader.RichNode) *nestedFormsCandidate {
+	switch {
+	case resolvesToCoreForm(node, "let"):
+		forms, ok := collectDirectChain(node, "let")
+		if !ok || len(forms) < r.letThreshold() || !bindingsRemainDistinct(forms, false) {
+			return nil
 		}
+		return &nestedFormsCandidate{subtype: "nested-let-flattening", forms: forms}
+
+	case resolvesToCoreForm(node, "doseq"):
+		forms, ok := collectDirectChain(node, "doseq")
+		if !ok || len(forms) < 2 || !bindingsRemainDistinct(forms, true) {
+			return nil
+		}
+		return &nestedFormsCandidate{subtype: "nested-doseq-flattening", forms: forms}
+
+	case resolvesToCoreForm(node, "when"):
+		forms, ok := collectDirectChain(node, "when")
+		if !ok || len(forms) < 3 {
+			return nil
+		}
+		return &nestedFormsCandidate{subtype: "nested-when-flattening", forms: forms}
 	}
 
 	return nil
 }
 
-func (r *NestedFormsRule) buildNestingPattern(node *reader.RichNode, context map[string]interface{}) *NestingPattern {
-	pattern := &NestingPattern{
-		Forms: []string{},
-		Depth: 0,
-		Nodes: []*reader.RichNode{},
+func (r *NestedFormsRule) letThreshold() int {
+	if r.MaxConsecutiveSameForms < 2 {
+		return 2
 	}
-
-	r.collectNestedForms(node, pattern, 0)
-	pattern.PatternType = r.classifyPattern(pattern.Forms)
-
-	return pattern
+	return r.MaxConsecutiveSameForms
 }
 
-func (r *NestedFormsRule) collectNestedForms(node *reader.RichNode, pattern *NestingPattern, depth int) {
-	if !r.isTrackedForm(node) {
-		return
-	}
-
-	formName := r.getFormName(node)
-	pattern.Forms = append(pattern.Forms, formName)
-	pattern.Nodes = append(pattern.Nodes, node)
-	pattern.Depth = depth + 1
-
-	for _, child := range node.Children {
-		if r.isTrackedForm(child) {
-			r.collectNestedForms(child, pattern, depth+1)
-			return
-		}
-
-		if isDoBlock(child) {
-			for _, grandchild := range child.Children {
-				if r.isTrackedForm(grandchild) {
-					r.collectNestedForms(grandchild, pattern, depth+1)
-					return
-				}
+// collectDirectChain follows only the sole body expression. It never searches
+// binding initializers, branches, do blocks, exception forms, loops, functions,
+// or unknown macros.
+func collectDirectChain(root *reader.RichNode, formName string) ([]*reader.RichNode, bool) {
+	forms := []*reader.RichNode{}
+	current := root
+	for resolvesToCoreForm(current, formName) {
+		if formName == "when" {
+			if current == nil || len(current.Children) != 3 {
+				return nil, false
 			}
+		} else if !validBindingForm(current) {
+			return nil, false
 		}
+		forms = append(forms, current)
+
+		body, ok := soleBodyExpression(current)
+		if !ok || !resolvesToCoreForm(body, formName) {
+			break
+		}
+		current = body
 	}
+	return forms, true
 }
 
-func isDoBlock(node *reader.RichNode) bool {
-	if node.Type != reader.NodeList || len(node.Children) == 0 {
-		return false
-	}
-	firstChild := node.Children[0]
-	return firstChild.Type == reader.NodeSymbol && firstChild.Value == "do"
+func validBindingForm(node *reader.RichNode) bool {
+	return node != nil && len(node.Children) == 3 &&
+		node.Children[1] != nil && node.Children[1].Type == reader.NodeVector
 }
 
-func (r *NestedFormsRule) isProblematicPattern(pattern *NestingPattern) bool {
-	if len(pattern.Forms) < 2 {
-		return false
+func soleBodyExpression(node *reader.RichNode) (*reader.RichNode, bool) {
+	if node == nil || len(node.Children) != 3 {
+		return nil, false
 	}
-
-	if r.hasConsecutiveSameForms(pattern.Forms, "let", r.MaxConsecutiveSameForms) {
-		return true
-	}
-
-	if r.hasCountOfForms(pattern.Forms, "doseq", 2) {
-		return true
-	}
-
-	if r.hasCountOfForms(pattern.Forms, "for", 2) {
-		return true
-	}
-
-	if r.hasCountOfForms(pattern.Forms, "let", r.MaxConsecutiveSameForms) {
-		return true
-	}
-
-	if r.hasDeepConditionalNesting(pattern.Forms, r.MaxConditionalDepth) {
-		return true
-	}
-
-	if r.hasCountOfForms(pattern.Forms, "when-let", 2) {
-		return true
-	}
-
-	if r.hasCountOfForms(pattern.Forms, "if-let", 2) {
-		return true
-	}
-
-	if r.isAcceptablePattern(pattern.Forms) {
-		return false
-	}
-
-	return false
+	return node.Children[2], node.Children[2] != nil
 }
 
-func (r *NestedFormsRule) hasConsecutiveSameForms(forms []string, formName string, minCount int) bool {
-	consecutiveCount := 0
+func resolvesToCoreForm(node *reader.RichNode, formName string) bool {
+	if rules.CallResolvesTo(node, "clojure.core/"+formName) {
+		return true
+	}
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
+		return false
+	}
+	head := node.Children[0]
+	// The analyzer's core symbol catalog does not yet enumerate every clojure.core
+	// macro. An unresolved, exact unqualified name is safe here; a shadowing local
+	// definition is explicitly classified as ResolutionLocal and rejected.
+	return head != nil && head.Type == reader.NodeSymbol && head.Value == formName &&
+		head.Resolution != nil && head.Resolution.Kind == reader.ResolutionUnresolved
+}
+
+func (r *NestedFormsRule) isContinuationOfParentCandidate(node *reader.RichNode, context map[string]interface{}) bool {
+	parent, _ := context["parent"].(*reader.RichNode)
+	if parent == nil {
+		return false
+	}
+	parentBody, ok := soleBodyExpression(parent)
+	if !ok || parentBody != node {
+		return false
+	}
+	return (resolvesToCoreForm(parent, "let") && resolvesToCoreForm(node, "let")) ||
+		(resolvesToCoreForm(parent, "doseq") && resolvesToCoreForm(node, "doseq")) ||
+		(resolvesToCoreForm(parent, "when") && resolvesToCoreForm(node, "when"))
+}
+
+// bindingsRemainDistinct rejects flattening that would turn legal lexical
+// shadowing in nested forms into duplicate names in one binding vector. For
+// doseq it also validates the modifier grammar conservatively.
+func bindingsRemainDistinct(forms []*reader.RichNode, doseqBindings bool) bool {
+	seen := make(map[string]struct{})
 	for _, form := range forms {
-		if form == formName {
-			consecutiveCount++
-			if consecutiveCount >= minCount {
-				return true
-			}
+		bindings := form.Children[1]
+		var names []string
+		var ok bool
+		if doseqBindings {
+			names, ok = namesBoundByDoseq(bindings)
 		} else {
-			consecutiveCount = 0
+			names, ok = namesBoundByLet(bindings)
 		}
-	}
-	return false
-}
-
-func (r *NestedFormsRule) hasCountOfForms(forms []string, formName string, minCount int) bool {
-	count := 0
-	for _, form := range forms {
-		if form == formName {
-			count++
-			if count >= minCount {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (r *NestedFormsRule) hasSpecificPattern(forms []string, pattern []string) bool {
-	if len(forms) < len(pattern) {
-		return false
-	}
-
-	for i := 0; i <= len(forms)-len(pattern); i++ {
-		match := true
-		for j, p := range pattern {
-			if forms[i+j] != p {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *NestedFormsRule) hasDeepConditionalNesting(forms []string, maxDepth int) bool {
-	conditionals := map[string]bool{
-		"if": true, "when": true, "if-not": true, "when-not": true,
-		"if-let": true, "when-let": true, "if-some": true, "when-some": true,
-		"cond": true, "case": true,
-	}
-
-	conditionalCount := 0
-	for _, form := range forms {
-		if conditionals[form] {
-			conditionalCount++
-		}
-	}
-
-	return conditionalCount >= maxDepth
-}
-
-func (r *NestedFormsRule) isAcceptablePattern(forms []string) bool {
-
-	acceptablePatterns := [][]string{
-		{"let", "if"},
-		{"let", "when"},
-		{"let", "when-not"},
-		{"loop", "let"},
-		{"binding", "let"},
-		{"with-open", "let"},
-		{"try", "let"},
-		{"let", "try"},
-		{"doseq", "when"},
-		{"doseq", "if"},
-		{"dotimes", "when"},
-		{"dotimes", "if"},
-	}
-
-	for _, pattern := range acceptablePatterns {
-		if r.matchesExactPattern(forms, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (r *NestedFormsRule) matchesExactPattern(forms []string, pattern []string) bool {
-	if len(forms) != len(pattern) {
-		return false
-	}
-
-	for i, form := range forms {
-		if form != pattern[i] {
+		if !ok {
 			return false
+		}
+		for _, name := range names {
+			if name == "_" || name == "&" {
+				continue
+			}
+			if _, duplicate := seen[name]; duplicate {
+				return false
+			}
+			seen[name] = struct{}{}
 		}
 	}
 	return true
 }
 
-func (r *NestedFormsRule) classifyPattern(forms []string) string {
-	if r.hasConsecutiveSameForms(forms, "let", 2) {
-		return "consecutive-let"
+func namesBoundByLet(bindings *reader.RichNode) ([]string, bool) {
+	if bindings == nil || bindings.Type != reader.NodeVector {
+		return nil, false
 	}
-	if r.hasConsecutiveSameForms(forms, "when-let", 2) {
-		return "consecutive-when-let"
+	names := []string{}
+	for i := 0; i < len(bindings.Children); {
+		if i+1 >= len(bindings.Children) || bindings.Children[i] == nil || bindings.Children[i+1] == nil {
+			return nil, false
+		}
+
+		bindingIndex := i
+		valueIndex := i + 1
+		if i+2 < len(bindings.Children) && looksLikeTypeTag(bindings.Children[i]) &&
+			bindings.Children[i+1].Type == reader.NodeSymbol {
+			bindingIndex = i + 1
+			valueIndex = i + 2
+		}
+		if bindings.Children[valueIndex] == nil {
+			return nil, false
+		}
+		collectBindingNames(bindings.Children[bindingIndex], &names)
+		i = valueIndex + 1
 	}
-	if r.hasConsecutiveSameForms(forms, "doseq", 2) {
-		return "nested-iteration"
-	}
-	if r.hasSpecificPattern(forms, []string{"let", "when", "let"}) {
-		return "let-when-let"
-	}
-	return "other"
+	return names, true
 }
 
-func (r *NestedFormsRule) getSuggestionForPattern(pattern *NestingPattern) string {
-	switch pattern.PatternType {
-	case "consecutive-let":
-		return "Combine multiple 'let' bindings into a single form: (let [x 1, y 2] ...)"
-
-	case "consecutive-when-let":
-		return "Consider using 'some->' threading macro: (some-> x f1 f2 f3)"
-
-	case "nested-iteration":
-		return "Combine multiple 'doseq' into single form: (doseq [x xs, y ys] ...)"
-
-	case "let-when-let":
-		return "Consider using 'when-let' or 'some->' to flatten the nested structure"
-
+func looksLikeTypeTag(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeSymbol || node.Value == "" {
+		return false
+	}
+	if strings.Contains(node.Value, ".") || (node.Value[0] >= 'A' && node.Value[0] <= 'Z') {
+		return true
+	}
+	switch node.Value {
+	case "boolean", "byte", "char", "short", "int", "long", "float", "double", "objects", "bytes", "chars", "shorts", "ints", "longs", "floats", "doubles", "booleans":
+		return true
 	default:
-		forms := pattern.Forms
-		switch {
-		case r.hasSpecificPattern(forms, []string{"let", "if", "let"}):
-			return "Consider using 'if-let' or restructuring to avoid nested let forms"
-
-		case r.hasDeepConditionalNesting(forms, 3):
-			return "Consider using 'cond' to flatten nested conditional forms"
-
-		case r.hasConsecutiveSameForms(forms, "for", 2):
-			return "Combine multiple 'for' comprehensions: (for [x xs, y ys] ...)"
-
-		default:
-			return "Consider refactoring to reduce nesting complexity. Use 'some->', 'when-let', or combine forms where possible"
-		}
+		return false
 	}
 }
 
-func (r *NestedFormsRule) isTrackedForm(node *reader.RichNode) bool {
-	if node.Type != reader.NodeList || len(node.Children) == 0 {
-		return false
+func namesBoundByDoseq(bindings *reader.RichNode) ([]string, bool) {
+	if bindings == nil || bindings.Type != reader.NodeVector {
+		return nil, false
 	}
-
-	firstChild := node.Children[0]
-	if firstChild.Type != reader.NodeSymbol {
-		return false
-	}
-
-	r.once.Do(func() {
-		r.trackedMap = make(map[string]bool)
-		for _, tracked := range r.TrackedForms {
-			r.trackedMap[tracked] = true
+	names := []string{}
+	for i := 0; i < len(bindings.Children); {
+		child := bindings.Children[i]
+		if child == nil || i+1 >= len(bindings.Children) || bindings.Children[i+1] == nil {
+			return nil, false
 		}
-	})
 
-	return r.trackedMap[firstChild.Value]
+		if child.Type == reader.NodeKeyword {
+			switch child.Value {
+			case ":let":
+				letBindings := bindings.Children[i+1]
+				letNames, ok := namesBoundByLet(letBindings)
+				if !ok {
+					return nil, false
+				}
+				names = append(names, letNames...)
+			case ":when", ":while":
+			default:
+				return nil, false
+			}
+			i += 2
+			continue
+		}
+
+		collectBindingNames(child, &names)
+		i += 2
+	}
+	return names, true
 }
 
-func (r *NestedFormsRule) getFormName(node *reader.RichNode) string {
-	if node.Type == reader.NodeList && len(node.Children) > 0 &&
-		node.Children[0].Type == reader.NodeSymbol {
-		return node.Children[0].Value
+func collectBindingNames(node *reader.RichNode, names *[]string) {
+	if node == nil {
+		return
 	}
-	return "unknown"
+	if node.Type == reader.NodeSymbol {
+		*names = append(*names, node.Value)
+		return
+	}
+	for _, child := range node.Children {
+		collectBindingNames(child, names)
+	}
 }
 
 func init() {
@@ -331,7 +303,7 @@ func init() {
 		Rule: rules.Rule{
 			ID:          "nested-forms",
 			Name:        "Nested Forms",
-			Description: "Detects problematic nesting patterns like multiple consecutive let forms or unnecessary nested binding forms. This smell occurs when multiple binding or iteration forms are unnecessarily nested instead of being combined in a single, flat form, making code harder to read and reason about.",
+			Description: "Detects directly nested binding forms only when their binding vectors can be flattened without changing evaluation order, scope, or body execution.",
 			Severity:    rules.SeverityWarning,
 		},
 		MaxConsecutiveSameForms: 3,

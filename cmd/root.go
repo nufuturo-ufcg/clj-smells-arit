@@ -24,13 +24,7 @@ import (
 	"github.com/thlaurentino/arit/internal/rules/traditional"
 )
 
-var (
-	formatFlag       string
-	verboseFlag      bool
-	timingFlag       bool
-	quietFlag        bool
-	countFindingFlag bool
-)
+
 
 var rootCmd = &cobra.Command{
 	Use:   "arit [file-or-dir...]",
@@ -338,6 +332,21 @@ Arit - Static Analysis for Clojure Code
 	},
 }
 
+var (
+	formatFlag       string
+	verboseFlag      bool
+	timingFlag       bool
+	quietFlag        bool
+	countFindingFlag bool
+	
+	// Advanced Semantic Features
+	expCrossNsFlag       bool
+	expTypeInferenceFlag bool
+	expAsyncCfgFlag      bool
+	expMacroExpansionFlag bool
+	inlineSuppressionFlag bool
+)
+
 func Execute() error {
 	return rootCmd.Execute()
 }
@@ -348,6 +357,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
 	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
+	
+	rootCmd.PersistentFlags().BoolVar(&expCrossNsFlag, "experimental-cross-ns", false, "Enable 2-pass cross-namespace resolution (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&expTypeInferenceFlag, "experimental-types", false, "Enable static type inference and metadata propagation (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&expAsyncCfgFlag, "experimental-async-cfg", false, "Enable core.async channel flow analysis (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&expMacroExpansionFlag, "experimental-macro-expansion", false, "Enable internal macro micro-expansion (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&inlineSuppressionFlag, "inline-suppression", true, "Enable parsing of inline comment directives like ; arit:disable-next-line")
 }
 
 func findClojureFiles(dir string) ([]string, error) {

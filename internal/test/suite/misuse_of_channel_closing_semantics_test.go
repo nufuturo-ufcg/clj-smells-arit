@@ -10,10 +10,11 @@ func TestMisuseOfChannelClosingSemantics(t *testing.T) {
 	testCases := []framework.RuleTestCase{
 		{
 			FileToAnalyze: "misuse_of_channel_closing_semantics.clj",
-			RuleID:       "misuse-of-channel-closing-semantics",
+			RuleID:        "misuse-of-channel-closing-semantics",
 			ExpectedFindings: []framework.ExpectedFinding{
 				// Put: sentinel value (todas usam mensagem "Sentinel value ... in ...")
 				{Message: "Sentinel value", StartLine: 8},
+				{Message: "Comparison with sentinel", StartLine: 14},
 				{Message: "Sentinel value", StartLine: 19},
 				{Message: "Sentinel value", StartLine: 23},
 				{Message: "Sentinel value", StartLine: 27},

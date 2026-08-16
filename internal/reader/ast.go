@@ -49,6 +49,28 @@ type Location struct {
 	EndColumn   int `json:"end_col"`
 }
 
+type SymbolResolutionKind string
+
+const (
+	ResolutionUnresolved      SymbolResolutionKind = "unresolved"
+	ResolutionLocal           SymbolResolutionKind = "local"
+	ResolutionClojureCore     SymbolResolutionKind = "clojure-core"
+	ResolutionNamespaceVar    SymbolResolutionKind = "namespace-var"
+	ResolutionJavaStatic      SymbolResolutionKind = "java-static"
+	ResolutionJavaConstructor SymbolResolutionKind = "java-constructor"
+	ResolutionJavaMethod      SymbolResolutionKind = "java-method"
+)
+
+// SymbolResolution is the analyzer's stable, package-independent description
+// of a symbol. Rules should compare CanonicalName instead of matching suffixes
+// or reimplementing alias/import resolution.
+type SymbolResolution struct {
+	Kind          SymbolResolutionKind `json:"kind"`
+	CanonicalName string               `json:"canonical_name"`
+	Namespace     string               `json:"namespace,omitempty"`
+	Name          string               `json:"name"`
+}
+
 type RichNode struct {
 	Type     NodeType    `json:"type"`
 	Value    string      `json:"value,omitempty"`
@@ -66,6 +88,8 @@ type RichNode struct {
 
 	Scope     interface{}
 	SymbolRef interface{}
+
+	Resolution *SymbolResolution `json:"-"`
 }
 
 func CountFunctionParameters(paramsNode *RichNode) int {

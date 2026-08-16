@@ -467,6 +467,7 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 			} else {
 
 			}
+			node.Resolution = resolveSymbolIdentity(node, currentScope)
 		}
 
 		for idx, child := range node.Children {
@@ -495,6 +496,125 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 	for _, rootNode := range nodes {
 		visit(rootNode, globalScope)
 	}
+}
+
+func javaClassName(name string, scope *Scope) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	if info, found := scope.Lookup(name); found && info != nil && info.Type == TypeJava {
+		return info.OriginNamespace, true
+	}
+	lastSegment := name
+	if dot := strings.LastIndex(lastSegment, "."); dot >= 0 {
+		lastSegment = lastSegment[dot+1:]
+	}
+	if lastSegment != "" && lastSegment[0] >= 'A' && lastSegment[0] <= 'Z' {
+		return name, true
+	}
+	return "", false
+}
+
+func resolveSymbolIdentity(node *reader.RichNode, scope *Scope) *reader.SymbolResolution {
+	symbol := ""
+	if node != nil {
+		symbol = node.Value
+	}
+	resolution := &reader.SymbolResolution{
+		Kind: reader.ResolutionUnresolved, CanonicalName: symbol, Name: symbol,
+	}
+	if symbol == "" {
+		return resolution
+	}
+	if strings.HasPrefix(symbol, ".") {
+		resolution.Kind = reader.ResolutionJavaMethod
+		resolution.Name = strings.TrimPrefix(symbol, ".")
+		return resolution
+	}
+	if strings.HasSuffix(symbol, ".") {
+		classSymbol := strings.TrimSuffix(symbol, ".")
+		if className, ok := javaClassName(classSymbol, scope); ok {
+			resolution.Kind = reader.ResolutionJavaConstructor
+			resolution.CanonicalName = className + "."
+			resolution.Namespace = className
+			resolution.Name = classSymbol
+		}
+		return resolution
+	}
+
+	if slash := strings.Index(symbol, "/"); slash >= 0 {
+		prefix, member := symbol[:slash], symbol[slash+1:]
+		resolution.Name = member
+		if prefix == "clojure.core" {
+			resolution.Kind = reader.ResolutionClojureCore
+			resolution.CanonicalName = "clojure.core/" + member
+			resolution.Namespace = "clojure.core"
+			return resolution
+		}
+		if className, ok := javaClassName(prefix, scope); ok {
+			resolution.Kind = reader.ResolutionJavaStatic
+			resolution.CanonicalName = className + "/" + member
+			resolution.Namespace = className
+			return resolution
+		}
+		if alias, ok := scope.findAlias(prefix); ok && alias != nil {
+			resolution.Kind = reader.ResolutionNamespaceVar
+			resolution.CanonicalName = alias.FullNamespace + "/" + member
+			resolution.Namespace = alias.FullNamespace
+			return resolution
+		}
+		// A fully-qualified Clojure var needs no alias to be exact. Java
+		// classes have already been separated above by their class segment.
+		if strings.Contains(prefix, ".") {
+			resolution.Kind = reader.ResolutionNamespaceVar
+			resolution.CanonicalName = symbol
+			resolution.Namespace = prefix
+		}
+		return resolution
+	}
+	if className, ok := javaClassName(symbol, scope); ok {
+		resolution.Kind = reader.ResolutionJavaStatic
+		resolution.CanonicalName = className
+		resolution.Namespace = className
+		return resolution
+	}
+
+	if info, found := scope.Lookup(symbol); found && info != nil {
+		// Definition collection is intentionally a whole-file pass. Preserve
+		// Clojure's compilation order when a later top-level definition happens
+		// to shadow a clojure.core symbol used earlier in the file.
+		if info.Definition != nil && info.Definition.Location != nil && node.Location != nil &&
+			info.Definition.Location.StartLine > node.Location.StartLine {
+			if _, core := coreSymbols[symbol]; core {
+				resolution.Kind = reader.ResolutionClojureCore
+				resolution.CanonicalName = "clojure.core/" + symbol
+				resolution.Namespace = "clojure.core"
+				return resolution
+			}
+		}
+		resolution.Name = symbol
+		switch info.Type {
+		case TypeCoreFunction, TypeCoreSpecialForm:
+			resolution.Kind = reader.ResolutionClojureCore
+			resolution.CanonicalName = "clojure.core/" + symbol
+			resolution.Namespace = "clojure.core"
+		case TypeReferred:
+			if strings.HasPrefix(info.OriginNamespace, "clojure.") || !strings.Contains(info.OriginNamespace, ".") {
+				resolution.Kind = reader.ResolutionNamespaceVar
+				resolution.CanonicalName = info.OriginNamespace + "/" + symbol
+				resolution.Namespace = info.OriginNamespace
+			} else {
+				resolution.Kind = reader.ResolutionLocal
+			}
+		case TypeJava:
+			resolution.Kind = reader.ResolutionJavaStatic
+			resolution.CanonicalName = info.OriginNamespace
+			resolution.Namespace = info.OriginNamespace
+		default:
+			resolution.Kind = reader.ResolutionLocal
+		}
+	}
+	return resolution
 }
 
 type Analyzer struct {
@@ -611,6 +731,83 @@ func isNodeEagerConsumer(node *reader.RichNode) bool {
 	return isEager
 }
 
+var executionKnownEagerHeads = map[string]struct{}{
+	"def": {}, "defonce": {},
+	"let": {}, "let*": {}, "loop": {}, "loop*": {}, "binding": {},
+	"do": {}, "if": {}, "if-let": {}, "if-not": {}, "when": {}, "when-let": {}, "when-not": {},
+	"cond": {}, "condp": {}, "case": {}, "try": {}, "catch": {}, "finally": {},
+	"->": {}, "->>": {}, "some->": {}, "some->>": {}, "cond->": {}, "cond->>": {}, "as->": {},
+	"and": {}, "or": {}, "doto": {}, "..": {},
+	"vector": {}, "hash-map": {}, "array-map": {}, "list": {}, "set": {}, "str": {},
+	"assoc": {}, "dissoc": {}, "merge": {}, "conj": {}, "into": {},
+}
+
+func executionHead(node *reader.RichNode) string {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0].Type != reader.NodeSymbol {
+		return ""
+	}
+	return node.Children[0].Value
+}
+
+func isLocallyDefinedMacro(head *reader.RichNode) bool {
+	if head == nil || head.ResolvedDefinition == nil {
+		return false
+	}
+	definition := head.ResolvedDefinition
+	return definition.Type == reader.NodeList && len(definition.Children) > 0 &&
+		definition.Children[0].Type == reader.NodeSymbol && definition.Children[0].Value == "defmacro"
+}
+
+func childExecutionContext(parent *reader.RichNode, childIndex int, inherited rules.ExecutionContext) rules.ExecutionContext {
+	if inherited != rules.ExecutionAtLoad || parent == nil {
+		return inherited
+	}
+
+	switch parent.Type {
+	case reader.NodeQuote, reader.NodeSyntaxQuote, reader.NodeVarQuote, reader.NodeReaderDiscard:
+		return rules.ExecutionNonEvaluated
+	}
+
+	head := executionHead(parent)
+	if head == "" {
+		return inherited
+	}
+	if childIndex == 0 {
+		return inherited
+	}
+
+	switch head {
+	case "comment", "quote", "clojure.core/quote":
+		return rules.ExecutionNonEvaluated
+	case "defn", "defn-", "defmacro", "fn", "fn*", "letfn", "deftest":
+		return rules.ExecutionDeferred
+	case "defmethod":
+		// The dispatch value is evaluated while defining the method, but its
+		// implementation body is invoked later.
+		if childIndex >= 3 {
+			return rules.ExecutionDeferred
+		}
+		return inherited
+	case "delay", "lazy-seq", "future", "future-call":
+		return rules.ExecutionDeferred
+	}
+
+	if _, known := executionKnownEagerHeads[head]; known {
+		return inherited
+	}
+
+	// A locally defined macro is known to be a macro, but without expansion we
+	// cannot prove when any of its arguments execute.
+	if isLocallyDefinedMacro(parent.Children[0]) {
+		return rules.ExecutionUnknown
+	}
+
+	// An unresolved call may be a macro supplied by a dependency. Ordinary
+	// functions eagerly evaluate arguments, but guessing that distinction is
+	// precisely what creates load-time false positives. Prefer silence.
+	return rules.ExecutionUnknown
+}
+
 func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, comments []*reader.RichNode, globalScope *Scope) []*rules.Finding {
 
 	var findingsMutex sync.Mutex
@@ -642,6 +839,10 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 
 		prevParent := currentContext["parent"]
 		currentContext["parent"] = node
+		prevAncestors := currentContext["ancestorNodes"]
+		if ancestors, ok := prevAncestors.([]*reader.RichNode); ok {
+			currentContext["ancestorNodes"] = append(ancestors, node)
+		}
 
 		prevIsInEager, _ := currentContext["isInEagerContext"].(bool)
 		nodeIsEager := isNodeEagerConsumer(node)
@@ -657,6 +858,13 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			if enclosing, ok := currentContext["enclosingForms"].([]string); ok {
 				prevEnclosing = enclosing
 				currentContext["enclosingForms"] = append(enclosing, node.Children[0].Value)
+				enclosingChanged = true
+			}
+		} else if node.Type == reader.NodeQuote || node.Type == reader.NodeVarQuote ||
+			node.Type == reader.NodeReaderDiscard {
+			if enclosing, ok := currentContext["enclosingForms"].([]string); ok {
+				prevEnclosing = enclosing
+				currentContext["enclosingForms"] = append(enclosing, "__non-evaluated__")
 				enclosingChanged = true
 			}
 		}
@@ -758,6 +966,10 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			prevChildWithOpen := currentContext["isInsideWithOpen"]
 			currentContext["isInsideWithOpen"] = childIsInsideWithOpen
 
+			prevExecution := currentContext["executionContext"]
+			inheritedExecution, _ := prevExecution.(rules.ExecutionContext)
+			currentContext["executionContext"] = childExecutionContext(node, idx, inheritedExecution)
+
 			traverseAndAnalyze(child, currentContext, currentChildScope)
 
 			currentContext["isInsideFunction"] = prevChildFunc
@@ -766,9 +978,11 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			currentContext["isInsideBinding"] = prevChildBinding
 			currentContext["isInsideDosync"] = prevChildDosync
 			currentContext["isInsideWithOpen"] = prevChildWithOpen
+			currentContext["executionContext"] = prevExecution
 		}
 
 		currentContext["parent"] = prevParent
+		currentContext["ancestorNodes"] = prevAncestors
 		if eagerChanged {
 			currentContext["isInEagerContext"] = prevIsInEager
 		}
@@ -787,7 +1001,20 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		"isInsideBinding":  false,
 		"isInsideDosync":   false,
 		"isInsideWithOpen": false,
+		"executionContext": rules.ExecutionAtLoad,
 		"enclosingForms":   make([]string, 0, 32),
+		"ancestorNodes":    make([]*reader.RichNode, 0, 32),
+		"namespace-aliases": func() map[string]string {
+			aliases := make(map[string]string)
+			if globalScope != nil {
+				for alias, info := range globalScope.aliases {
+					if info != nil {
+						aliases[alias] = info.FullNamespace
+					}
+				}
+			}
+			return aliases
+		}(),
 	}
 
 	for _, rootNode := range richRootNodes {
@@ -1001,7 +1228,7 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 		if clauseNode.Type != reader.NodeList || len(clauseNode.Children) == 0 || clauseNode.Children[0].Type != reader.NodeKeyword {
 			continue
 		}
-		clauseKeyword := clauseNode.Children[0].Value
+		clauseKeyword := strings.TrimPrefix(clauseNode.Children[0].Value, ":")
 
 		switch clauseKeyword {
 		case "require":
@@ -1023,7 +1250,7 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 					if optionKeyNode.Type != reader.NodeKeyword {
 						continue
 					}
-					optionKey := optionKeyNode.Value
+					optionKey := strings.TrimPrefix(optionKeyNode.Value, ":")
 					k++
 					if k >= len(specNode.Children) {
 						break
@@ -1085,6 +1312,56 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 	return namespaceName, aliases, referredSymbols, nil
 }
 
+// collectTopLevelRequires supports the traditional `(require '[ns :as x])`
+// form. It is still common in scripts and in the synthetic catalog even
+// though modern namespaces normally place the same libspec in ns.
+func collectTopLevelRequires(roots []*reader.RichNode) ([]NamespaceAlias, []ReferredSymbol) {
+	var aliases []NamespaceAlias
+	var referred []ReferredSymbol
+	for _, root := range roots {
+		if root == nil || root.Type != reader.NodeList || len(root.Children) < 2 ||
+			root.Children[0].Type != reader.NodeSymbol || root.Children[0].Value != "require" {
+			continue
+		}
+		for _, argument := range root.Children[1:] {
+			if argument.Type == reader.NodeQuote && len(argument.Children) == 1 {
+				argument = argument.Children[0]
+			}
+			if argument.Type != reader.NodeVector || len(argument.Children) == 0 ||
+				argument.Children[0].Type != reader.NodeSymbol {
+				continue
+			}
+			fullNamespace := argument.Children[0].Value
+			for i := 1; i+1 < len(argument.Children); i++ {
+				option, value := argument.Children[i], argument.Children[i+1]
+				if option.Type != reader.NodeKeyword {
+					continue
+				}
+				switch strings.TrimPrefix(option.Value, ":") {
+				case "as":
+					if value.Type == reader.NodeSymbol {
+						aliases = append(aliases, NamespaceAlias{
+							Alias: value.Value, FullNamespace: fullNamespace, DefinitionNode: argument,
+						})
+					}
+				case "refer":
+					if value.Type == reader.NodeVector {
+						for _, symbol := range value.Children {
+							if symbol.Type == reader.NodeSymbol {
+								referred = append(referred, ReferredSymbol{
+									SymbolName: symbol.Value, OriginalNamespace: fullNamespace, DefinitionNode: argument,
+								})
+							}
+						}
+					}
+				}
+				i++
+			}
+		}
+	}
+	return aliases, referred
+}
+
 var (
 	analyzersMu sync.RWMutex
 	analyzers   = make(map[*config.Config]*Analyzer)
@@ -1135,6 +1412,9 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 
 		}
 	}
+	legacyAliases, legacyRefers := collectTopLevelRequires(richRoots)
+	aliases = append(aliases, legacyAliases...)
+	referredSymbols = append(referredSymbols, legacyRefers...)
 
 	globalScope := NewScope(nil)
 
@@ -1168,7 +1448,25 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 	concreteFindings := make([]rules.Finding, 0, len(findingsFromAnalysis))
 	for _, fptr := range findingsFromAnalysis {
 		if fptr != nil {
-			concreteFindings = append(concreteFindings, *fptr)
+			suppressed := false
+			if fptr.Location != nil {
+				for _, comment := range comments {
+					if comment.Location != nil && (comment.Location.StartLine == fptr.Location.StartLine || comment.Location.StartLine == fptr.Location.StartLine-1) {
+						cVal := strings.ToLower(comment.Value)
+						if strings.Contains(cVal, "arit:disable-next-line " + fptr.RuleID) || 
+						   strings.Contains(cVal, "arit:disable-next-line all") ||
+						   strings.Contains(cVal, "clj-kondo/ignore") ||
+						   strings.Contains(cVal, "eslint-disable") ||
+						   strings.Contains(cVal, "nosonar") {
+							suppressed = true
+							break
+						}
+					}
+				}
+			}
+			if !suppressed {
+				concreteFindings = append(concreteFindings, *fptr)
+			}
 		}
 	}
 

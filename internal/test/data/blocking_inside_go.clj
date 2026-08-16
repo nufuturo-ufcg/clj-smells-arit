@@ -56,6 +56,14 @@
     (let [resultado (buscar-dados-legado)]
       (a/>! canal-saida resultado))))
 
+;; Transitive chain through a second local function.
+(defn buscar-dados-indiretamente []
+  (buscar-dados-legado))
+
+(defn hidden-chain-blocking-example [canal-saida]
+  (a/go
+    (a/>! canal-saida (buscar-dados-indiretamente))))
+
 ;; Example 9: Direct blocking write (>!!) inside an if condition
 (defn conditional-blocking-example [ch msg condicao]
   (a/go
@@ -131,3 +139,13 @@
     (doseq [ch [chan1 chan2 chan3]]
       (let [msg (a/<! ch)]
         (println "Processado:" msg)))))
+
+;; A local function whose name resembles a known blocker is not one.
+(defn slurp [value] value)
+(defn shadowed-blocker-safe []
+  (a/go (slurp "memory")))
+
+;; Traditional top-level require forms must resolve aliases too.
+(require '[clojure.core.async :as legacy-async])
+(defn legacy-require-blocking [ch]
+  (legacy-async/go (legacy-async/<!! ch)))

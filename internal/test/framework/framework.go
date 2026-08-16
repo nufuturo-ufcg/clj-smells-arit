@@ -22,9 +22,10 @@ type ExpectedFinding struct {
 }
 
 type RuleTestCase struct {
-	FileToAnalyze    string
-	RuleID           string
-	ExpectedFindings []ExpectedFinding
+	FileToAnalyze     string
+	RuleID            string
+	ExpectedFindings  []ExpectedFinding
+	ForbiddenFindings []ExpectedFinding
 }
 
 func RunRuleTest(t *testing.T, tc RuleTestCase) {
@@ -86,6 +87,16 @@ func RunRuleTest(t *testing.T, tc RuleTestCase) {
 				}
 				assert.True(t, matched,
 					"Expected finding on line %d with message containing %q, but none matched", expected.StartLine, expected.Message)
+			}
+		})
+	}
+
+	for i, forbidden := range tc.ForbiddenFindings {
+		t.Run(fmt.Sprintf("Forbidden_%d_line_%d", i+1, forbidden.StartLine), func(t *testing.T) {
+			for _, finding := range actualFindings[forbidden.StartLine] {
+				if forbidden.Message == "" || strings.Contains(finding.Message, forbidden.Message) {
+					t.Errorf("Unexpected finding on line %d: %s", forbidden.StartLine, finding.Message)
+				}
 			}
 		})
 	}

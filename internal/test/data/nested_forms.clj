@@ -1,11 +1,19 @@
 (ns nested-forms)
 
-(defn bad-nesting [x y]
-  (let [a 1]
-    (let [b 2]
-      (+ a b x y))))
+(defn flattenable-lets [input]
+  (let [a (:a input)]
+    (let [{:keys [b]} a]
+      (let [^String c (str b)]
+        (.trim c)))))
 
-(defn bad-loops [xs ys]
+(defn flattenable-doseqs [xs]
   (doseq [x xs]
-    (doseq [y ys]
+    (doseq [y (:children x)]
       (println x y))))
+
+(defn flattenable-doseqs-with-modifiers [xs]
+  (doseq [x xs
+          :when (:active x)]
+    (doseq [y (:children x)
+            :let [label (str (:id x) ":" (:id y))]]
+      (println label))))

@@ -1,10 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
-	"strings"
-
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules"
 )
 
 type MonolithicNamespaceSplitRule struct {
@@ -25,21 +23,19 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 		return nil
 	}
 
-	base := symbolBaseName(first.Value)
-	switch base {
-	case "load":
-		if isUnderCommentMacro(context) {
-			return nil
-		}
+	execution := rules.CurrentExecutionContext(context)
+	if execution == rules.ExecutionNonEvaluated || execution == rules.ExecutionUnknown {
+		return nil
+	}
+
+	switch {
+	case rules.CallResolvesTo(node, "clojure.core/load"):
 		return r.finding(
 			filepath,
 			node,
 			"Use of load stitches compilation from other files into this namespace and breaks static analysis and dependency tooling. Prefer separate namespaces and require.",
 		)
-	case "in-ns":
-		if isUnderCommentMacro(context) {
-			return nil
-		}
+	case rules.CallResolvesTo(node, "clojure.core/in-ns"):
 		return r.finding(
 			filepath,
 			node,
@@ -58,33 +54,6 @@ func (r *MonolithicNamespaceSplitRule) finding(filepath string, node *reader.Ric
 		Location: node.Location,
 		Severity: r.Severity,
 	}
-}
-
-// symbolBaseName returns the segment after the last slash (e.g. clojure.core/load -> load).
-func symbolBaseName(sym string) string {
-	if i := strings.LastIndex(sym, "/"); i >= 0 {
-		return sym[i+1:]
-	}
-	return sym
-}
-
-func isUnderCommentMacro(context map[string]interface{}) bool {
-	if context == nil {
-		return false
-	}
-	raw, ok := context["parent"]
-	if !ok {
-		return false
-	}
-	parent, ok := raw.(*reader.RichNode)
-	if !ok || parent == nil || parent.Type != reader.NodeList || len(parent.Children) < 1 {
-		return false
-	}
-	head := parent.Children[0]
-	if head.Type != reader.NodeSymbol {
-		return false
-	}
-	return symbolBaseName(head.Value) == "comment"
 }
 
 func init() {

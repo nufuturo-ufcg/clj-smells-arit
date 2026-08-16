@@ -10,10 +10,10 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 	testCases := []framework.RuleTestCase{
 		{
 			FileToAnalyze: "multiple_evaluation_in_macros.clj",
-			RuleID:       "multiple-evaluation-in-macros",
+			RuleID:        "multiple-evaluation-in-macros",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "The macro double-eval-basic presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 6},  
-				{Message: "The macro square-unhygienic presents multiple calls to the input arguments x without defining temporary local variables.", StartLine: 12}, 
+				{Message: "The macro double-eval-basic presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 6},
+				{Message: "The macro square-unhygienic presents multiple calls to the input arguments x without defining temporary local variables.", StartLine: 12},
 				{Message: "The macro log-and-run presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 16},
 				{Message: "The macro bad-bindings presents multiple calls to the input arguments val-expr without defining temporary local variables.", StartLine: 22},
 				{Message: "The macro repeat-eval-loop presents multiple calls to the input arguments coll-expr without defining temporary local variables.", StartLine: 28},
@@ -22,6 +22,19 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 				{Message: "The macro unpack-twice presents multiple calls to the input arguments items-expr without defining temporary local variables.", StartLine: 46},
 				{Message: "The macro false-safe-gensym presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 50},
 				{Message: "The macro assert-verbose presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 56},
+				{Message: "The macro duplicate-body presents multiple calls to the input arguments body without defining temporary local variables.", StartLine: 140},
+				{Message: "The macro one-risky-arity presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 144},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{
+				{StartLine: 86},
+				{StartLine: 108},
+				{StartLine: 114},
+				{StartLine: 121},
+				{StartLine: 127},
+				{StartLine: 132},
+				{StartLine: 136},
+				{StartLine: 149},
+				{StartLine: 155},
 			},
 		},
 	}

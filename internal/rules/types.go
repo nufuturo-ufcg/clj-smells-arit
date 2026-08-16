@@ -17,4 +17,6 @@ type Finding struct {
 	Location       *reader.Location `json:"location"`
 	Severity       Severity         `json:"severity"`
 	ASTFingerprint string           `json:"ast_fingerprint,omitempty"`
+	Tags           []string         `json:"tags,omitempty"`
+	Intentionality string           `json:"intentionality,omitempty"`
 }

@@ -1,12 +1,38 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
 	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules"
 )
+
+func isCountInvocation(node *reader.RichNode) bool {
+	return rules.CallResolvesTo(node, "clojure.core/count")
+}
+
+func isCoreVerboseCall(node *reader.RichNode, name string) bool {
+	return rules.CallResolvesTo(node, "clojure.core/"+name)
+}
+
+func isDefinitelyIntegral(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	hint := node.TypeHint
+	switch hint {
+	case "byte", "short", "int", "long", "Byte", "Short", "Integer", "Long",
+		"java.lang.Byte", "java.lang.Short", "java.lang.Integer", "java.lang.Long":
+		return true
+	}
+	if node.Type != reader.NodeList {
+		return false
+	}
+	return isCoreVerboseCall(node, "int") || isCoreVerboseCall(node, "long") ||
+		isCoreVerboseCall(node, "unchecked-int") || isCoreVerboseCall(node, "unchecked-long") ||
+		isCoreVerboseCall(node, "compare") || isCoreVerboseCall(node, "count")
+}
 
 type VerboseChecksRule struct {
 	rules.Rule
@@ -39,11 +65,11 @@ func initVerboseChecksMaps() {
 			"<": {
 				"0": "neg?",
 			},
-			">=": {
-				"0": "nat-int?",
-			},
 			"<=": {
-				"0": "nonpos",
+				"0": "not-pos",
+			},
+			">=": {
+				"0": "not-neg",
 			},
 		}
 
@@ -76,6 +102,9 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 	}
 
 	operator := opNode.Value
+	if !isCoreVerboseCall(node, operator) {
+		return nil
+	}
 	comparisons, exists := numericComparisons[operator]
 	if !exists {
 		return nil
@@ -83,6 +112,28 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 
 	arg1 := node.Children[1]
 	arg2 := node.Children[2]
+	if isCountInvocation(arg1) || isCountInvocation(arg2) {
+		if (arg1.Type == reader.NodeNumber && arg1.Value == "0") || (arg2.Type == reader.NodeNumber && arg2.Value == "0") {
+			var countNode *reader.RichNode
+			if isCountInvocation(arg1) {
+				countNode = arg1
+			} else {
+				countNode = arg2
+			}
+			coll := ""
+			if len(countNode.Children) > 1 {
+				coll = getVerboseNodeText(countNode.Children[1])
+			}
+			originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
+			return &rules.Finding{
+				RuleID:   r.ID,
+				Message:  fmt.Sprintf("Verbose check with count: `%s`. Consider using `(empty? %s)`.", originalExpr, coll),
+				Location: node.Location,
+				Severity: r.Severity,
+			}
+		}
+		return nil
+	}
 
 	var constantValue, variableExpr string
 	var suggestion string
@@ -97,10 +148,10 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 				suggestion = fmt.Sprintf("(neg? %s)", variableExpr)
 			} else if operator == "<" && constantValue == "0" {
 				suggestion = fmt.Sprintf("(pos? %s)", variableExpr)
-			} else if operator == ">=" && constantValue == "0" {
-				suggestion = fmt.Sprintf("(not (pos? %s))", variableExpr)
 			} else if operator == "<=" && constantValue == "0" {
-				suggestion = fmt.Sprintf("(nat-int? %s)", variableExpr)
+				suggestion = fmt.Sprintf("(>= %s 0)", variableExpr)
+			} else if operator == ">=" && constantValue == "0" {
+				suggestion = fmt.Sprintf("(<= %s 0)", variableExpr)
 			}
 		}
 	} else if arg2.Type == reader.NodeNumber {
@@ -109,10 +160,10 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 		if idiomaticFunc, exists := comparisons[constantValue]; exists {
 			if operator == "=" || operator == ">" || operator == "<" {
 				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
-			} else if operator == ">=" && constantValue == "0" {
-				suggestion = fmt.Sprintf("(nat-int? %s)", variableExpr)
 			} else if operator == "<=" && constantValue == "0" {
 				suggestion = fmt.Sprintf("(not (pos? %s))", variableExpr)
+			} else if operator == ">=" && constantValue == "0" {
+				suggestion = fmt.Sprintf("(not (neg? %s))", variableExpr)
 			}
 		}
 	}
@@ -139,7 +190,7 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 	}
 
 	opNode := node.Children[0]
-	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") {
+	if opNode.Type != reader.NodeSymbol || opNode.Value != "=" || !isCoreVerboseCall(node, "=") {
 		return nil
 	}
 
@@ -159,15 +210,7 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 
 	if constantValue != "" {
 		if idiomaticFunc, exists := booleanComparisons[constantValue]; exists {
-			if opNode.Value == "=" {
-				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
-			} else {
-				if constantValue == "true" {
-					suggestion = fmt.Sprintf("(false? %s)", variableExpr)
-				} else {
-					suggestion = fmt.Sprintf("(true? %s)", variableExpr)
-				}
-			}
+			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
 			originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 			return &rules.Finding{
 				RuleID:   r.ID,
@@ -188,7 +231,8 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	}
 
 	opNode := node.Children[0]
-	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") {
+	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") ||
+		!isCoreVerboseCall(node, opNode.Value) {
 		return nil
 	}
 
@@ -239,6 +283,9 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *rules.Fi
 	}
 
 	operator := opNode.Value
+	if !isCoreVerboseCall(node, operator) {
+		return nil
+	}
 	operations, exists := mathOperations[operator]
 	if !exists {
 		return nil
@@ -288,7 +335,7 @@ func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode) *rules.Findin
 		return nil
 	}
 	opNode := node.Children[0]
-	if opNode.Type != reader.NodeSymbol || opNode.Value != "if" {
+	if opNode.Type != reader.NodeSymbol || opNode.Value != "if" || !isCoreVerboseCall(node, "if") {
 		return nil
 	}
 	cond := node.Children[1]
@@ -325,28 +372,33 @@ func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Fi
 		return nil
 	}
 	opNode := node.Children[0]
-	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") {
+	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") ||
+		!isCoreVerboseCall(node, opNode.Value) {
 		return nil
 	}
-	
+
 	arg1 := node.Children[1]
 	arg2 := node.Children[2]
-	
+
 	isMod := false
 	var modArg string
-	
-	if arg1.Type == reader.NodeList && len(arg1.Children) == 3 && arg1.Children[0].Type == reader.NodeSymbol && (arg1.Children[0].Value == "mod" || arg1.Children[0].Value == "rem") && arg1.Children[2].Type == reader.NodeNumber && arg1.Children[2].Value == "2" {
+
+	if arg1.Type == reader.NodeList && len(arg1.Children) == 3 &&
+		(isCoreVerboseCall(arg1, "mod") || isCoreVerboseCall(arg1, "rem")) &&
+		arg1.Children[2].Type == reader.NodeNumber && arg1.Children[2].Value == "2" {
 		if arg2.Type == reader.NodeNumber && arg2.Value == "0" {
 			isMod = true
 			modArg = getVerboseNodeText(arg1.Children[1])
 		}
-	} else if arg2.Type == reader.NodeList && len(arg2.Children) == 3 && arg2.Children[0].Type == reader.NodeSymbol && (arg2.Children[0].Value == "mod" || arg2.Children[0].Value == "rem") && arg2.Children[2].Type == reader.NodeNumber && arg2.Children[2].Value == "2" {
+	} else if arg2.Type == reader.NodeList && len(arg2.Children) == 3 &&
+		(isCoreVerboseCall(arg2, "mod") || isCoreVerboseCall(arg2, "rem")) &&
+		arg2.Children[2].Type == reader.NodeNumber && arg2.Children[2].Value == "2" {
 		if arg1.Type == reader.NodeNumber && arg1.Value == "0" {
 			isMod = true
 			modArg = getVerboseNodeText(arg2.Children[1])
 		}
 	}
-	
+
 	if isMod {
 		var suggestion string
 		if opNode.Value == "=" {
@@ -427,7 +479,7 @@ func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]inte
 		finding.Filepath = filepath
 		return finding
 	}
-	
+
 	if finding := r.detectModComparison(node); finding != nil {
 		finding.Filepath = filepath
 		return finding

@@ -7,7 +7,6 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
-
 type NonIdiomaticRecordConstructionRule struct {
 	rules.Rule
 }
@@ -18,7 +17,7 @@ func (r *NonIdiomaticRecordConstructionRule) Meta() rules.Rule {
 
 func (r *NonIdiomaticRecordConstructionRule) verifiesPositionalConstructor(value string, recordFuncs []string) string {
 	for _, function := range recordFuncs {
-		if value == "->"+function || value == function+"." {
+		if value == function+"." {
 			return function
 		}
 	}
@@ -44,11 +43,14 @@ func (r *NonIdiomaticRecordConstructionRule) Check(node *reader.RichNode, contex
 	} else {
 
 		function := r.verifiesPositionalConstructor(firstChild, recordFuncs)
+		if firstChild == "new" && len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
+			function = r.verifiesPositionalConstructor(node.Children[1].Value+".", recordFuncs)
+		}
 
 		if function != "" {
 			return &rules.Finding{
 				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Using a positional constructor to instantiate the defrecord instead of map->%s", function),
+				Message:  fmt.Sprintf("Using Java interop syntax to instantiate the defrecord instead of ->%s or map->%s", function, function),
 				Filepath: filepath,
 				Location: node.Location,
 				Severity: r.Severity,

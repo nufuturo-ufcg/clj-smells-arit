@@ -118,3 +118,21 @@
 ;; Example 10: Declaring a clean namespace that loads zero external packages or symbols, relying purely on clojure.core
 #_{:clj-kondo/ignore [:namespace-name-mismatch]}
 (ns com.my-app.pure-core)
+
+;; :refer :all belongs exclusively to implicit-namespace-dependencies.
+#_{:clj-kondo/ignore [:namespace-name-mismatch]}
+(ns com.my-app.refer-all-is-not-excessive-refers
+  (:require [clojure.string :refer :all]))
+
+;; Boundary regression for the empirically calibrated threshold (mean + 2 standard deviations
+;; across 430 repositories): 23 explicit refers must remain below the threshold.
+#_{:clj-kondo/ignore [:namespace-name-mismatch]}
+(ns com.my-app.refers-below-empirical-threshold
+  (:require [com.my-app.stats :refer [r01 r02 r03 r04 r05 r06 r07 r08 r09 r10 r11 r12
+                                      r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23]]))
+
+;; The inclusive operational threshold is 24 explicit refers per namespace.
+#_{:clj-kondo/ignore [:namespace-name-mismatch]}
+(ns com.my-app.refers-at-empirical-threshold
+  (:require [com.my-app.stats :refer [r01 r02 r03 r04 r05 r06 r07 r08 r09 r10 r11 r12
+                                      r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23 r24]]))

@@ -114,3 +114,18 @@
 (defn update-nested [m ks f]
   (update-in m ks f))
 
+;; Generated definitions inside macro templates execute at the caller's top level.
+(defmacro define-setting [setting-name value]
+  `(def ~setting-name ~value))
+
+;; A locally shadowed symbol is not clojure.core/def.
+(defn shadowed-def-call [def]
+  (def :not-a-definition))
+
+;; ref-set without a transaction is a definite transactional violation.
+(def shared-ref (ref 0))
+(defn unsafe-ref-update []
+  (ref-set shared-ref 1))
+
+(defn safe-ref-update []
+  (dosync (ref-set shared-ref 2)))

@@ -116,3 +116,43 @@
      (clojure.core.async/go
        (println val#)
        val#)))
+
+;; Expansion-time tests do not evaluate the caller expression at runtime.
+(defmacro expansion-branch-safe [expr]
+  (if (string? expr)
+    `(consume-string ~expr)
+    `(consume-value ~expr)))
+
+;; Occurrences in distinct arities must never be added together.
+(defmacro separate-arities-safe
+  ([expr] `(consume-one ~expr))
+  ([expr fallback] `(consume-two ~expr ~fallback)))
+
+;; The same argument in mutually exclusive runtime branches is evaluated once.
+(defmacro same-arg-exclusive-safe [flag expr]
+  `(if ~flag ~expr ~expr))
+
+;; Unknown template transformations are suppressed in high-precision mode.
+(defmacro unknown-template-wrapper-safe [expr]
+  (with-meta `(+ ~expr ~expr) {:generated true}))
+
+;; Repeating a variadic splice duplicates every caller body form.
+(defmacro duplicate-body [& body]
+  `(do ~@body ~@body))
+
+;; Only the risky arity should be sufficient to report the macro once.
+(defmacro one-risky-arity
+  ([expr] `(consume ~expr))
+  ([expr fallback] `(vector ~expr ~expr ~fallback)))
+
+;; A generated function name is declarative; its single call-site is one use.
+(defmacro generated-function-name-safe [fn-name]
+  `(defn ~fn-name
+     ([value#] (~fn-name value# nil))
+     ([value# fallback#] (or value# fallback#))))
+
+;; Generated function arities are alternative invocation paths, not a sequence.
+(defmacro generated-arities-safe [expr]
+  `(fn
+     ([value#] (consume ~expr value#))
+     ([value# fallback#] (consume ~expr value# fallback#))))

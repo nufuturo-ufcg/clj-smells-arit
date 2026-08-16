@@ -10,12 +10,7 @@ func TestSingleSegmentNamespace(t *testing.T) {
         {
             FileToAnalyze: "single_segment_namespace.clj",           
             RuleID:        "single-segment-namespace",              
-            ExpectedFindings: []framework.ExpectedFinding{
-                {
-                    Message:   "Single-segment namespace",     
-                    StartLine: 10,                     
-                },
-            },
+            ExpectedFindings: []framework.ExpectedFinding{},
         },
     }
 

@@ -2,7 +2,7 @@ package clojurespecific
 
 import (
 	"fmt"
-	"strings"
+	"regexp"
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
@@ -14,91 +14,205 @@ type ThreadIgnoranceRule struct {
 	MinLetChain     int `json:"min_let_chain" yaml:"min_let_chain"`
 }
 
-func (r *ThreadIgnoranceRule) Meta() rules.Rule {
-	return r.Rule
+func (r *ThreadIgnoranceRule) Meta() rules.Rule { return r.Rule }
+
+type pipeline struct {
+	depth     int
+	direction threadDirection
 }
 
-var threadingCandidateFunctions = map[string]bool{
-	"map": true, "filter": true, "remove": true, "reduce": true, "mapcat": true,
-	"keep": true, "distinct": true, "sort": true, "sort-by": true, "group-by": true,
-	"partition": true, "take": true, "drop": true, "take-while": true, "drop-while": true,
-	"assoc": true, "dissoc": true, "update": true, "merge": true, "select-keys": true,
-	"str/replace": true, "str/trim": true, "str/upper-case": true, "str/lower-case": true, "str/split": true,
-	"vec": true, "set": true, "seq": true, "into": true,
-	// Adicionados para consertar Falsos Negativos
-	"mapv": true, "filterv": true, "reduce-kv": true, "keys": true, "vals": true,
-	"first": true, "last": true, "rest": true, "next": true,
-	"assoc-in": true, "update-in": true, "get": true, "get-in": true, "concat": true, "reverse": true,
-	"upper-case": true, "lower-case": true, "trim": true, "replace": true, "split": true,
-	"count": true, "join": true, "str/join": true, "capitalize": true, "str/capitalize": true, "boolean": true,
-}
-
-func isThreadingCandidate(funcName string) bool {
-	if threadingCandidateFunctions[funcName] {
-		return true
-	}
-	parts := strings.Split(funcName, "/")
-	if len(parts) == 2 {
-		shortName := parts[1]
-		return threadingCandidateFunctions[shortName] || threadingCandidateFunctions[funcName]
-	}
-	return false
-}
-
-func countNestedCalls(node *reader.RichNode, depth int) int {
-	if node == nil || depth > 10 {
-		return 0
-	}
-	if node.Type != reader.NodeList || len(node.Children) == 0 {
-		return 0
-	}
-	funcNode := node.Children[0]
-	if funcNode.Type != reader.NodeSymbol {
-		return 0
-	}
-	
-	funcName := funcNode.Value
-	switch funcName {
-	case "fn", "let", "loop", "if", "when", "cond", "case", "def", "defn", "defn-", "try", "catch", "for", "doseq":
-		return 0
+func (r *ThreadIgnoranceRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if node == nil || r.excludedContext(context) || isNestedPipelineContinuation(node, context) {
+		return nil
 	}
 
-	count := 0
-	if isThreadingCandidate(funcName) {
-		count = 1
-	}
-
-	maxChildDepth := 0
-	for i := 1; i < len(node.Children); i++ {
-		child := node.Children[i]
-		// Only recurse into direct function calls
-		if child.Type == reader.NodeList {
-			d := countNestedCalls(child, depth+1)
-			if d > maxChildDepth {
-				maxChildDepth = d
-			}
+	if p, ok := nestedPipeline(node); ok && p.depth >= r.nestingThreshold() {
+		return &rules.Finding{
+			RuleID: r.ID,
+			Message: fmt.Sprintf(
+				"Safe %s pipeline detected across %d resolved calls. Each call has a single nested data argument in the required threading position.",
+				p.direction, p.depth,
+			),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
 		}
 	}
-	
-	if count > 0 {
-	    return count + maxChildDepth
+
+	if p, ok := r.letPipeline(node); ok {
+		return &rules.Finding{
+			RuleID: r.ID,
+			Message: fmt.Sprintf(
+				"Safe %s pipeline detected in %d let bindings. Intermediates are generic, used once, and the final binding is returned directly.",
+				p.direction, p.depth,
+			),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
+		}
 	}
-	return maxChildDepth
+
+	return nil
 }
 
-func nodeContainsSymbol(node *reader.RichNode, symbol string) bool {
-	if node == nil {
-		return false
-	}
-	if node.Type == reader.NodeSymbol && node.Value == symbol {
+func (r *ThreadIgnoranceRule) excludedContext(context map[string]interface{}) bool {
+	if r.IsInside(context, "__non-evaluated__", "->", "->>", "some->", "some->>", "as->", "cond->", "cond->>", "fn", "delay", "lazy-seq") {
 		return true
 	}
-	for _, child := range node.Children {
-		if nodeContainsSymbol(child, symbol) {
+	parent, _ := context["parent"].(*reader.RichNode)
+	return parent != nil && parent.Type == reader.NodeVector
+}
+
+func isNestedPipelineContinuation(node *reader.RichNode, context map[string]interface{}) bool {
+	parent, _ := context["parent"].(*reader.RichNode)
+	if parent == nil {
+		return false
+	}
+	if _, ok := resolvedThreadingSpec(parent); !ok {
+		return false
+	}
+	for _, index := range directListArguments(parent) {
+		if parent.Children[index] == node {
 			return true
 		}
 	}
 	return false
+}
+
+func (r *ThreadIgnoranceRule) nestingThreshold() int {
+	if r.MinNestingDepth < 3 {
+		return 3
+	}
+	return r.MinNestingDepth
+}
+
+func (r *ThreadIgnoranceRule) letThreshold() int {
+	// MinLetChain historically counted links, so two means three forms.
+	if r.MinLetChain < 2 {
+		return 3
+	}
+	return r.MinLetChain + 1
+}
+
+func nestedPipeline(node *reader.RichNode) (pipeline, bool) {
+	if !isCall(node) {
+		return pipeline{}, false
+	}
+	current := node
+	depth := 0
+	direction := threadEither
+	for isCall(current) {
+		spec, ok := resolvedThreadingSpec(current)
+		if !ok || callArgCount(current) < spec.minArgs {
+			break
+		}
+		if spec.direction != threadEither && !mergeDirection(&direction, spec.direction) {
+			break
+		}
+		dataIndex, ok := dataArgumentIndex(spec, current)
+		if !ok {
+			break
+		}
+		depth++
+		current = current.Children[dataIndex]
+	}
+	if depth < 3 {
+		return pipeline{}, false
+	}
+	if direction == threadEither {
+		direction = threadFirst
+	}
+	for _, child := range node.Children[1:] {
+		if _, ok := resolvedThreadingSpec(child); !ok {
+			continue
+		}
+	}
+	return pipeline{depth: depth, direction: direction}, true
+}
+
+func (r *ThreadIgnoranceRule) letPipeline(node *reader.RichNode) (pipeline, bool) {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) != 3 ||
+		!resolvesToCoreForm(node, "let") {
+		return pipeline{}, false
+	}
+	bindings := node.Children[1]
+	if bindings == nil || bindings.Type != reader.NodeVector || len(bindings.Children)%2 != 0 {
+		return pipeline{}, false
+	}
+	steps := len(bindings.Children) / 2
+	if steps < r.letThreshold() {
+		return pipeline{}, false
+	}
+
+	names := make([]string, 0, steps)
+	direction := threadEither
+	for i := 0; i < len(bindings.Children); i += 2 {
+		nameNode, expr := bindings.Children[i], bindings.Children[i+1]
+		if nameNode == nil || nameNode.Type != reader.NodeSymbol || nameNode.TypeHint != "" || expr == nil {
+			return pipeline{}, false
+		}
+		spec, ok := resolvedThreadingSpec(expr)
+		if !ok || callArgCount(expr) < spec.minArgs {
+			return pipeline{}, false
+		}
+
+		dataIndex, ok := dataArgumentIndex(spec, expr)
+		if !ok || (len(expr.Children) > dataIndex && expr.Children[dataIndex].Type == reader.NodeList) {
+			return pipeline{}, false
+		}
+		if i > 0 {
+			previous := names[len(names)-1]
+			if !isExactSymbol(expr.Children[dataIndex], previous) || countSymbolOccurrences(expr, previous) != 1 {
+				return pipeline{}, false
+			}
+			if spec.direction != threadEither && !mergeDirection(&direction, spec.direction) {
+				return pipeline{}, false
+			}
+		}
+		names = append(names, nameNode.Value)
+	}
+
+	body := node.Children[2]
+	lastName := names[len(names)-1]
+	if !isExactSymbol(body, lastName) {
+		return pipeline{}, false
+	}
+	for _, name := range names {
+		if countSymbolOccurrences(node, name) != 2 {
+			return pipeline{}, false
+		}
+	}
+	if direction == threadEither {
+		direction = threadFirst
+	}
+	return pipeline{depth: steps, direction: direction}, true
+}
+
+func directListArguments(node *reader.RichNode) []int {
+	indices := []int{}
+	for i := 1; i < len(node.Children); i++ {
+		if node.Children[i] != nil && node.Children[i].Type == reader.NodeList {
+			indices = append(indices, i)
+		}
+	}
+	return indices
+}
+
+func specAcceptsIndex(spec threadingSpec, node *reader.RichNode, index int) bool {
+	switch spec.direction {
+	case threadFirst:
+		return index == 1
+	case threadLast:
+		return index == len(node.Children)-1
+	case threadEither:
+		return callArgCount(node) == 1 && index == 1
+	default:
+		return false
+	}
+}
+
+func isExactSymbol(node *reader.RichNode, name string) bool {
+	return node != nil && node.Type == reader.NodeSymbol && node.Value == name
 }
 
 func countSymbolOccurrences(node *reader.RichNode, symbol string) int {
@@ -106,7 +220,7 @@ func countSymbolOccurrences(node *reader.RichNode, symbol string) int {
 		return 0
 	}
 	count := 0
-	if node.Type == reader.NodeSymbol && node.Value == symbol {
+	if isExactSymbol(node, symbol) {
 		count++
 	}
 	for _, child := range node.Children {
@@ -115,112 +229,21 @@ func countSymbolOccurrences(node *reader.RichNode, symbol string) int {
 	return count
 }
 
-func isDirectArgument(node *reader.RichNode, symbol string) bool {
-	if node == nil || node.Type != reader.NodeList {
-		return false
-	}
-	for i := 1; i < len(node.Children); i++ {
-		child := node.Children[i]
-		if child.Type == reader.NodeSymbol && child.Value == symbol {
-			return true
-		}
-	}
-	return false
-}
+var genericIntermediateName = regexp.MustCompile(`^(?:step[0-9]+|tmp[0-9]*|temp[0-9]*|intermediate[0-9]*|value[0-9]+|v[0-9]+)$`)
 
-func countLetChaining(node *reader.RichNode) int {
-	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
-		return 0
-	}
-	if node.Children[0].Type != reader.NodeSymbol || node.Children[0].Value != "let" {
-		return 0
-	}
-	
-	bindings := node.Children[1]
-	if bindings.Type != reader.NodeVector {
-		return 0
-	}
-	
-	maxChain := 0
-	currentChain := 0
-	count := len(bindings.Children)
-	
-	for i := 2; i+1 < count; i += 2 {
-		prevVarNode := bindings.Children[i-2]
-		if prevVarNode == nil || prevVarNode.Type != reader.NodeSymbol {
-			currentChain = 0
-			continue
-		}
-		prevVarName := prevVarNode.Value
-		
-		currExpr := bindings.Children[i+1]
-		if isDirectArgument(currExpr, prevVarName) && countSymbolOccurrences(node, prevVarName) == 2 {
-			currentChain++
-			if currentChain > maxChain {
-				maxChain = currentChain
-			}
-		} else {
-			currentChain = 0
-		}
-	}
-	return maxChain
-}
-
-func (r *ThreadIgnoranceRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	
-	// Via 1: Detecta Data-Flow Chaining no bloco Let
-	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "let" {
-		chainLinks := countLetChaining(node)
-		if chainLinks >= r.MinLetChain {
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Data flow chaining detected in let bindings (%d sequential steps). Consider using threading macros (-> or ->>) instead of temporary variables for better readability.", chainLinks+1),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
-			}
-		}
-	}
-
-	// Via 2: Detecta Aninhamento Profundo Sintático (Nested Calls)
-	if node.Type == reader.NodeList && len(node.Children) > 0 {
-		funcNode := node.Children[0]
-		if funcNode.Type == reader.NodeSymbol {
-			funcName := funcNode.Value
-			// Aborta se o desenvolvedor já estiver usando uma macro de threading
-			if funcName == "->" || funcName == "->>" || funcName == "some->" || funcName == "as->" || funcName == "cond->" || funcName == "cond->>" {
-				return nil
-			}
-			
-			if isThreadingCandidate(funcName) {
-				depth := countNestedCalls(node, 0)
-				if depth >= r.MinNestingDepth {
-					return &rules.Finding{
-						RuleID:   r.ID,
-						Message:  fmt.Sprintf("Nested function calls detected (depth %d). Threading macros (-> or ->>) improve readability by eliminating nested parentheses and making data flow more explicit.", depth),
-						Filepath: filepath,
-						Location: node.Location,
-						Severity: r.Severity,
-					}
-				}
-			}
-		}
-	}
-
-	return nil
+func isGenericIntermediate(name string) bool {
+	return genericIntermediateName.MatchString(name)
 }
 
 func init() {
-	defaultRule := &ThreadIgnoranceRule{
+	rules.RegisterRule(&ThreadIgnoranceRule{
 		Rule: rules.Rule{
 			ID:          "thread-ignorance",
 			Name:        "Thread Ignorance",
-			Description: "Detects nested function calls or sequential let bindings that would benefit from threading macros (-> or ->>).",
+			Description: "Detects linear pipelines only when resolved call positions prove a semantics-preserving -> or ->> rewrite.",
 			Severity:    rules.SeverityHint,
 		},
-		MinNestingDepth: 5,
-		MinLetChain:     4,
-	}
-
-	rules.RegisterRule(defaultRule)
+		MinNestingDepth: 3,
+		MinLetChain:     2,
+	})
 }

@@ -17,6 +17,12 @@ func TestNestedAtoms(t *testing.T) {
 				{Message: "Found nested Atom/Ref/Volatile", StartLine: 18},
 				{Message: "Found nested Atom/Ref/Volatile", StartLine: 19},
 				{Message: "Found nested Atom/Ref/Volatile", StartLine: 20},
+				{Message: "being inserted into another stateful reference", StartLine: 37},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{
+				{StartLine: 24},
+				{StartLine: 31},
+				{StartLine: 42},
 			},
 		},
 	}

@@ -53,3 +53,12 @@ internal/test_ast/
 tmp/
 teste.md
 test_if_let.clj
+
+# Relatórios, Scratch e Skills gerados pelo experimento
+*.md
+!README.md
+!BACKLOG_PRECISAO_ARIT.md
+!PLANO_ACOMPANHAMENTO_PRECISAO_ARIT.md
+skills/
+reports/
+scratch/
