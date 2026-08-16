@@ -220,6 +220,9 @@ Arit - Static Analysis for Clojure Code
 						if verboseFlag {
 							fmt.Fprintf(os.Stderr, "Stack trace: %s\n", debug.Stack())
 						}
+						if bar != nil {
+							bar.Add(1)
+						}
 					}
 				}()
 
@@ -232,6 +235,9 @@ Arit - Static Analysis for Clojure Code
 				if analyzeErr != nil {
 					if verboseFlag {
 						fmt.Fprintf(os.Stderr, "[ERROR] Error analyzing file '%s': %v\n", filePath, analyzeErr)
+					}
+					if bar != nil {
+						bar.Add(1)
 					}
 					return
 				}
