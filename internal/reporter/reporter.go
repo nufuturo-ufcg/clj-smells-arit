@@ -24,6 +24,7 @@ const (
 	FormatMarkdown    ReportFormat = "markdown"
 	FormatSummary     ReportFormat = "summary"
 	FormatCSV         ReportFormat = "csv"
+	FormatSARIF       ReportFormat = "sarif"
 )
 
 type Reporter interface {
@@ -551,6 +552,8 @@ func NewReporter(format ReportFormat) Reporter {
 		return &SummaryReporter{}
 	case FormatCSV:
 		return &CSVReporter{}
+	case FormatSARIF:
+		return &SARIFReporter{}
 	default:
 
 		return nil
