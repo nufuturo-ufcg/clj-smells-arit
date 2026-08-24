@@ -1,8 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
+	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
@@ -35,7 +35,10 @@ func init() {
 		When(rules.IsList()).
 		When(rules.HasMinChildren(1)).
 		When(rules.ChildIsSymbol(0)).
-		When(func(node *reader.RichNode, context map[string]interface{}, _ string) bool {
+		When(func(node *reader.RichNode, context map[string]interface{}, filepath string) bool {
+			if rules.IsPathAllowed(context, "direct-use-of-clojure-lang-rt", filepath) {
+				return false
+			}
 			sym := node.Children[0].Value
 			if !strings.HasPrefix(sym, "clojure.lang.RT/") && !strings.HasPrefix(sym, "RT/") {
 				return false
@@ -43,6 +46,9 @@ func init() {
 
 			parts := strings.Split(sym, "/")
 			rtFunc := parts[len(parts)-1]
+			if len(parts) > 1 && rules.MatchesConfiguredName(parts[0], rules.RuleSettingStringSlice(context, "direct-use-of-clojure-lang-rt", "allowed_namespaces")) {
+				return false
+			}
 
 			allowed := rules.GetConfigStringSlice(context, "direct-use-of-clojure-lang-rt", "allowed_functions")
 			for _, fn := range allowed {
@@ -51,6 +57,9 @@ func init() {
 				}
 			}
 			return true
+		}).
+		SeverityFunc(func(_ *reader.RichNode, context map[string]interface{}, defaultSeverity rules.Severity) rules.Severity {
+			return rules.ContextualSeverity(context, defaultSeverity)
 		}).
 		MessageFunc(func(node *reader.RichNode, _ map[string]interface{}) string {
 			sym := node.Children[0].Value

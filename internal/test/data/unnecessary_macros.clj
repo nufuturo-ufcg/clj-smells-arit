@@ -15,3 +15,7 @@
 
 (defmacro map-with-semantic-nil [x]
   `{:value ~x :error nil})
+
+;; Primitive Java interop is part of the macro's generated calling convention.
+(defmacro primitive-wrapper [x]
+  `(.invokePrim ~x))

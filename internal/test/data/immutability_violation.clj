@@ -129,3 +129,9 @@
 
 (defn safe-ref-update []
   (dosync (ref-set shared-ref 2)))
+
+;; A grouped case constant is data, not an executable def call.
+(defn case-data []
+  (case :x
+    (def defonce goog-define) :declaration-data
+    :default))

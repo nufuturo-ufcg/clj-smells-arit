@@ -34,8 +34,6 @@ func (r *PrivateMultimethodsRule) Check(node *reader.RichNode, context map[strin
 	}
 	return nil
 }
-
-
 func (r *PrivateMultimethodsRule) hasDefMulti(node *reader.RichNode) bool {
 	if node == nil {
 		return false

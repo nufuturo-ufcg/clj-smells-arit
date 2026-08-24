@@ -34,7 +34,6 @@ var immediatelyRealizedLazyOperations = map[string]string{
 	"clojure.core/interpose":     "interpose",
 	"clojure.core/take-nth":      "take-nth",
 	"clojure.core/cycle":         "cycle",
-	"clojure.core/repeat":        "repeat",
 	"clojure.core/iterate":       "iterate",
 }
 
@@ -82,14 +81,18 @@ func (r *UnnecessaryLazinessRule) Check(node *reader.RichNode, context map[strin
 	}
 	return &rules.Finding{
 		RuleID: r.ID, Filepath: filepath, Location: node.Location, Severity: r.Severity,
-		Message: fmt.Sprintf("Lazy operation `%s` is immediately materialized by `vec`. Review whether a direct eager operation or transducer preserves the required type, order, cardinality, effects, chunking, and behavior for unbounded inputs; static analysis does not infer intent.", operation),
+		Contextual:       true,
+		ContextualReason: "A equivalência depende do contrato de tipo, cardinalidade, efeitos e protocolo da coleção.",
+		Tags:             []string{"contextual", "contract-dependent"},
+		Message:          fmt.Sprintf("Lazy operation `%s` is immediately materialized by `vec`. Review whether a direct eager operation or transducer preserves the required type, order, cardinality, effects, chunking, and behavior for unbounded inputs; static analysis does not infer intent.", operation),
 	}
 }
 
 func init() {
 	rules.RegisterRule(&UnnecessaryLazinessRule{Rule: rules.Rule{
 		ID: "unnecessary-laziness", Name: "Unnecessary Laziness",
-		Description: "Warns when a resolved lazy core operation is immediately materialized by vec; the warning describes a review risk and does not claim an eager replacement is universally equivalent.",
-		Severity:    rules.SeverityHint,
+		Description:           "Warns when a resolved lazy core operation is immediately materialized by vec; the warning describes a review risk and does not claim an eager replacement is universally equivalent.",
+		ContextualDescription: "Pode ser contextual quando o contrato da coleção exige lazy evaluation, preservação de efeitos, chunking ou materialização explícita. O finding permanece visível com --include-contextual.",
+		Severity:              rules.SeverityHint,
 	}})
 }

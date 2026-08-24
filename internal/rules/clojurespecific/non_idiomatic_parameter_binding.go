@@ -14,14 +14,16 @@ import (
 // ou um mapa de opções.
 //
 // Detecta:
-//   (defn f [x & [y]] ...)       → smell: & [y] com apenas 1 elemento no vetor rest
-//   (defn f [x & [y z]] ...)     → smell: & [y z] — deveria usar mapa de opções
-//   (fn [x & [y]] ...)           → smell: lambdas também
-//   (defn- f [x & [y]] ...)      → smell: funções privadas também
+//
+//	(defn f [x & [y]] ...)       → smell: & [y] com apenas 1 elemento no vetor rest
+//	(defn f [x & [y z]] ...)     → smell: & [y z] — deveria usar mapa de opções
+//	(fn [x & [y]] ...)           → smell: lambdas também
+//	(defn- f [x & [y]] ...)      → smell: funções privadas também
 //
 // NÃO detecta:
-//   (defn f [x & args] ...)      → legítimo: captura variádica aberta
-//   (defmacro m [& body] ...)    → legítimo: macros com body variádico
+//
+//	(defn f [x & args] ...)      → legítimo: captura variádica aberta
+//	(defmacro m [& body] ...)    → legítimo: macros com body variádico
 type nonIdiomaticParameterBindingRule struct {
 	rules.Rule
 }

@@ -16,6 +16,9 @@ func TestConditionalBuildup(t *testing.T) {
 				{Message: "cond->", StartLine: 20},
 				{Message: "cond->", StartLine: 36},
 			},
+			ForbiddenFindings: []framework.ExpectedFinding{
+				{StartLine: 119},
+			},
 		},
 	}
 

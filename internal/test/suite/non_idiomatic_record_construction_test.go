@@ -26,6 +26,7 @@ func TestNonIdiomaticRecordConstruction(t *testing.T) {
 				{StartLine: 47},
 				{StartLine: 83},
 				{StartLine: 87},
+				{StartLine: 133},
 			},
 		},
 	}

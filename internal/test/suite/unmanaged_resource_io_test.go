@@ -55,6 +55,7 @@ func TestUnmanagedResourceIo(t *testing.T) {
 				{StartLine: 83},
 				{StartLine: 93},
 				{StartLine: 94},
+				{StartLine: 107},
 			},
 		},
 	}

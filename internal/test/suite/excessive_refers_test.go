@@ -19,6 +19,13 @@ func TestExcessiveRefers(t *testing.T) {
 				{StartLine: 130},
 			},
 		},
+		{
+			FileToAnalyze: "excessive_refers_reader_conditional.clj",
+			RuleID:        "excessive-refers",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "explicitly refers 24 Vars", StartLine: 1},
+			},
+		},
 	}
 
 	for _, tc := range testCases {

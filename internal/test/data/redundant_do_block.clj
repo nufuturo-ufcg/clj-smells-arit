@@ -149,4 +149,12 @@
 ;;     (do
 ;;       (let [values (map :value filtered)]
 ;;         (do
-;;           (reduce + values)))))) 
+;;           (reduce + values))))))
+
+;; A multi-expression branch needs `do`; it is not redundant in `if`.
+(defn mandatory-if-do [value]
+  (if value
+    1
+    (do
+      (println value)
+      2)))

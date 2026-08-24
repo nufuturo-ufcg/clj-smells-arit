@@ -11,12 +11,14 @@ const (
 )
 
 type Finding struct {
-	RuleID         string           `json:"rule_id"`
-	Message        string           `json:"message"`
-	Filepath       string           `json:"filepath"`
-	Location       *reader.Location `json:"location"`
-	Severity       Severity         `json:"severity"`
-	ASTFingerprint string           `json:"ast_fingerprint,omitempty"`
-	Tags           []string         `json:"tags,omitempty"`
-	Intentionality string           `json:"intentionality,omitempty"`
+	RuleID           string           `json:"rule_id"`
+	Message          string           `json:"message"`
+	Filepath         string           `json:"filepath"`
+	Location         *reader.Location `json:"location"`
+	Severity         Severity         `json:"severity"`
+	ASTFingerprint   string           `json:"ast_fingerprint,omitempty"`
+	Tags             []string         `json:"tags,omitempty"`
+	Contextual       bool             `json:"contextual,omitempty"`
+	ContextualReason string           `json:"contextual_reason,omitempty"`
+	Intentionality   string           `json:"intentionality,omitempty"`
 }

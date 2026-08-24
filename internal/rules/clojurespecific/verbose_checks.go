@@ -2,15 +2,12 @@ package clojurespecific
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
 )
-
-func isCountInvocation(node *reader.RichNode) bool {
-	return rules.CallResolvesTo(node, "clojure.core/count")
-}
 
 func isCoreVerboseCall(node *reader.RichNode, name string) bool {
 	return rules.CallResolvesTo(node, "clojure.core/"+name)
@@ -19,6 +16,11 @@ func isCoreVerboseCall(node *reader.RichNode, name string) bool {
 func isDefinitelyIntegral(node *reader.RichNode) bool {
 	if node == nil {
 		return false
+	}
+	if node.Type == reader.NodeNumber {
+		// Decimal and scientific literals are numeric, but not provably integral
+		// for the purposes of zero?/pos?/neg? rewrites.
+		return !strings.ContainsAny(node.Value, ".eE")
 	}
 	hint := node.TypeHint
 	switch hint {
@@ -112,35 +114,14 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 
 	arg1 := node.Children[1]
 	arg2 := node.Children[2]
-	if isCountInvocation(arg1) || isCountInvocation(arg2) {
-		if (arg1.Type == reader.NodeNumber && arg1.Value == "0") || (arg2.Type == reader.NodeNumber && arg2.Value == "0") {
-			var countNode *reader.RichNode
-			if isCountInvocation(arg1) {
-				countNode = arg1
-			} else {
-				countNode = arg2
-			}
-			coll := ""
-			if len(countNode.Children) > 1 {
-				coll = getVerboseNodeText(countNode.Children[1])
-			}
-			originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Verbose check with count: `%s`. Consider using `(empty? %s)`.", originalExpr, coll),
-				Location: node.Location,
-				Severity: r.Severity,
-			}
-		}
-		return nil
-	}
-
 	var constantValue, variableExpr string
+	var variableNode *reader.RichNode
 	var suggestion string
 
 	if arg1.Type == reader.NodeNumber {
 		constantValue = arg1.Value
 		variableExpr = getVerboseNodeText(arg2)
+		variableNode = arg2
 		if idiomaticFunc, exists := comparisons[constantValue]; exists {
 			if operator == "=" {
 				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
@@ -157,6 +138,7 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 	} else if arg2.Type == reader.NodeNumber {
 		constantValue = arg2.Value
 		variableExpr = getVerboseNodeText(arg1)
+		variableNode = arg1
 		if idiomaticFunc, exists := comparisons[constantValue]; exists {
 			if operator == "=" || operator == ">" || operator == "<" {
 				suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
@@ -168,7 +150,12 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 		}
 	}
 
-	if suggestion != "" {
+	// The replacements below are not equivalent for arbitrary Clojure values:
+	// comparisons can return false for nil or heterogeneous values while
+	// zero?/pos?/neg? throw. Require a statically evidenced numeric operand and
+	// avoid reporting constant folding as a style smell.
+	if suggestion != "" && variableNode != nil && variableNode.Type != reader.NodeNumber &&
+		isDefinitelyIntegral(variableNode) {
 		originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
 			RuleID:   r.ID,
@@ -251,6 +238,12 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	}
 
 	if isNilComparison {
+		// `some?` returns its argument rather than a boolean. Only suggest it
+		// where the surrounding form consumes truthiness; nil? is boolean-safe
+		// in all contexts.
+		if opNode.Value == "not=" {
+			return nil
+		}
 		var suggestion string
 		if opNode.Value == "=" {
 			suggestion = fmt.Sprintf("(nil? %s)", variableExpr)

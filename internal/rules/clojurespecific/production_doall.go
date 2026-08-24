@@ -63,29 +63,36 @@ func (r *ProductionDoallRule) Check(node *reader.RichNode, context map[string]in
 					"Redundant `doall` around `%s`: `%s` has already realized every input element into a persistent vector before `doall` runs. Remove only the `doall` wrapper; the value, type, order, exceptions, and producer evaluation count are preserved.",
 					producer, producer,
 				),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+				Filepath:         filepath,
+				Location:         node.Location,
+				Severity:         r.Severity,
+				Contextual:       true,
+				ContextualReason: "A necessidade de realizar e reter a sequência depende do ciclo de vida, cardinalidade e efeitos do produtor.",
+				Tags:             []string{"contextual", "review-required"},
 			}
 		}
 	}
 
 	return &rules.Finding{
-		RuleID:   r.ID,
-		Message:  "`doall` forces realization and keeps the realized sequence reachable through its return value. Review whether the input is bounded and whether full materialization and retention are required at this lifecycle boundary. Static analysis does not infer intent; if this is deliberate, retain it and document that decision.",
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		RuleID:           r.ID,
+		Message:          "`doall` forces realization and keeps the realized sequence reachable through its return value. Review whether the input is bounded and whether full materialization and retention are required at this lifecycle boundary. Static analysis does not infer intent; if this is deliberate, retain it and document that decision.",
+		Filepath:         filepath,
+		Location:         node.Location,
+		Severity:         r.Severity,
+		Contextual:       true,
+		ContextualReason: "A necessidade de realizar e reter a sequência depende do ciclo de vida, cardinalidade e efeitos do produtor.",
+		Tags:             []string{"contextual", "review-required"},
 	}
 }
 
 func init() {
 	rules.RegisterRule(&ProductionDoallRule{
 		Rule: rules.Rule{
-			ID:          "production-doall",
-			Name:        "Production doall realization review",
-			Description: "Warns on evaluated doall calls so developers can review cardinality, retention, effects, and lifecycle boundaries; identifies already-eager vector producers as proven redundancy.",
-			Severity:    rules.SeverityWarning,
+			ID:                    "production-doall",
+			Name:                  "Production doall realization review",
+			Description:           "Warns on evaluated doall calls so developers can review cardinality, retention, effects, and lifecycle boundaries; identifies already-eager vector producers as proven redundancy.",
+			ContextualDescription: "Pode ser contextual quando doall é usado para fechar um recurso, aguardar trabalho, antecipar efeitos ou materializar uma resposta. O finding permanece visível com --include-contextual.",
+			Severity:              rules.SeverityWarning,
 		},
 	})
 }

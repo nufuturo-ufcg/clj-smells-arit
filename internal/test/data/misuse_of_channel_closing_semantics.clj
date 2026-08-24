@@ -48,6 +48,7 @@
 ;; More sentinels (stem-based): :close, :synced, :return, :break, :hb-terminating
 (a/go (a/put! my-chan :close))
 (a/go (a/put! my-chan :synced))
+(a/go (a/put! my-chan :send-facts))
 (a/go (a/>! my-chan :return))
 (a/thread (a/>!! my-chan :break))
 (a/go (a/put! my-chan :hb-terminating))

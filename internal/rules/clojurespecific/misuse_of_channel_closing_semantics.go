@@ -2,10 +2,10 @@ package clojurespecific
 
 import (
 	"fmt"
-	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules"
 )
 
 type MisuseOfChannelClosingSemanticsRule struct {
@@ -17,7 +17,13 @@ func (r *MisuseOfChannelClosingSemanticsRule) Meta() rules.Rule {
 }
 
 func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
+		return nil
+	}
+	if isInsideProtocolDeclaration(context) {
 		return nil
 	}
 
@@ -29,7 +35,8 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 				Message:  fmt.Sprintf("Checking sentinel %s: prefer closing channels and checking for nil.", head.Value),
 				Filepath: filepath,
 				Location: node.Location,
-				Severity: r.Severity,
+				Severity: rules.ContextualSeverity(context, r.Severity),
+				Tags:     rules.ContextualTags(context),
 			}
 		}
 		return nil
@@ -43,14 +50,17 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	if isPutSymbol(headVal) {
 		if len(node.Children) >= 3 {
 			valueArg := node.Children[2]
-			sentinel := findSentinelInNode(valueArg)
-			if sentinel != "" {
-				return &rules.Finding{
-					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Sentinel value %s in %s: prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", sentinel, headVal),
-					Filepath: filepath,
-					Location: node.Location,
-					Severity: r.Severity,
+			if valueArg.Type != reader.NodeMap {
+				sentinel := isDirectSentinel(valueArg)
+				if sentinel != "" {
+					return &rules.Finding{
+						RuleID:   r.ID,
+						Message:  fmt.Sprintf("Sentinel value %s in %s: prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", sentinel, headVal),
+						Filepath: filepath,
+						Location: node.Location,
+						Severity: rules.SeverityHint,
+						Tags:     append(rules.ContextualTags(context), "low-confidence", "producer-only"),
+					}
 				}
 			}
 		}
@@ -67,7 +77,7 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	if (headVal == "not=" || headVal == "=") && (isInsideGoBlock(context) || comparisonReadsChannel) {
 		var sentinel string
 		for _, child := range node.Children[1:] {
-			if s := findSentinelInNode(child); s != "" {
+			if s := isDirectSentinel(child); s != "" {
 				sentinel = s
 				break
 			}
@@ -82,7 +92,8 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 				Message:  fmt.Sprintf("Comparison with sentinel %s: prefer (close! ch) so that (<! ch) returns nil; use (when-let [e (<! ch)] ...) when closed.", sentinel),
 				Filepath: filepath,
 				Location: node.Location,
-				Severity: r.Severity,
+				Severity: rules.ContextualSeverity(context, r.Severity),
+				Tags:     rules.ContextualTags(context),
 			}
 		}
 	}
@@ -90,19 +101,34 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	if (headVal == "contains?" || headVal == "get") && isInsideGoBlock(context) {
 		if len(node.Children) >= 3 {
 			keyArg := node.Children[2]
-			if sentinel := findSentinelInNode(keyArg); sentinel != "" {
+			if sentinel := isDirectSentinel(keyArg); sentinel != "" {
 				return &rules.Finding{
 					RuleID:   r.ID,
 					Message:  fmt.Sprintf("Checking sentinel key %s: prefer closing channels and checking for nil.", sentinel),
 					Filepath: filepath,
 					Location: node.Location,
-					Severity: r.Severity,
+					Severity: rules.ContextualSeverity(context, r.Severity),
+					Tags:     rules.ContextualTags(context),
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func isInsideProtocolDeclaration(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 || ancestor.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		switch strings.TrimPrefix(ancestor.Children[0].Value, "clojure.core/") {
+		case "defprotocol", "extend-protocol", "extend-type", "definterface", "proxy", "reify":
+			return true
+		}
+	}
+	return false
 }
 
 func isInsideGoBlock(context map[string]interface{}) bool {
@@ -115,18 +141,13 @@ func isInsideGoBlock(context map[string]interface{}) bool {
 	return false
 }
 
-func findSentinelInNode(node *reader.RichNode) string {
+func isDirectSentinel(node *reader.RichNode) string {
 	if node == nil {
 		return ""
 	}
-	if node.Type == reader.NodeKeyword || node.Type == reader.NodeSymbol || node.Type == reader.NodeString {
+	if node.Type == reader.NodeKeyword || node.Type == reader.NodeString {
 		if isSentinelKeyword(node.Value) {
 			return node.Value
-		}
-	}
-	for _, child := range node.Children {
-		if res := findSentinelInNode(child); res != "" {
-			return res
 		}
 	}
 	return ""
@@ -163,7 +184,7 @@ var sentinelStems = []string{
 	"done", "end", "eof", "close", "stop", "exit",
 	"complete", "finish", "eos", "poison", "bye", "quit", "terminat",
 	"closed", "finished", "completed",
-	"synced", "return", "break", "nil", "last-item", "shutdown",
+	"shutdown",
 }
 
 func isSentinelKeyword(v string) bool {
@@ -173,7 +194,7 @@ func isSentinelKeyword(v string) bool {
 	}
 	lower := strings.ToLower(local)
 	for _, stem := range sentinelStems {
-		if strings.Contains(lower, stem) {
+		if lower == stem || strings.HasPrefix(lower, stem+"-") || strings.HasPrefix(lower, stem+"_") || strings.HasPrefix(lower, stem+"/") {
 			return true
 		}
 	}

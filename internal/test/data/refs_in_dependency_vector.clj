@@ -13,3 +13,6 @@
 
 (defn ordinary-value [user-id]
   (r/use-effect (fn [] (println user-id)) [user-id]))
+
+(defn state-from-use-state [prev-state]
+  (r/use-effect (fn [] (println prev-state)) [prev-state]))

@@ -23,4 +23,10 @@ func TestRelyingOnLoadTimeSideEffects(t *testing.T) {
 			{StartLine: 39},
 		},
 	})
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze:     "relying_on_load_time_static_resource.clj",
+		RuleID:            "relying-on-load-time-side-effects",
+		ExpectedFindings:  []framework.ExpectedFinding{},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 3}},
+	})
 }

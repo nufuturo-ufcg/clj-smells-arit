@@ -14,6 +14,6 @@ func TestRefsInDependencyVector(t *testing.T) {
 			{Message: "used directly in an effect dependency vector", StartLine: 5},
 			{Message: "used directly in an effect dependency vector", StartLine: 9},
 		},
-		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 12}, {StartLine: 15}},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 12}, {StartLine: 15}, {StartLine: 18}},
 	})
 }

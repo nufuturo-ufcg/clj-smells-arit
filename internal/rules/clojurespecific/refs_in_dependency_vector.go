@@ -14,8 +14,8 @@ func (r *RefsInDependencyVectorRule) Meta() rules.Rule { return r.Rule }
 
 func dependencyNameLooksMutable(name string) bool {
 	lower := strings.ToLower(name)
-	for _, marker := range []string{"atom", "ratom", "cursor", "-ref", "_ref", "state"} {
-		if strings.Contains(lower, marker) {
+	for _, marker := range []string{"-atom", "_atom", "-ratom", "_ratom", "-cursor", "_cursor", "-ref", "_ref"} {
+		if strings.HasSuffix(lower, marker) || lower == "atom" || lower == "ratom" || lower == "cursor" {
 			return true
 		}
 	}

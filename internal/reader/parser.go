@@ -21,9 +21,32 @@ func BuildRichTree(tree *parse.Tree) ([]*RichNode, []*RichNode) {
 	}
 
 	richRoots := make([]*RichNode, 0, len(tree.Roots))
+	discardNext := false
 
 	for _, rootNode := range tree.Roots {
 		if rootNode != nil {
+			if discard, ok := rootNode.(*parse.ReaderDiscardNode); ok {
+				// goclj represents a discard followed by a newline as two
+				// top-level nodes: the discard marker and the form after it.
+				// Keep the marker pending until the next semantic root so the
+				// discarded form cannot be analyzed accidentally.
+				discardNext = discard.Node == nil
+				if discard.Node != nil {
+					switch discard.Node.(type) {
+					case *parse.CommentNode, *parse.NewlineNode:
+						discardNext = true
+					}
+				}
+				continue
+			}
+			if discardNext {
+				switch rootNode.(type) {
+				case *parse.CommentNode, *parse.NewlineNode:
+					continue
+				}
+				discardNext = false
+				continue
+			}
 			richNode := buildRichNode(rootNode, true)
 			if richNode != nil {
 				richRoots = append(richRoots, richNode)
@@ -92,7 +115,7 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 				return nil
 			}
 		}
-		
+
 		rNode.Type = NodeList
 		rNode.InferredType = "List"
 		if n.Nodes != nil && len(n.Nodes) > 0 {
@@ -324,7 +347,22 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 
 func buildRichChildren(nodes []parse.Node, ignoreComments bool) []*RichNode {
 	richChildren := make([]*RichNode, 0, len(nodes))
-	for _, childNode := range nodes {
+	for i := 0; i < len(nodes); i++ {
+		childNode := nodes[i]
+		// goclj represents a tagged literal as two sibling nodes: the tag and
+		// the tagged form. Keep them together so rules that consume forms in
+		// pairs (notably `case`) do not mistake the tagged value for another
+		// clause.
+		if _, ok := childNode.(*parse.TagNode); ok && i+1 < len(nodes) {
+			tagged := buildRichNode(childNode, ignoreComments)
+			value := buildRichNode(nodes[i+1], ignoreComments)
+			if tagged != nil && value != nil {
+				tagged.Children = []*RichNode{value}
+				richChildren = append(richChildren, tagged)
+				i++
+				continue
+			}
+		}
 		richChild := buildRichNode(childNode, ignoreComments)
 		if richChild != nil {
 			richChildren = append(richChildren, richChild)

@@ -14,6 +14,6 @@ func TestUnnecessaryMacros(t *testing.T) {
 			{Message: "prefer a normal function", StartLine: 3},
 			{Message: "prefer a normal function", StartLine: 6},
 		},
-		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 9}, {StartLine: 12}, {StartLine: 16}},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 9}, {StartLine: 12}, {StartLine: 16}, {StartLine: 21}},
 	})
 }

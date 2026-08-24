@@ -128,6 +128,14 @@ func macroRuntimeMax(node *reader.RichNode, parameter string) int {
 	}
 
 	head := node.Children[0].Value
+	// Many DSLs define declaration macros with names such as
+	// `defprotocolpath` or `defrichnav`. Their arguments describe generated
+	// vars and formal parameter vectors; without macro expansion their bodies
+	// are not evidence that a caller expression executes twice.
+	if strings.HasPrefix(head, "def") && head != "def" && head != "defonce" &&
+		head != "defn" && head != "defn-" && head != "defmacro" && head != "defmethod" && head != "defmulti" {
+		return 0
+	}
 	switch head {
 	case "comment", "quote", "clojure.core/quote":
 		return 0
@@ -135,6 +143,10 @@ func macroRuntimeMax(node *reader.RichNode, parameter string) int {
 		return macroGeneratedFunctionMax(node, parameter, true)
 	case "fn", "fn*":
 		return macroGeneratedFunctionMax(node, parameter, false)
+	case "defprotocol", "extend-type", "extend-protocol", "defrecord", "deftype", "defmethod":
+		// Generated methods/implementations are alternative dispatch paths;
+		// do not add their bodies as if they executed sequentially.
+		return macroRuntimeBranchMax(node.Children[1:], parameter)
 	case "def", "defonce":
 		if len(node.Children) < 3 {
 			return 0
@@ -353,7 +365,13 @@ func multipleRuntimeParameters(node *reader.RichNode) []string {
 	return parameters
 }
 
-func (r *MultipleEvaluationInMacrosRule) Check(node *reader.RichNode, _ map[string]interface{}, filepath string) *rules.Finding {
+func (r *MultipleEvaluationInMacrosRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if value, _ := context["isInCaseConstantPosition"].(bool); value {
+		return nil
+	}
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 ||
 		node.Children[0].Type != reader.NodeSymbol || node.Children[0].Value != "defmacro" {
 		return nil

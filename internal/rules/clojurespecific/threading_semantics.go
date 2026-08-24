@@ -63,7 +63,6 @@ var threadingSpecs = map[string]threadingSpec{
 	"clojure.core/next":     {threadEither, 1},
 	"clojure.core/reverse":  {threadEither, 1},
 	"clojure.core/count":    {threadEither, 1},
-	"clojure.core/boolean":  {threadEither, 1},
 	"clojure.core/name":     {threadEither, 1},
 	"clojure.core/keyword":  {threadEither, 1},
 	"clojure.core/identity": {threadEither, 1},

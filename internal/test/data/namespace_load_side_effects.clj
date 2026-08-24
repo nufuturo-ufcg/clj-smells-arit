@@ -110,3 +110,9 @@
 (defn require [value] value)
 (def local-require-result
   (require :ordinary-value))
+
+;; A reader-conditional branch is still evaluated on its selected platform;
+;; a nested require must not disappear from the load-time analysis.
+#?(:clj
+   (do
+     (clojure.core/require '[clojure.pprint :as pp2])))

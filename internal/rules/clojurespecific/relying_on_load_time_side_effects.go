@@ -28,6 +28,44 @@ func loadTimeEffectOperation(node *reader.RichNode) bool {
 	return ok
 }
 
+func isStaticClasspathResourceRead(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	if len(node.Children) == 2 && rules.CallResolvesTo(node, "clojure.core/slurp") {
+		resource := node.Children[1]
+		return resource != nil && resource.Type == reader.NodeList && rules.CallResolvesTo(resource, "clojure.java.io/resource")
+	}
+
+	// Threading macros preserve the same static-resource proof as the direct
+	// form `(slurp (io/resource ...))`. Without this normalization, the rule
+	// reported classpath reads written idiomatically as `(-> (resource ...) slurp)`.
+	if node.Type != reader.NodeList || len(node.Children) < 3 || node.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	thread := node.Children[0].Value
+	if thread != "->" && thread != "->>" {
+		return false
+	}
+	if node.Children[1].Type != reader.NodeList || !rules.CallResolvesTo(node.Children[1], "clojure.java.io/resource") {
+		return false
+	}
+	for _, step := range node.Children[2:] {
+		if step.Type == reader.NodeSymbol {
+			if step.Resolution != nil && step.Resolution.CanonicalName == "clojure.core/slurp" {
+				return true
+			}
+			if step.Value == "slurp" && (step.Resolution == nil || step.Resolution.Kind == reader.ResolutionUnresolved) {
+				return true
+			}
+		}
+		if step.Type == reader.NodeList && rules.CallResolvesTo(step, "clojure.core/slurp") {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *RelyingOnLoadTimeSideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	if !rules.ExecutesAtLoad(context) || node == nil || node.Type != reader.NodeList ||
 		len(node.Children) == 0 || node.Children[0].Type != reader.NodeSymbol ||
@@ -37,8 +75,12 @@ func (r *RelyingOnLoadTimeSideEffectsRule) Check(node *reader.RichNode, context 
 	if !r.IsInside(context, "def", "defonce") || r.IsInside(context, "ns") {
 		return nil
 	}
+	if isStaticClasspathResourceRead(node) {
+		return nil
+	}
 	return &rules.Finding{
-		RuleID: r.ID, Filepath: filepath, Location: node.Location, Severity: r.Severity,
+		RuleID: r.ID, Filepath: filepath, Location: node.Location,
+		Severity: rules.ContextualSeverity(context, r.Severity), Tags: rules.ContextualTags(context),
 		Message: fmt.Sprintf("Side-effecting operation %q runs while the namespace is loaded; defer it to application startup.", node.Children[0].Value),
 	}
 }

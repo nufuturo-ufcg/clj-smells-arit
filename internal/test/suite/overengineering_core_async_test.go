@@ -13,6 +13,6 @@ func TestOverengineeringCoreAsync(t *testing.T) {
 		ExpectedFindings: []framework.ExpectedFinding{
 			{Message: "used only to return one value", StartLine: 5},
 		},
-		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 10}, {StartLine: 15}},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 10}, {StartLine: 15}, {StartLine: 19}, {StartLine: 25}},
 	})
 }

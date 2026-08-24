@@ -2,6 +2,8 @@ package suite
 
 import (
 	"testing"
+
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -11,7 +13,7 @@ func TestDirectUseOfClojureLangRT(t *testing.T) {
 			FileToAnalyze: "direct_use_of_clojure_lang_rt.clj",
 			RuleID:        "direct-use-of-clojure-lang-rt",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "Direct usage of clojure.lang.RT detected: 'clojure.lang.RT/count'", StartLine: 4},
+				{Message: "Direct usage of clojure.lang.RT detected: 'clojure.lang.RT/count'", StartLine: 4, Severity: rules.SeverityHint},
 				{Message: "Direct usage of clojure.lang.RT detected: 'RT/get'", StartLine: 7},
 			},
 		},

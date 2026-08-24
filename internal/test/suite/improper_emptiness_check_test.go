@@ -15,10 +15,10 @@ func TestImproperEmptinessCheck(t *testing.T) {
 			{Message: "(seq xs)", StartLine: 7},
 			{Message: "(seq xs)", StartLine: 12},
 			{Message: "(seq xs)", StartLine: 15},
-			{Message: "(seq xs)", StartLine: 21},
 			{Message: "(when (seq xs)", StartLine: 24},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
+			{StartLine: 21},
 			{StartLine: 28},
 		},
 	})

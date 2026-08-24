@@ -19,6 +19,7 @@ func TestNamespaceLoadSideEffects(t *testing.T) {
 				{Message: "Namespace load side effect: 'require'", StartLine: 32},
 				{Message: "Namespace load side effect: 'require'", StartLine: 45},
 				{Message: "Namespace load side effect: 'require'", StartLine: 106},
+				{Message: "Namespace load side effect: 'clojure.core/require'", StartLine: 118},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 57},
@@ -43,4 +44,10 @@ func TestNamespaceLoadSideEffects(t *testing.T) {
 			framework.RunRuleTest(t, tc)
 		})
 	}
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze:     "namespace_load_side_effects_fn_literal.clj",
+		RuleID:            "namespace-load-side-effects",
+		ExpectedFindings:  []framework.ExpectedFinding{},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 4}},
+	})
 }

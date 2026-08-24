@@ -1,8 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
+	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 	"sync"
 
@@ -21,7 +21,7 @@ func (r *ImplicitNamespaceDependenciesRule) Meta() rules.Rule {
 }
 
 func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	if strings.HasSuffix(filepath, "project.clj") {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
 		return nil
 	}
 	r.collectNamespaces(node, filepath)
@@ -37,37 +37,24 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 	first := node.Children[0]
 
 	if first.Type == reader.NodeKeyword && first.Value == ":use" {
-		return r.checkUseDirective(node, filepath)
+		return r.checkUseDirective(node, context, filepath)
 	}
 
 	if first.Type == reader.NodeSymbol && first.Value == "use" {
-		return r.checkStandaloneUse(node, filepath)
+		return r.checkStandaloneUse(node, context, filepath)
 	}
 
 	if first.Type == reader.NodeKeyword && first.Value == ":require" {
-		return r.checkRequireForReferAll(node, filepath)
+		return r.checkRequireForReferAll(node, context, filepath)
 	}
 
 	return nil
 }
 
-func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichNode, filepath string) *rules.Finding {
+func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	implicitNamespaces := r.extractImplicitNamespacesFromUseDirective(node)
 	if len(implicitNamespaces) == 0 {
 		return nil
-	}
-
-	if isDevOrTestFile(filepath) {
-		var filtered []string
-		for _, ns := range implicitNamespaces {
-			if !isAllowedReferAllNs(ns) {
-				filtered = append(filtered, ns)
-			}
-		}
-		implicitNamespaces = filtered
-		if len(implicitNamespaces) == 0 {
-			return nil
-		}
 	}
 
 	nsStr := strings.Join(implicitNamespaces, ", ")
@@ -84,11 +71,12 @@ func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichN
 		),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
 	}
 }
 
-func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.RichNode, filepath string) *rules.Finding {
+func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	if r.standaloneUseHasExplicitOnly(node) {
 		return nil
 	}
@@ -107,19 +95,12 @@ func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.Rich
 		),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
 	}
 }
 
-func isDevOrTestFile(filepath string) bool {
-	return strings.HasSuffix(filepath, "_test.clj") || strings.Contains(filepath, "/dev/") || strings.Contains(filepath, "/test/") || strings.Contains(filepath, "/int-test/")
-}
-
-func isAllowedReferAllNs(nsName string) bool {
-	return nsName == "clojure.repl" || nsName == "clojure.test" || nsName == "clojure.tools.namespace.repl" || nsName == "clojure.pprint" || nsName == "alex-and-georges.debug-repl"
-}
-
-func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader.RichNode, filepath string) *rules.Finding {
+func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	var problematicNs []string
 
 	for i := 1; i < len(node.Children); i++ {
@@ -131,9 +112,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 		if r.vectorContainsReferAll(spec) {
 			if spec.Children[0].Type == reader.NodeSymbol {
 				nsName := spec.Children[0].Value
-				if !(isDevOrTestFile(filepath) && isAllowedReferAllNs(nsName)) {
-					problematicNs = append(problematicNs, nsName)
-				}
+				problematicNs = append(problematicNs, nsName)
 			}
 		}
 
@@ -152,9 +131,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 					fullNs = prefix + "." + subNs
 				}
 				if fullNs != "" {
-					if !(isDevOrTestFile(filepath) && isAllowedReferAllNs(fullNs)) {
-						problematicNs = append(problematicNs, fullNs)
-					}
+					problematicNs = append(problematicNs, fullNs)
 				}
 			}
 		}
@@ -173,7 +150,8 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 		),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
 	}
 }
 
@@ -368,10 +346,11 @@ func (r *ImplicitNamespaceDependenciesRule) extractNamespacesFromArgs(reqNode *r
 func init() {
 	defaultRule := &ImplicitNamespaceDependenciesRule{
 		Rule: rules.Rule{
-			ID:          "implicit-namespace-dependencies",
-			Name:        "Implicit Namespace Dependencies",
-			Description: "Detects implicit namespace dependencies introduced by :use without :only, :refer :all in :require, or standalone (use ...) without :only. :use [ns :only [syms]] lists explicit imports and is not reported. Unrestricted imports cause symbol ambiguity, namespace pollution, and dependencies that static analysis tools cannot reliably resolve.",
-			Severity:    rules.SeverityWarning,
+			ID:                    "implicit-namespace-dependencies",
+			Name:                  "Implicit Namespace Dependencies",
+			Description:           "Detects implicit namespace dependencies introduced by :use without :only, :refer :all in :require, or standalone (use ...) without :only. :use [ns :only [syms]] lists explicit imports and is not reported. Unrestricted imports cause symbol ambiguity, namespace pollution, and dependencies that static analysis tools cannot reliably resolve.",
+			ContextualDescription: "Pode ser contextual em REPLs, scripts, DSLs e código de desenvolvimento; nesses casos, o finding recebe a marca contextual e aparece com --include-contextual.",
+			Severity:              rules.SeverityWarning,
 		},
 	}
 

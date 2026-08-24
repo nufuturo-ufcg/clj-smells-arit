@@ -17,6 +17,9 @@ func (r *MisusedThreadingRule) Meta() rules.Rule { return r.Rule }
 // step is not enough evidence: Clojure functions can intentionally receive the
 // threaded value in a role other than their conventional data argument.
 func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	direction, ok := resolvedThreadMacroDirection(node)
 	if !ok || r.IsInside(context, "__non-evaluated__") {
 		return nil
@@ -28,6 +31,7 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 	}
 
 	oppositeSteps := 0
+	provableOppositeSteps := 0
 	matchingSteps := 0
 	for _, step := range node.Children[2:] {
 		head := unwrapStepHead(step)
@@ -44,10 +48,13 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 			matchingSteps++
 		} else if spec.direction == opposite {
 			oppositeSteps++
+			if provableThreadingContradiction(step, spec, direction) {
+				provableOppositeSteps++
+			}
 		}
 	}
 
-	if oppositeSteps < 2 || matchingSteps != 0 {
+	if oppositeSteps < 2 || provableOppositeSteps < 2 || matchingSteps != 0 {
 		return nil
 	}
 
@@ -61,6 +68,64 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 		Location: node.Location,
 		Severity: r.Severity,
 	}
+}
+
+func provableThreadingContradiction(step *reader.RichNode, spec threadingSpec, direction threadDirection) bool {
+	if step == nil || step.Type != reader.NodeList || len(step.Children) < 2 {
+		return false
+	}
+	if direction == threadFirst && spec.direction == threadLast {
+		// -> places the pipeline value before the explicit arguments. A known
+		// function in the first explicit position makes the contradiction
+		// concrete for collection functions such as map/filter.
+		return isFunctionLike(step.Children[1])
+	}
+	if direction == threadLast && spec.direction == threadFirst {
+		first := step.Children[1]
+		if first == nil {
+			return false
+		}
+		if specName := canonicalStepName(step); specName == "clojure.core/select-keys" && first.Type == reader.NodeVector {
+			return true
+		}
+		switch first.Type {
+		case reader.NodeKeyword, reader.NodeString, reader.NodeNumber, reader.NodeBool, reader.NodeNil:
+			return true
+		}
+	}
+	return false
+}
+
+func isFunctionLike(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	if node.Type == reader.NodeFnLiteral {
+		return true
+	}
+	if node.Type != reader.NodeSymbol {
+		return false
+	}
+	name := node.Value
+	if node.Resolution != nil {
+		name = node.Resolution.CanonicalName
+	}
+	for _, candidate := range []string{"inc", "dec", "identity", "even?", "odd?", "neg?", "pos?", "some?", "nil?", "string?", "number?", "true?", "false?"} {
+		if name == candidate || name == "clojure.core/"+candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalStepName(step *reader.RichNode) string {
+	if step == nil || len(step.Children) == 0 || step.Children[0] == nil || step.Children[0].Type != reader.NodeSymbol {
+		return ""
+	}
+	if step.Children[0].Resolution != nil {
+		return step.Children[0].Resolution.CanonicalName
+	}
+	return step.Children[0].Value
 }
 
 func threadPosition(direction threadDirection) string {

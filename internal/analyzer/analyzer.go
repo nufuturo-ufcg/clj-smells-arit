@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -47,6 +48,7 @@ const (
 	TypeCoreFunction    SymbolType = "core-function"
 	TypeCoreSpecialForm SymbolType = "core-special-form"
 	TypeAliased         SymbolType = "aliased"
+	TypeRecord          SymbolType = "record"
 )
 
 type SymbolInfo struct {
@@ -333,6 +335,18 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 						InferredType: inferredType,
 					}
 					currentScope.Define(varInfo)
+				}
+			case "defrecord":
+				if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeSymbol {
+					recordSymbolNode := node.Children[1]
+					recordInfo := &SymbolInfo{
+						Name:         recordSymbolNode.Value,
+						Definition:   node,
+						Type:         TypeRecord,
+						IsUsed:       false,
+						InferredType: "Record",
+					}
+					currentScope.Define(recordInfo)
 				}
 			case "ns":
 				return
@@ -768,6 +782,8 @@ func childExecutionContext(parent *reader.RichNode, childIndex int, inherited ru
 	switch parent.Type {
 	case reader.NodeQuote, reader.NodeSyntaxQuote, reader.NodeVarQuote, reader.NodeReaderDiscard:
 		return rules.ExecutionNonEvaluated
+	case reader.NodeFnLiteral:
+		return rules.ExecutionDeferred
 	}
 
 	head := executionHead(parent)
@@ -810,7 +826,7 @@ func childExecutionContext(parent *reader.RichNode, childIndex int, inherited ru
 	return rules.ExecutionUnknown
 }
 
-func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, comments []*reader.RichNode, globalScope *Scope) []*rules.Finding {
+func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, comments []*reader.RichNode, globalScope *Scope, namespaceName string) []*rules.Finding {
 
 	var findingsMutex sync.Mutex
 	allFindings := []*rules.Finding{}
@@ -828,6 +844,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 
 		for _, rule := range a.Rules {
 			if finding := rule.Check(node, currentContext, filepath); finding != nil {
+				rules.MarkContextualFinding(finding)
 				// Inject fingerprint centrally: covers both DSL rules (via builder)
 				// and hand-written detectors that instantiate Finding directly.
 				if finding.ASTFingerprint == "" {
@@ -863,10 +880,14 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				enclosingChanged = true
 			}
 		} else if node.Type == reader.NodeQuote || node.Type == reader.NodeVarQuote ||
-			node.Type == reader.NodeReaderDiscard {
+			node.Type == reader.NodeReaderDiscard || node.Type == reader.NodeFnLiteral {
 			if enclosing, ok := currentContext["enclosingForms"].([]string); ok {
 				prevEnclosing = enclosing
-				currentContext["enclosingForms"] = append(enclosing, "__non-evaluated__")
+				marker := "__non-evaluated__"
+				if node.Type == reader.NodeFnLiteral {
+					marker = "__fn-literal__"
+				}
+				currentContext["enclosingForms"] = append(enclosing, marker)
 				enclosingChanged = true
 			}
 		}
@@ -877,6 +898,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		parentIsInsideBinding, _ := currentContext["isInsideBinding"].(bool)
 		parentIsInsideDosync, _ := currentContext["isInsideDosync"].(bool)
 		parentIsInsideWithOpen, _ := currentContext["isInsideWithOpen"].(bool)
+		parentIsInCaseConstant, _ := currentContext["isInCaseConstantPosition"].(bool)
 
 		currentNodeDefinesFunc := false
 		currentNodeDefinesLet := false
@@ -949,6 +971,11 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			childIsInsideBinding := parentIsInsideBinding || (currentNodeDefinesBinding && idx > 0)
 			childIsInsideDosync := parentIsInsideDosync || (currentNodeDefinesDosync && idx > 0)
 			childIsInsideWithOpen := parentIsInsideWithOpen || (currentNodeDefinesWithOpen && idx > 0)
+			childIsInCaseConstant := parentIsInCaseConstant
+			if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol &&
+				node.Children[0].Value == "case" && idx >= 2 && idx%2 == 0 {
+				childIsInCaseConstant = true
+			}
 
 			prevChildFunc := currentContext["isInsideFunction"]
 			currentContext["isInsideFunction"] = childIsInsideFunc
@@ -968,6 +995,9 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			prevChildWithOpen := currentContext["isInsideWithOpen"]
 			currentContext["isInsideWithOpen"] = childIsInsideWithOpen
 
+			prevChildCaseConstant := currentContext["isInCaseConstantPosition"]
+			currentContext["isInCaseConstantPosition"] = childIsInCaseConstant
+
 			prevExecution := currentContext["executionContext"]
 			inheritedExecution, _ := prevExecution.(rules.ExecutionContext)
 			currentContext["executionContext"] = childExecutionContext(node, idx, inheritedExecution)
@@ -980,6 +1010,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			currentContext["isInsideBinding"] = prevChildBinding
 			currentContext["isInsideDosync"] = prevChildDosync
 			currentContext["isInsideWithOpen"] = prevChildWithOpen
+			currentContext["isInCaseConstantPosition"] = prevChildCaseConstant
 			currentContext["executionContext"] = prevExecution
 		}
 
@@ -996,16 +1027,19 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	}
 
 	initialContext := map[string]interface{}{
-		"isInEagerContext": false,
-		"isInsideFunction": false,
-		"isInsideLet":      false,
-		"isInsideLoop":     false,
-		"isInsideBinding":  false,
-		"isInsideDosync":   false,
-		"isInsideWithOpen": false,
-		"executionContext": rules.ExecutionAtLoad,
-		"enclosingForms":   make([]string, 0, 32),
-		"ancestorNodes":    make([]*reader.RichNode, 0, 32),
+		"isInEagerContext":         false,
+		"isInsideFunction":         false,
+		"isInsideLet":              false,
+		"isInsideLoop":             false,
+		"isInsideBinding":          false,
+		"isInsideDosync":           false,
+		"isInsideWithOpen":         false,
+		"isInCaseConstantPosition": false,
+		"executionContext":         rules.ExecutionAtLoad,
+		"current-namespace":        namespaceName,
+		"file-role":                classifyFileRole(filepath),
+		"enclosingForms":           make([]string, 0, 32),
+		"ancestorNodes":            make([]*reader.RichNode, 0, 32),
 		"namespace-aliases": func() map[string]string {
 			aliases := make(map[string]string)
 			if globalScope != nil {
@@ -1029,6 +1063,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	for _, commentNode := range comments {
 		for _, rule := range a.Rules {
 			if finding := rule.Check(commentNode, initialContext, filepath); finding != nil {
+				rules.MarkContextualFinding(finding)
 				findingsMutex.Lock()
 				allFindings = append(allFindings, finding)
 				findingsMutex.Unlock()
@@ -1040,6 +1075,41 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	delete(initialContext, "config")
 
 	return allFindings
+}
+
+// classifyFileRole gives rules a conservative signal about source provenance.
+// It is intentionally path-based: the analyzer does not need to understand a
+// build tool in order to avoid treating generated fixtures as production code.
+func classifyFileRole(path string) string {
+	normalized := filepath.ToSlash(path)
+	if strings.Contains(normalized, "/internal/test/data/") {
+		return "test-fixture"
+	}
+	parts := strings.Split(strings.Trim(normalized, "/"), "/")
+	for _, part := range parts {
+		switch strings.ToLower(part) {
+		case "target":
+			return "generated"
+		case "generated", "fixtures", "fixture", "testcases", "test-resources", "corpus", "examples", "example", "benchmark", "benchmarks":
+			return "fixture"
+		case "tests", "test", "int-test", "integration-test":
+			return "test"
+		case "dev", "development", "notebook", "notebooks", "clerk", "clay":
+			return "dev"
+		case "dev-resources", "development-resources", "repl":
+			return "dev"
+		case "build", "scripts", "script", "bin":
+			return "build"
+		}
+	}
+	base := strings.ToLower(filepath.Base(normalized))
+	if strings.HasSuffix(base, "_test.clj") || strings.HasSuffix(base, "-test.clj") {
+		return "test"
+	}
+	if base == "project.clj" || base == "deps.edn" || base == "build.clj" {
+		return "build"
+	}
+	return "production"
 }
 
 func defineParams(paramsNode *reader.RichNode, targetScope *Scope, localDefs map[*reader.RichNode]*SymbolInfo) {
@@ -1197,7 +1267,7 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 			if childIndex == 1 && childNode.Type == reader.NodeVector {
 				return true
 			}
-		case "def", "defonce":
+		case "def", "defonce", "defrecord":
 
 			if childIndex == 1 {
 				return true
@@ -1221,11 +1291,20 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 	var aliases []NamespaceAlias
 	var referredSymbols []ReferredSymbol
 
-	if len(nsNode.Children) > 1 && nsNode.Children[1].Type == reader.NodeSymbol {
-		namespaceName = nsNode.Children[1].Value
+	nameIndex := -1
+	for i := 1; i < len(nsNode.Children); i++ {
+		if nsNode.Children[i] != nil && nsNode.Children[i].Type == reader.NodeSymbol {
+			nameIndex = i
+			namespaceName = nsNode.Children[i].Value
+			break
+		}
 	}
 
-	for i := 2; i < len(nsNode.Children); i++ {
+	clauseStart := nameIndex + 1
+	if clauseStart < 1 {
+		clauseStart = 1
+	}
+	for i := clauseStart; i < len(nsNode.Children); i++ {
 		clauseNode := nsNode.Children[i]
 		if clauseNode.Type != reader.NodeList || len(clauseNode.Children) == 0 || clauseNode.Children[0].Type != reader.NodeKeyword {
 			continue
@@ -1449,7 +1528,7 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 
 	ResolveSymbols(richRoots, globalScope)
 
-	findingsFromAnalysis := a.Analyze(filepath, richRoots, comments, globalScope)
+	findingsFromAnalysis := a.Analyze(filepath, richRoots, comments, globalScope, namespaceName)
 
 	concreteFindings := make([]rules.Finding, 0, len(findingsFromAnalysis))
 	for _, fptr := range findingsFromAnalysis {
@@ -1459,11 +1538,11 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 				for _, comment := range comments {
 					if comment.Location != nil && (comment.Location.StartLine == fptr.Location.StartLine || comment.Location.StartLine == fptr.Location.StartLine-1) {
 						cVal := strings.ToLower(comment.Value)
-						if strings.Contains(cVal, "arit:disable-next-line " + fptr.RuleID) || 
-						   strings.Contains(cVal, "arit:disable-next-line all") ||
-						   strings.Contains(cVal, "clj-kondo/ignore") ||
-						   strings.Contains(cVal, "eslint-disable") ||
-						   strings.Contains(cVal, "nosonar") {
+						if strings.Contains(cVal, "arit:disable-next-line "+fptr.RuleID) ||
+							strings.Contains(cVal, "arit:disable-next-line all") ||
+							strings.Contains(cVal, "clj-kondo/ignore") ||
+							strings.Contains(cVal, "eslint-disable") ||
+							strings.Contains(cVal, "nosonar") {
 							suppressed = true
 							break
 						}

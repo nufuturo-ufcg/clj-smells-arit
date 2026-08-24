@@ -99,3 +99,9 @@
 (comment
   (let [r (io/reader "example.txt")]
     (line-seq r)))
+
+;; Reader-discarded code is not part of the analyzed program.
+#_
+(defn discarded-resource []
+  (let [discarded (clojure.java.io/input-stream "unused")]
+    (.read discarded)))

@@ -34,6 +34,9 @@ including their IDs, names, descriptions, and default severity levels.`,
 			fmt.Printf("Name: %s\n", meta.Name)
 			fmt.Printf("Severity: %s\n", meta.Severity)
 			fmt.Printf("Description: %s\n", meta.Description)
+			if meta.ContextualDescription != "" {
+				fmt.Printf("Contextual note: %s\n", meta.ContextualDescription)
+			}
 			fmt.Println("---")
 		}
 

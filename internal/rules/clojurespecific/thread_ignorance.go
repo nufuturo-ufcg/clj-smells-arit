@@ -103,7 +103,7 @@ func nestedPipeline(node *reader.RichNode) (pipeline, bool) {
 	direction := threadEither
 	for isCall(current) {
 		spec, ok := resolvedThreadingSpec(current)
-		if !ok || callArgCount(current) < spec.minArgs {
+		if !ok || !threadStepIsUnambiguous(spec, current) || callArgCount(current) < spec.minArgs {
 			break
 		}
 		if spec.direction != threadEither && !mergeDirection(&direction, spec.direction) {
@@ -152,7 +152,7 @@ func (r *ThreadIgnoranceRule) letPipeline(node *reader.RichNode) (pipeline, bool
 			return pipeline{}, false
 		}
 		spec, ok := resolvedThreadingSpec(expr)
-		if !ok || callArgCount(expr) < spec.minArgs {
+		if !ok || !threadStepIsUnambiguous(spec, expr) || callArgCount(expr) < spec.minArgs {
 			return pipeline{}, false
 		}
 
@@ -186,6 +186,15 @@ func (r *ThreadIgnoranceRule) letPipeline(node *reader.RichNode) (pipeline, bool
 		direction = threadFirst
 	}
 	return pipeline{depth: steps, direction: direction}, true
+}
+
+// A variadic function with an either-direction contract is not safe to
+// rewrite without knowing which argument is the data argument. For example,
+// (str "*." ext) can only be preserved with thread-last; treating it as a
+// thread-first step reverses the concatenation. Reject ambiguous steps rather
+// than turning a syntactically linear expression into a semantic false alarm.
+func threadStepIsUnambiguous(spec threadingSpec, node *reader.RichNode) bool {
+	return spec.direction != threadEither || callArgCount(node) == 1
 }
 
 func directListArguments(node *reader.RichNode) []int {

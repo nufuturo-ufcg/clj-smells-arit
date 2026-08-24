@@ -156,3 +156,9 @@
   `(fn
      ([value#] (consume ~expr value#))
      ([value# fallback#] (consume ~expr value# fallback#))))
+
+;; Declaration DSL parameters are emitted into signatures, not evaluated twice.
+(defmacro defprotocolpath-safe [params]
+  `(do
+     (defprotocol GeneratedPath (navigate [~@params]))
+     (defrichnav GeneratedPath ~params)))

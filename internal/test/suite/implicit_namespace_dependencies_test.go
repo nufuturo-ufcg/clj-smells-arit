@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -12,7 +13,7 @@ func TestImplicitNamespaceDependencies(t *testing.T) {
 			FileToAnalyze: "implicit_namespace_dependencies.clj",
 			RuleID:        "implicit-namespace-dependencies",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "Implicit namespace dependency: :use directive", StartLine: 2},
+				{Message: "Implicit namespace dependency: :use directive", StartLine: 2, Severity: rules.SeverityHint},
 				{Message: "Implicit namespace dependency: :use directive", StartLine: 3},
 				{Message: "Implicit namespace dependency: :refer :all", StartLine: 5},
 				{Message: "Implicit namespace dependency: standalone (use", StartLine: 10},

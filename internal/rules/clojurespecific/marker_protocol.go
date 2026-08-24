@@ -23,7 +23,12 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
 	}
-
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
+	if rules.CurrentExecutionContext(context) != rules.ExecutionAtLoad {
+		return nil
+	}
 	if !rules.CallResolvesTo(node, "clojure.core/defprotocol") {
 		return nil
 	}
@@ -61,7 +66,8 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 			),
 			Filepath: filepath,
 			Location: node.Location,
-			Severity: r.Severity,
+			Severity: rules.ContextualSeverity(context, r.Severity),
+			Tags:     rules.ContextualTags(context),
 		}
 	}
 

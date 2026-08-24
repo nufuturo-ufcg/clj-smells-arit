@@ -73,3 +73,7 @@
 (defn shadowed-core-name [xs]
   (let [map custom-map]
     (vec (map inc (filter pos? (take 10 xs))))))
+
+;; Logical and boolean coercion expressions must not be considered a data transformation pipeline.
+(defn boolean-conjunction [oks failures mismatches]
+  (boolean (and (seq oks) (empty? failures) (empty? mismatches))))

@@ -31,6 +31,15 @@ func macroContainsUnsafeFeature(node *reader.RichNode) bool {
 			return true
 		}
 	}
+	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol {
+		head := node.Children[0].Value
+		// Primitive IFn implementations commonly use direct Java interop such
+		// as `.invokePrim`; replacing the macro with a function can reintroduce
+		// boxing or change the generated call shape.
+		if strings.HasPrefix(head, ".") || strings.Contains(head, "invokePrim") || strings.Contains(head, "IFn") {
+			return true
+		}
+	}
 	for _, child := range node.Children {
 		if macroContainsUnsafeFeature(child) {
 			return true

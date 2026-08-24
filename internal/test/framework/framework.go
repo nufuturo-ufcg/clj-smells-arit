@@ -19,6 +19,7 @@ import (
 type ExpectedFinding struct {
 	Message   string
 	StartLine int
+	Severity  rules.Severity
 }
 
 type RuleTestCase struct {
@@ -82,6 +83,10 @@ func RunRuleTest(t *testing.T, tc RuleTestCase) {
 						matched = true
 						assert.Equal(t, tc.RuleID, f.RuleID,
 							"Incorrect RuleID for finding on line %d", expected.StartLine)
+						if expected.Severity != "" {
+							assert.Equal(t, expected.Severity, f.Severity,
+								"Incorrect severity for finding on line %d", expected.StartLine)
+						}
 						break
 					}
 				}

@@ -1,8 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
+	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
@@ -64,13 +64,41 @@ func isIfAssocRebindPattern(valueNode *reader.RichNode, sym string) bool {
 	}
 
 	thenBranch := valueNode.Children[2]
+	testBranch := valueNode.Children[1]
 	elseBranch := valueNode.Children[3]
 
 	if elseBranch == nil || elseBranch.Type != reader.NodeSymbol || elseBranch.Value != sym {
 		return false
 	}
 
-	return referencesSymbol(thenBranch, sym)
+	// The rewrite is not semantically equivalent when the predicate itself
+	// depends on the accumulated value. In that case the previous binding is
+	// part of the decision and must remain visible in the original if chain.
+	if referencesSymbol(testBranch, sym) {
+		return false
+	}
+
+	return isAssociativeUpdateOf(thenBranch, sym)
+}
+
+func isAssociativeUpdateOf(node *reader.RichNode, sym string) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
+		return false
+	}
+	head := node.Children[0]
+	if head == nil || head.Type != reader.NodeSymbol {
+		return false
+	}
+	name := head.Value
+	for _, prefix := range []string{"clojure.core/", "cljs.core/"} {
+		name = strings.TrimPrefix(name, prefix)
+	}
+	switch name {
+	case "assoc", "assoc-in", "dissoc", "update", "update-in", "conj":
+		return node.Children[1].Type == reader.NodeSymbol && node.Children[1].Value == sym
+	default:
+		return false
+	}
 }
 
 func referencesSymbol(node *reader.RichNode, sym string) bool {
@@ -197,6 +225,9 @@ func (r *ConditionalBuildupRule) detectLetConditionalBuildUp(letNode *reader.Ric
 }
 
 func (r *ConditionalBuildupRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
 	}

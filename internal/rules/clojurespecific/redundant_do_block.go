@@ -210,6 +210,28 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 
 	parentSymbol := parentFirstElement.Value
 
+	// `if`, `cond`, `condp`, and `case` accept one expression per branch. A
+	// multi-expression `do` in those positions is the construct that makes the
+	// branch valid; it is never redundant, regardless of the branch arity.
+	if r.hasMultipleExpressions(node) {
+		switch parentSymbol {
+		case "if", "if-not", "if-let", "if-some":
+			return nil
+		case "cond":
+			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+				return nil
+			}
+		case "condp":
+			if doNodeIndex >= 3 && doNodeIndex%2 == 1 {
+				return nil
+			}
+		case "case":
+			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+				return nil
+			}
+		}
+	}
+
 	isRedundant := false
 	redundantInForm := parentSymbol
 

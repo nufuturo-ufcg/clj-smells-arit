@@ -31,6 +31,11 @@ func isBlockingCall(node *reader.RichNode) bool {
 
 	canonical := resolvedCanonical(node)
 	headVal := head.Value
+	unqualifiedHead := headVal
+	if slash := strings.LastIndex(headVal, "/"); slash >= 0 {
+		unqualifiedHead = headVal[slash+1:]
+	}
+
 	if strings.Contains(headVal, "!!") || headVal == "Thread/sleep" || headVal == "java.lang.Thread/sleep" {
 		return true
 	}
@@ -45,10 +50,13 @@ func isBlockingCall(node *reader.RichNode) bool {
 		switch canonical {
 		case "Thread/sleep", "java.lang.Thread/sleep",
 			"clojure.core/slurp", "clojure.core/spit", "clojure.core/await",
-			"clojure.core/deref", "clojure.core/future-call", "clojure.core/locking":
+			"clojure.core/future-call",
+			"clojure.java.io/reader", "clojure.java.io/writer",
+			"clojure.java.io/input-stream", "clojure.java.io/output-stream":
 			return true
 		}
-		if strings.HasPrefix(canonical, "clj-http.client/") || strings.Contains(canonical, "jdbc/execute!") {
+		if strings.HasPrefix(canonical, "clj-http.client/") || strings.Contains(canonical, "jdbc/execute!") ||
+			strings.Contains(canonical, "jdbc/query") || strings.Contains(canonical, "jdbc/insert!") {
 			return true
 		}
 		switch canonical {
@@ -56,11 +64,11 @@ func isBlockingCall(node *reader.RichNode) bool {
 			return true
 		}
 	} else if head.Resolution == nil || head.Resolution.Kind == reader.ResolutionUnresolved {
-		switch headVal {
-		case "slurp", "spit", "deref", "locking", "await":
+		switch unqualifiedHead {
+		case "slurp", "spit", "locking", "await", "Thread/sleep":
 			return true
 		}
-		if strings.Contains(headVal, "jdbc/execute") {
+		if strings.HasPrefix(headVal, "http/") || strings.HasPrefix(headVal, "client/") || strings.Contains(headVal, "jdbc/") {
 			return true
 		}
 	}
@@ -85,7 +93,7 @@ func isDeferredBoundary(node *reader.RichNode) bool {
 		return false
 	}
 	switch node.Type {
-	case reader.NodeQuote, reader.NodeSyntaxQuote, reader.NodeVarQuote, reader.NodeReaderDiscard:
+	case reader.NodeQuote, reader.NodeSyntaxQuote, reader.NodeVarQuote, reader.NodeReaderDiscard, reader.NodeFnLiteral:
 		return true
 	}
 	if node.Type != reader.NodeList || len(node.Children) == 0 {
@@ -98,8 +106,12 @@ func isDeferredBoundary(node *reader.RichNode) bool {
 	}
 	head := node.Children[0]
 	if head.Type == reader.NodeSymbol {
-		switch head.Value {
-		case "fn", "fn*", "letfn":
+		val := head.Value
+		if slash := strings.LastIndex(val, "/"); slash >= 0 {
+			val = val[slash+1:]
+		}
+		switch val {
+		case "fn", "fn*", "letfn", "thread", "future", "delay", "lazy-seq", "bound-fn", "bound-fn*":
 			return true
 		}
 	}
@@ -139,9 +151,7 @@ func resolvedFunctionBody(call *reader.RichNode) []*reader.RichNode {
 	if definition.Children[idx].Type == reader.NodeVector {
 		return definition.Children[idx+1:]
 	}
-	// For multi-arity functions inspect only the arity selected by this call.
-	// Looking through every overload turns an unrelated blocking overload into
-	// a false positive at a safe call site.
+
 	callArity := len(call.Children) - 1
 	for _, arity := range definition.Children[idx:] {
 		if arity == nil || arity.Type != reader.NodeList || len(arity.Children) < 2 ||
@@ -190,7 +200,7 @@ func findBlockingCall(node *reader.RichNode, definitions map[*reader.RichNode]bo
 				definitions[definition] = true
 				for _, bodyNode := range body {
 					if found := findBlockingCall(bodyNode, definitions, depth+1); found != nil {
-						return node // report the call inside go, not a distant definition
+						return found
 					}
 				}
 				delete(definitions, definition)
@@ -206,6 +216,9 @@ func findBlockingCall(node *reader.RichNode, definitions map[*reader.RichNode]bo
 }
 
 func (r *BlockingInsideGoRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if !isGoBlock(node) {
 		return nil
 	}
@@ -228,7 +241,9 @@ func (r *BlockingInsideGoRule) Check(node *reader.RichNode, context map[string]i
 	return &rules.Finding{
 		RuleID:   r.ID,
 		Message:  fmt.Sprintf("Blocking function detected within the GO block %s.", node.Children[0].Value),
-		Filepath: filepath, Location: blocking.Location, Severity: r.Severity,
+		Filepath: filepath, Location: blocking.Location,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
 	}
 }
 

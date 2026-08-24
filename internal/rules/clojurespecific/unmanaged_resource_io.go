@@ -37,10 +37,10 @@ var unmanagedResourceCreators = map[string]struct{}{
 	"java.io.RandomAccessFile.": {},
 	"RandomAccessFile.":         {},
 
-	"java.net.Socket.":       {},
-	"Socket.":                {},
-	"java.net.ServerSocket.": {},
-	"ServerSocket.":          {},
+	"java.net.Socket.":         {},
+	"Socket.":                  {},
+	"java.net.ServerSocket.":   {},
+	"ServerSocket.":            {},
 	"java.net.DatagramSocket.": {},
 	"DatagramSocket.":          {},
 
@@ -395,7 +395,8 @@ func (r *UnmanagedResourceIORule) Check(node *reader.RichNode, context map[strin
 			operation, binding),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
 	}
 }
 

@@ -51,6 +51,7 @@ tmp/test_if.clj
 internal/test_if.clj
 internal/test_ast/
 tmp/
+internal-tools/
 teste.md
 test_if_let.clj
 

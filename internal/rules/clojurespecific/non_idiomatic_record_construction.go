@@ -15,17 +15,16 @@ func (r *NonIdiomaticRecordConstructionRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-func (r *NonIdiomaticRecordConstructionRule) verifiesPositionalConstructor(value string, recordFuncs []string) string {
+func (r *NonIdiomaticRecordConstructionRule) isRecordSymbol(name string, recordFuncs []string) (string, bool) {
 	for _, function := range recordFuncs {
-		if value == function+"." {
-			return function
+		if name == function {
+			return function, true
 		}
 	}
-	return ""
+	return "", false
 }
 
 func (r *NonIdiomaticRecordConstructionRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-
 	var recordFuncs []string
 	if rf, ok := context["recordFunctions"].([]string); ok {
 		recordFuncs = rf
@@ -40,23 +39,38 @@ func (r *NonIdiomaticRecordConstructionRule) Check(node *reader.RichNode, contex
 	if firstChild == "defrecord" && len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
 		recordFuncs = append(recordFuncs, node.Children[1].Value)
 		context["recordFunctions"] = recordFuncs
-	} else {
+		return nil
+	}
 
-		function := r.verifiesPositionalConstructor(firstChild, recordFuncs)
-		if firstChild == "new" && len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
-			function = r.verifiesPositionalConstructor(node.Children[1].Value+".", recordFuncs)
+	var targetRecord string
+	if len(firstChild) > 1 && firstChild[len(firstChild)-1] == '.' {
+		candidate := firstChild[:len(firstChild)-1]
+		for _, function := range recordFuncs {
+			if candidate == function {
+				targetRecord = function
+				break
+			}
 		}
-
-		if function != "" {
-			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Using Java interop syntax to instantiate the defrecord instead of ->%s or map->%s", function, function),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+	} else if firstChild == "new" && len(node.Children) > 1 && node.Children[1].Type == reader.NodeSymbol {
+		candidate := node.Children[1].Value
+		for _, function := range recordFuncs {
+			if candidate == function {
+				targetRecord = function
+				break
 			}
 		}
 	}
+
+	if targetRecord != "" {
+		return &rules.Finding{
+			RuleID:   r.ID,
+			Message:  fmt.Sprintf("Using Java interop syntax to instantiate the defrecord instead of ->%s or map->%s", targetRecord, targetRecord),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
+		}
+	}
+
 	return nil
 }
 

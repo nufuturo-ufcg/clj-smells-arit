@@ -1,6 +1,8 @@
 package clojurespecific
 
 import (
+	"strings"
+
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
 )
@@ -14,6 +16,9 @@ func (r *MonolithicNamespaceSplitRule) Meta() rules.Rule {
 }
 
 func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if node.Type != reader.NodeList || len(node.Children) < 1 {
 		return nil
 	}
@@ -25,6 +30,16 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 
 	execution := rules.CurrentExecutionContext(context)
 	if execution == rules.ExecutionNonEvaluated || execution == rules.ExecutionUnknown {
+		return nil
+	}
+	switch rules.FileRole(context) {
+	case "generated", "fixture", "dev", "test", "build":
+		return nil
+	}
+	namespace := strings.ToLower(rules.CurrentNamespace(context))
+	if strings.HasPrefix(namespace, "clojure.") || strings.HasPrefix(namespace, "cljs.") ||
+		strings.Contains(namespace, ".compiler") || strings.Contains(namespace, ".runtime") ||
+		strings.HasSuffix(namespace, ".test") || strings.Contains(namespace, ".test-") {
 		return nil
 	}
 

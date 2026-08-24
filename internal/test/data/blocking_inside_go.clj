@@ -149,3 +149,7 @@
 (require '[clojure.core.async :as legacy-async])
 (defn legacy-require-blocking [ch]
   (legacy-async/go (legacy-async/<!! ch)))
+
+;; A function literal is created here; its body is not executed by go.
+(defn callback-literal-safe [ch]
+  (a/go #(a/<!! ch)))

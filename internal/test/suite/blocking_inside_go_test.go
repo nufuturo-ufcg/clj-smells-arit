@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -19,8 +20,8 @@ func TestBlockingInsideGo(t *testing.T) {
 				{Message: "Blocking function detected within the GO block a/go.", StartLine: 32},
 				{Message: "Blocking function detected within the GO block a/go.", StartLine: 39},
 				{Message: "Blocking function detected within the GO block a/go.", StartLine: 46},
-				{Message: "Blocking function detected within the GO block a/go.", StartLine: 56},
-				{Message: "Blocking function detected within the GO block a/go.", StartLine: 65},
+				{Message: "Blocking function detected within the GO block a/go.", StartLine: 51, Severity: rules.SeverityHint},
+				{Message: "Blocking function detected within the GO block a/go.", StartLine: 51},
 				{Message: "Blocking function detected within the GO block a/go.", StartLine: 71},
 				{Message: "Blocking function detected within the GO block a/go.", StartLine: 78},
 				{Message: "Blocking function detected within the GO block legacy-async/go.", StartLine: 151},
@@ -33,6 +34,7 @@ func TestBlockingInsideGo(t *testing.T) {
 				{StartLine: 123},
 				{StartLine: 129},
 				{StartLine: 146},
+				{StartLine: 155},
 			},
 		},
 	}

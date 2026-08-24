@@ -35,6 +35,7 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 				{StartLine: 136},
 				{StartLine: 149},
 				{StartLine: 155},
+				{StartLine: 161},
 			},
 		},
 	}

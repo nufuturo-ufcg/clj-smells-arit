@@ -128,6 +128,6 @@
 (defn custom-factory-function-example [dados]
   (assoc dados :ativo true))
 
-;; Example 20: Safe field access on record instance using keyword
-(defn record-field-access-example [instancia-usuario]
-  (:name instancia-usuario))
+;; Example 21: Java java.sql.Timestamp instantiation
+(defn make-timestamp [t]
+  (java.sql.Timestamp. (.getTime (java.util.Date.))))

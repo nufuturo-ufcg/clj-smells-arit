@@ -181,6 +181,9 @@ func runAnalysisPipeline(filesToAnalyze []string, cfg *config.Config) []*rules.F
 		allFindings = append(allFindings, dataClumpsFindings...)
 		mu.Unlock()
 	}
+	for _, finding := range allFindings {
+		rules.MarkContextualFinding(finding)
+	}
 
 	sort.Slice(allFindings, func(i, j int) bool {
 		if allFindings[i].Filepath != allFindings[j].Filepath {

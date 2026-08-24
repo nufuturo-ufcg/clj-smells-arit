@@ -103,6 +103,7 @@ Arit - Static Analysis for Clojure Code
 
 		// Delegate heavy execution to runner.go
 		allFindings := runAnalysisPipeline(filesToAnalyze, cfg)
+		displayedFindings := reporter.FilterContextualFindings(allFindings, includeContextualFlag)
 
 		if !quietFlag && outputFormat != reporter.FormatSummary {
 			switch outputFormat {
@@ -122,7 +123,7 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		if countFindingFlag {
-			fmt.Println(len(allFindings))
+			fmt.Println(len(displayedFindings))
 			return nil
 		}
 
@@ -131,8 +132,11 @@ Arit - Static Analysis for Clojure Code
 			return fmt.Errorf("unsupported report format: %s", outputFormat)
 		}
 
+		if summary, ok := rep.(*reporter.SummaryReporter); ok {
+			summary.SetContextualSummary(allFindings, includeContextualFlag)
+		}
 		var outputWriter io.Writer = os.Stdout
-		err = rep.Report(allFindings, outputWriter)
+		err = rep.Report(displayedFindings, outputWriter)
 		if err != nil {
 			return fmt.Errorf("error generating report: %w", err)
 		}
@@ -147,11 +151,12 @@ Arit - Static Analysis for Clojure Code
 }
 
 var (
-	formatFlag       string
-	verboseFlag      bool
-	timingFlag       bool
-	quietFlag        bool
-	countFindingFlag bool
+	formatFlag            string
+	verboseFlag           bool
+	timingFlag            bool
+	quietFlag             bool
+	countFindingFlag      bool
+	includeContextualFlag bool
 
 	// Advanced Semantic Features
 	expCrossNsFlag        bool
@@ -171,6 +176,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
 	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
+	rootCmd.PersistentFlags().BoolVar(&includeContextualFlag, "include-contextual", false, "Include possible contextual findings in the output")
 
 	rootCmd.PersistentFlags().BoolVar(&expCrossNsFlag, "experimental-cross-ns", false, "Enable 2-pass cross-namespace resolution (Experimental)")
 	rootCmd.PersistentFlags().BoolVar(&expTypeInferenceFlag, "experimental-types", false, "Enable static type inference and metadata propagation (Experimental)")

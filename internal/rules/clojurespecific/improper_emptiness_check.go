@@ -74,6 +74,9 @@ func (r *ImproperEmptinessCheckRule) finding(node *reader.RichNode, filepath, me
 	return &rules.Finding{
 		RuleID: r.ID, Message: message, Filepath: filepath,
 		Location: node.Location, Severity: r.Severity,
+		Contextual:       true,
+		ContextualReason: "A substituição pode depender de o resultado ser consumido como booleano ou como valor de coleção.",
+		Tags:             []string{"contextual", "contract-dependent"},
 	}
 }
 
@@ -99,7 +102,7 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 
 	if isCoreCall(node, "not") && len(node.Children) == 2 {
 		arg := node.Children[1]
-		if isCoreCall(arg, "empty?") && len(arg.Children) == 2 {
+		if isCoreCall(arg, "empty?") && len(arg.Children) == 2 && usedOnlyForTruthiness(node, context) {
 			collection := getVerboseNodeText(arg.Children[1])
 			return r.finding(node, filepath, fmt.Sprintf(
 				"Improper emptiness check: `(not (empty? %s))`. Consider using `(seq %s)` or `(boolean (seq %s))`.", collection, collection, collection))
@@ -157,7 +160,8 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 func init() {
 	rules.RegisterRule(&ImproperEmptinessCheckRule{Rule: rules.Rule{
 		ID: "improper-emptiness-check", Name: "Improper Emptiness Check",
-		Description: "Detects semantics-preserving opportunities to replace verbose collection emptiness checks.",
-		Severity:    rules.SeverityHint,
+		Description:           "Detects semantics-preserving opportunities to replace verbose collection emptiness checks.",
+		ContextualDescription: "Pode ser contextual quando a função expõe booleano, quando seq alteraria o tipo retornado ou quando o contrato da coleção não é conhecido. O finding permanece visível com --include-contextual.",
+		Severity:              rules.SeverityHint,
 	}})
 }

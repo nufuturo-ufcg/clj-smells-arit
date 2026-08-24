@@ -29,12 +29,31 @@ func coreAsyncHasSuffix(symbol string, names ...string) bool {
 	return false
 }
 
-func coreAsyncCountSingleValuePuts(node *reader.RichNode, channel string) (int, bool) {
+func isCallbackFunction(node *reader.RichNode, parent *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	op := coreAsyncOperation(node)
+	if op == "fn" || op == "fn*" {
+		if parent != nil {
+			parentOp := coreAsyncOperation(parent)
+			if !coreAsyncHasSuffix(parentOp, "go", "thread", "future") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func coreAsyncCountSingleValuePuts(node *reader.RichNode, parent *reader.RichNode, channel string) (int, bool) {
 	if node == nil {
 		return 0, false
 	}
+	if isCallbackFunction(node, parent) {
+		return 0, true
+	}
 	op := coreAsyncOperation(node)
-	if coreAsyncHasSuffix(op, "loop", "go-loop", "doseq", "pipeline", "pipeline-blocking", "pipeline-async", "mult", "pub") {
+	if coreAsyncHasSuffix(op, "loop", "go-loop", "doseq", "pipeline", "pipeline-blocking", "pipeline-async", "mult", "pub", "while", "proxy", "reify") {
 		return 0, true
 	}
 	count := 0
@@ -43,7 +62,7 @@ func coreAsyncCountSingleValuePuts(node *reader.RichNode, channel string) (int, 
 		count++
 	}
 	for _, child := range node.Children {
-		childCount, complex := coreAsyncCountSingleValuePuts(child, channel)
+		childCount, complex := coreAsyncCountSingleValuePuts(child, node, channel)
 		count += childCount
 		if complex {
 			return count, true
@@ -66,7 +85,7 @@ func coreAsyncSingleValueChannel(node *reader.RichNode) (*reader.RichNode, strin
 		if last.Type != reader.NodeSymbol || last.Value != name.Value {
 			continue
 		}
-		puts, complex := coreAsyncCountSingleValuePuts(node, name.Value)
+		puts, complex := coreAsyncCountSingleValuePuts(node, nil, name.Value)
 		if puts != 1 || complex {
 			continue
 		}
@@ -75,11 +94,15 @@ func coreAsyncSingleValueChannel(node *reader.RichNode) (*reader.RichNode, strin
 	return nil, ""
 }
 
-func (r *OverengineeringCoreAsyncRule) Check(node *reader.RichNode, _ map[string]interface{}, filepath string) *rules.Finding {
+func (r *OverengineeringCoreAsyncRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if strings.HasSuffix(filepath, ".cljs") || strings.HasSuffix(filepath, "user.clj") {
+		return nil
+	}
 	value, channel := coreAsyncSingleValueChannel(node)
 	if value != nil {
 		return &rules.Finding{
-			RuleID: r.ID, Filepath: filepath, Location: value.Location, Severity: r.Severity,
+			RuleID: r.ID, Filepath: filepath, Location: value.Location,
+			Severity: rules.ContextualSeverity(context, r.Severity), Tags: rules.ContextualTags(context),
 			Message: fmt.Sprintf("Channel %q is used only to return one value; prefer a direct value, future, or promise.", channel),
 		}
 	}
