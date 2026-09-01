@@ -8,6 +8,9 @@ arit
 # Arquivos locais arquivados fora do projeto
 _archive/
 
+# Diretórios ocultos locais, em qualquer nível
+**/.*/
+
 # Caches e bytecode de ferramentas auxiliares
 __pycache__/
 *.pyc
@@ -66,8 +69,6 @@ test_if_let.clj
 # Relatórios, Scratch e Skills gerados pelo experimento
 *.md
 !README.md
-!BACKLOG_PRECISAO_ARIT.md
-!PLANO_ACOMPANHAMENTO_PRECISAO_ARIT.md
 !CONTEXTUAL_FINDINGS_POLICY.md
 skills/
 reports/
