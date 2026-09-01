@@ -17,37 +17,32 @@ func (r *SingleSegmentNamespaceRule) Meta() rules.Rule {
 }
 
 func (r *SingleSegmentNamespaceRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	// 1. Context Awareness: Ignora ambientes onde single-segment namespaces são seguros/esperados
-	lowerPath := strings.ToLower(filepath)
-	if strings.Contains(lowerPath, "/test/") ||
-		strings.Contains(lowerPath, "/scripts/") ||
-		strings.Contains(lowerPath, "/dev/") ||
-		strings.Contains(lowerPath, "/build/") ||
-		strings.Contains(lowerPath, "/support/") ||
-		strings.Contains(lowerPath, "project.clj") {
+	if r.IsInside(context, "__non-evaluated__", "comment") ||
+		rules.CurrentExecutionContext(context) == rules.ExecutionUnknown ||
+		singleSegmentIsInsideMacroDefinition(context) {
 		return nil
 	}
-
 	if node.Type == reader.NodeList && len(node.Children) >= 2 {
 		if node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "ns" {
 			if node.Children[1].Type == reader.NodeSymbol {
 				nsName := node.Children[1].Value
 
-				// 2. Safelist Estendida: Perdoa namespaces de segmento único que são padrão no ecossistema
+				// 2. Extended safelist: allow single-segment namespaces that are standard in the ecosystem
 				switch nsName {
 				case "user", "dev", "test", "build", "repl", "script", "scratch":
 					return nil
 				}
 
-				// 3. Condição Principal: Falta de ponto qualificador
+				// 3. Main condition: missing a qualifying dot
 				if !strings.Contains(nsName, ".") {
-					return &rules.Finding{
+					return rules.SetContextualFindingWithEvidence(&rules.Finding{
 						RuleID:   r.ID,
 						Message:  fmt.Sprintf("Single-segment namespace '%s' detected. Prefer qualified namespaces (e.g. my-app.%s) to avoid collisions and tooling issues.", nsName, nsName),
 						Filepath: filepath,
 						Location: node.Location,
-						Severity: r.Severity,
-					}
+						Severity: rules.ContextualSeverity(context, r.Severity),
+						Tags:     rules.ContextualTags(context),
+					}, "Single-segment namespaces may be valid contracts in scripts, REPLs, examples, and small projects.", "namespace-scope-contract", "deployment-context")
 				}
 			}
 		}
@@ -56,13 +51,27 @@ func (r *SingleSegmentNamespaceRule) Check(node *reader.RichNode, context map[st
 	return nil
 }
 
+func singleSegmentIsInsideMacroDefinition(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 || ancestor.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		if ancestor.Children[0].Value == "defmacro" {
+			return true
+		}
+	}
+	return false
+}
+
 func init() {
 	rules.RegisterRule(&SingleSegmentNamespaceRule{
 		Rule: rules.Rule{
-			ID:          "single-segment-namespace",
-			Name:        "Single-segment namespace",
-			Description: "Detects namespaces declared with a single segment (ns foo) instead of qualified names (ns my-app.foo).",
-			Severity:    rules.SeverityWarning,
+			ID:                    "single-segment-namespace",
+			Name:                  "Single-segment namespace",
+			Description:           "Detects namespaces declared with a single segment (ns foo) instead of qualified names (ns my-app.foo).",
+			ContextualDescription: "It may be contextual in tests, fixtures, notebooks, benchmarks, scripts, and REPL namespaces. The finding remains visible with --include-contextual.",
+			Severity:              rules.SeverityWarning,
 		},
 	})
 }

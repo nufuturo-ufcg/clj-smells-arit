@@ -2,49 +2,26 @@ package cmd
 
 import (
 	"fmt"
-	io "io"
+	"io"
 	"os"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
-	"github.com/thlaurentino/arit/internal/analyzer"
 	"github.com/thlaurentino/arit/internal/config"
 	"github.com/thlaurentino/arit/internal/reporter"
 	"github.com/thlaurentino/arit/internal/rules"
 
 	_ "github.com/thlaurentino/arit/internal/rules/clojurespecific"
 	_ "github.com/thlaurentino/arit/internal/rules/functional"
-	"github.com/thlaurentino/arit/internal/rules/traditional"
-)
-
-var (
-	formatFlag       string
-	verboseFlag      bool
-	timingFlag       bool
-	quietFlag        bool
-	countFindingFlag bool
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "arit [file-or-dir...]",
 	Short: "Arit is a static analyzer for Clojure code.",
-	Long: `Arit - Static Analysis for Clojure Code
-
-###############
-    • 
-┏┓┏┓┓╋
-┗┻┛ ┗┗
-      
-###############
-
-Arit analyzes Clojure files for potential issues,
+	Long: `Arit analyzes Clojure files for potential issues,
 style violations, and opportunities for improvement.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -54,19 +31,12 @@ style violations, and opportunities for improvement.`,
 			startTime = time.Now()
 		}
 		if !quietFlag {
-		fmt.Fprint(os.Stderr, `
-###############
-    • 
-┏┓┏┓┓╋
-┗┻┛ ┗┗
-      
-###############
-
-Arit - Static Analysis for Clojure Code
-
-`)
+			if progressEnabled() {
+				fmt.Fprintln(os.Stderr, "Arit")
+			}
 		}
 
+		discoveryStart := time.Now()
 		filesToAnalyze := []string{}
 
 		for _, arg := range args {
@@ -99,39 +69,11 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		sort.Strings(filesToAnalyze)
+		discoveryDuration := time.Since(discoveryStart)
 
-		configDir := "."
-		if len(filesToAnalyze) > 0 {
-			firstFileAbs, err := filepath.Abs(filesToAnalyze[0])
-			if err == nil {
-				parentDir := filepath.Dir(firstFileAbs)
-
-				for parentDir != "/" && parentDir != "." {
-					gitPath := filepath.Join(parentDir, ".git")
-					modPath := filepath.Join(parentDir, "go.mod")
-					projCljPath := filepath.Join(parentDir, "project.clj")
-					depsEdnPath := filepath.Join(parentDir, "deps.edn")
-
-					gitInfo, gitErr := os.Stat(gitPath)
-					modInfo, modErr := os.Stat(modPath)
-					_, projErr := os.Stat(projCljPath)
-					_, depsErr := os.Stat(depsEdnPath)
-
-					if (gitErr == nil && gitInfo.IsDir()) || (modErr == nil && !modInfo.IsDir()) || projErr == nil || depsErr == nil {
-						configDir = parentDir
-						break
-					}
-					parentDir = filepath.Dir(parentDir)
-				}
-				if configDir == "." {
-					configDir = filepath.Dir(firstFileAbs)
-				}
-			}
-		}
-
+		configDir := resolveConfigDir(filesToAnalyze)
 		cfg, err := config.LoadConfig(configDir)
 		if err != nil {
-
 			if verboseFlag {
 				fmt.Fprintf(os.Stderr, "Warning: Error loading .arit.yaml config from %s: %v. Using default settings.\n", configDir, err)
 			}
@@ -141,160 +83,21 @@ Arit - Static Analysis for Clojure Code
 			}
 		}
 
-		if !cfg.AnalyzeTests {
-			var filteredFiles []string
-			for _, file := range filesToAnalyze {
-				if strings.Contains(file, "/test/") || strings.Contains(file, "/tests/") || strings.HasSuffix(file, "_test.clj") || strings.HasSuffix(file, "-test.clj") {
-					continue
-				}
-				filteredFiles = append(filteredFiles, file)
-			}
-			filesToAnalyze = filteredFiles
+		filesToAnalyze = filterTestFiles(filesToAnalyze, cfg)
+		if len(filesToAnalyze) == 0 {
+			fmt.Fprintln(os.Stderr, "No Clojure files remain after filtering. Use --analyze-tests to include test files.")
+			return nil
 		}
-
 		outputFormat := reporter.ReportFormat(formatFlag)
-		allFindings := []*rules.Finding{}
 
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		showProgressBar := !verboseFlag
-
-		var bar *progressbar.ProgressBar
-		if showProgressBar {
-
-			bar = progressbar.NewOptions(len(filesToAnalyze),
-				progressbar.OptionSetDescription("Analyzing files..."),
-				progressbar.OptionSetWidth(50),
-				progressbar.OptionShowCount(),
-				progressbar.OptionShowIts(),
-				progressbar.OptionSetPredictTime(true),
-				progressbar.OptionSetWriter(os.Stderr),
-			)
-		} else if !verboseFlag {
-
-			fmt.Fprintf(os.Stderr, "Analyzing %d files...\n", len(filesToAnalyze))
-		}
-
-		numCPUs := runtime.NumCPU()
-		numWorkers := numCPUs
-
-		if len(filesToAnalyze) > 500 {
-
-			numWorkers = numCPUs * 2
-			if numWorkers > 16 {
-				numWorkers = 16
-			}
-		} else if len(filesToAnalyze) > 100 {
-
-			numWorkers = numCPUs + (numCPUs / 2)
-			if numWorkers > 12 {
-				numWorkers = 12
-			}
-		} else {
-
-			if numWorkers < 2 {
-				numWorkers = 2
-			} else if numWorkers > 8 {
-				numWorkers = 8
+		// Delegate heavy execution to runner.go
+		allFindings, semanticDiagnostics := runAnalysisPipeline(filesToAnalyze, cfg, discoveryDuration)
+		if semanticDiagnosticsFlag != "" {
+			if err := writeSemanticDiagnostics(semanticDiagnosticsFlag, semanticDiagnostics); err != nil {
+				return fmt.Errorf("error writing semantic diagnostics: %w", err)
 			}
 		}
-
-		if len(filesToAnalyze) < numWorkers && len(filesToAnalyze) < 10 {
-			numWorkers = len(filesToAnalyze)
-		}
-
-		if verboseFlag {
-			fmt.Fprintf(os.Stderr, "Using %d workers for %d files (detected %d CPUs)\n", numWorkers, len(filesToAnalyze), numCPUs)
-		}
-
-		semaphore := make(chan struct{}, numWorkers)
-		analyzerInstance := analyzer.NewAnalyzer(cfg)
-
-		for _, fileToAnalyze := range filesToAnalyze {
-			wg.Add(1)
-			go func(filePath string) {
-				defer wg.Done()
-
-				semaphore <- struct{}{}
-				defer func() {
-					<-semaphore
-					if r := recover(); r != nil {
-						fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] in goroutine for file '%s': %v\n", filePath, r)
-						if verboseFlag {
-							fmt.Fprintf(os.Stderr, "Stack trace: %s\n", debug.Stack())
-						}
-					}
-				}()
-
-				if verboseFlag {
-					fmt.Fprintf(os.Stderr, "Analyzing file: %s\n", filePath)
-				}
-
-				analysisResult, analyzeErr := analyzerInstance.AnalyzeFile(filePath)
-
-				if analyzeErr != nil {
-					if verboseFlag {
-						fmt.Fprintf(os.Stderr, "[ERROR] Error analyzing file '%s': %v\n", filePath, analyzeErr)
-					}
-					return
-				}
-
-				if len(analysisResult.Findings) > 0 {
-
-					localFindings := make([]*rules.Finding, 0, len(analysisResult.Findings))
-
-					for i := range analysisResult.Findings {
-
-						localFindings = append(localFindings, &analysisResult.Findings[i])
-					}
-
-					mu.Lock()
-					allFindings = append(allFindings, localFindings...)
-					mu.Unlock()
-				}
-
-				if bar != nil {
-					bar.Add(1)
-				}
-
-			}(fileToAnalyze)
-		}
-
-		wg.Wait()
-
-		dataClumpsAnalyzer := traditional.GetGlobalDataClumpsAnalyzer()
-		dataClumpsFindings := dataClumpsAnalyzer.GenerateFindings()
-		if dataClumpsFindings != nil {
-			mu.Lock()
-			allFindings = append(allFindings, dataClumpsFindings...)
-			mu.Unlock()
-		}
-
-		sort.Slice(allFindings, func(i, j int) bool {
-			if allFindings[i].Filepath != allFindings[j].Filepath {
-				return allFindings[i].Filepath < allFindings[j].Filepath
-			}
-			if allFindings[i].Location != nil && allFindings[j].Location != nil {
-				if allFindings[i].Location.StartLine != allFindings[j].Location.StartLine {
-					return allFindings[i].Location.StartLine < allFindings[j].Location.StartLine
-				}
-				return allFindings[i].Location.StartColumn < allFindings[j].Location.StartColumn
-			}
-			if allFindings[i].Location == nil && allFindings[j].Location != nil {
-				return true
-			}
-			if allFindings[i].Location != nil && allFindings[j].Location == nil {
-				return false
-			}
-			return allFindings[i].RuleID < allFindings[j].RuleID
-		})
-
-		if showProgressBar {
-			fmt.Fprint(os.Stderr, "\n\n")
-		} else if !verboseFlag {
-			fmt.Fprint(os.Stderr, "\n")
-		}
+		displayedFindings := reporter.FilterContextualFindings(allFindings, includeContextualFlag)
 
 		if !quietFlag && outputFormat != reporter.FormatSummary {
 			switch outputFormat {
@@ -314,7 +117,7 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		if countFindingFlag {
-			fmt.Println(len(allFindings))
+			fmt.Println(len(displayedFindings))
 			return nil
 		}
 
@@ -323,8 +126,11 @@ Arit - Static Analysis for Clojure Code
 			return fmt.Errorf("unsupported report format: %s", outputFormat)
 		}
 
+		if summary, ok := rep.(*reporter.SummaryReporter); ok {
+			summary.SetContextualSummary(allFindings, includeContextualFlag)
+		}
 		var outputWriter io.Writer = os.Stdout
-		err = rep.Report(allFindings, outputWriter)
+		err = rep.Report(displayedFindings, outputWriter)
 		if err != nil {
 			return fmt.Errorf("error generating report: %w", err)
 		}
@@ -338,42 +144,45 @@ Arit - Static Analysis for Clojure Code
 	},
 }
 
+var (
+	formatFlag              string
+	verboseFlag             bool
+	timingFlag              bool
+	quietFlag               bool
+	countFindingFlag        bool
+	includeContextualFlag   bool
+	analyzeTestsFlag        bool
+	maxWorkersFlag          int
+	semanticDiagnosticsFlag string
+
+	// Advanced Semantic Features
+	expCrossNsFlag        bool
+	expTypeInferenceFlag  bool
+	expAsyncCfgFlag       bool
+	expMacroExpansionFlag bool
+	inlineSuppressionFlag bool
+)
+
 func Execute() error {
 	return rootCmd.Execute()
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, json-snippet, html, markdown, csv)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "summary", "Output format (summary, text, json, json-snippet, html, markdown, csv, sarif)")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&timingFlag, "timing", "t", false, "Show execution time")
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
 	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
-}
+	rootCmd.PersistentFlags().BoolVar(&includeContextualFlag, "include-contextual", false, "Include possible contextual findings in the output")
+	rootCmd.PersistentFlags().BoolVar(&analyzeTestsFlag, "analyze-tests", false, "Include test files in the analysis")
+	rootCmd.PersistentFlags().IntVar(&maxWorkersFlag, "max-workers", 0, "Limit parallel file analysis workers (0 uses the automatic default)")
+	rootCmd.PersistentFlags().StringVar(&semanticDiagnosticsFlag, "semantic-diagnostics", "", "Write semantic candidate diagnostics as JSON to a file")
 
-func findClojureFiles(dir string) ([]string, error) {
-	var files []string
-
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Error accessing path %q: %v\n", path, err)
-			return nil
-		}
-		if !info.IsDir() {
-			ext := strings.ToLower(filepath.Ext(path))
-
-			if ext == ".clj" || ext == ".cljs" || ext == ".cljc" {
-				files = append(files, path)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error walking the path %q: %w", dir, err)
-	}
-
-	sort.Strings(files)
-
-	return files, nil
+	rootCmd.PersistentFlags().BoolVar(&expCrossNsFlag, "experimental-cross-ns", false, "Enable 2-pass cross-namespace resolution (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&expTypeInferenceFlag, "experimental-types", false, "Enable static type inference and metadata propagation (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&expAsyncCfgFlag, "experimental-async-cfg", false, "Enable core.async channel flow analysis (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&expMacroExpansionFlag, "experimental-macro-expansion", false, "Enable internal macro micro-expansion (Experimental)")
+	rootCmd.PersistentFlags().BoolVar(&inlineSuppressionFlag, "inline-suppression", true, "Enable parsing of inline comment directives like ; arit:disable-next-line")
 }
 
 var _ = rules.Rule{}

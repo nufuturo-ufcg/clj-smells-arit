@@ -17,7 +17,7 @@
 (defn update-state [k v]
   (reset! state (assoc @state k v)))
 
-;; Example 4: Using set! to mutate a local Java field (mutable state) (Analisar hidden-side-effect; OBS: Possivelmente esse caso deveria estar nos casos para java)
+;; Example 4: Using set! to mutate a local Java field (mutable state) (Analyze as hidden-side-effect; NOTE: this case may belong with the Java cases)
 (defn mutate-java-field [^java.util.concurrent.atomic.AtomicInteger ai]
   (set! (.value ai) 10))
 
@@ -114,3 +114,28 @@
 (defn update-nested [m ks f]
   (update-in m ks f))
 
+;; Generated definitions inside macro templates execute at the caller's top level.
+(defmacro define-setting [setting-name value]
+  `(def ~setting-name ~value))
+
+;; A locally shadowed symbol is not clojure.core/def.
+(defn shadowed-def-call [def]
+  (def :not-a-definition))
+
+;; ref-set without a transaction is a definite transactional violation.
+(def shared-ref (ref 0))
+(defn unsafe-ref-update []
+  (ref-set shared-ref 1))
+
+(defn safe-ref-update []
+  (dosync (ref-set shared-ref 2)))
+
+;; A grouped case constant is data, not an executable def call.
+(defn case-data []
+  (case :x
+    (def defonce goog-define) :declaration-data
+    :default))
+
+;; An explicit array type hint proves the mutation target.
+(defn mutate-typed-array [^{:tag ints} arr idx val]
+  (aset-int arr idx val))

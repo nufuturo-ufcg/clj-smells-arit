@@ -3,6 +3,17 @@
 # Binários compilados
 arit
 *.exe
+*.test
+
+# Arquivos locais arquivados fora do projeto
+_archive/
+
+# Diretórios ocultos locais, em qualquer nível
+**/.*/
+
+# Caches e bytecode de ferramentas auxiliares
+__pycache__/
+*.pyc
 
 # Repositórios e projetos de benchmark externos
 Common-Metadata-Repository/
@@ -51,5 +62,15 @@ tmp/test_if.clj
 internal/test_if.clj
 internal/test_ast/
 tmp/
+internal-tools/
 teste.md
 test_if_let.clj
+
+# Relatórios, Scratch e Skills gerados pelo experimento
+*.md
+!README.md
+!CONTEXTUAL_FINDINGS_POLICY.md
+skills/
+reports/
+scratch/
+tarefas/

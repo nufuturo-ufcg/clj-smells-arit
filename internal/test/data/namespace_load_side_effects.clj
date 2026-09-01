@@ -90,3 +90,34 @@
 (defn fetch-telemetry []
   (when (System/getenv "ENABLE_TELEMETRY")
     ((requiring-resolve 'com.meu-app.telemetry/collect))))
+
+;; Unknown external macros may defer their bodies.
+(def routes
+  (external.routes/GET "/plugin" []
+    (require '[com.meu-app.plugin :as plugin])))
+
+;; Syntax-quoted dependency forms are generated data.
+(def generated-dependency
+  `(require '[com.meu-app.generated :as generated]))
+
+;; Known eager forms retain proof that the dependency loads now.
+(defonce eager-dependency
+  (do
+    (require '[com.meu-app.eager :as eager])
+    :ready))
+
+;; Local functions named like core dependency operations are unrelated.
+(defn require [value] value)
+(def local-require-result
+  (require :ordinary-value))
+
+;; A reader-conditional branch is still evaluated on its selected platform;
+;; a nested require must not disappear from the load-time analysis.
+#?(:clj
+   (do
+     (clojure.core/require '[clojure.pprint :as pp2])))
+
+;; A local function summary proves that this initializer loads a namespace.
+(defn load-dependency []
+  (clojure.core/require '[clojure.set :as set]))
+(def local-load-dependency (load-dependency))

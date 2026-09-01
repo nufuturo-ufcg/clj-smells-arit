@@ -55,8 +55,10 @@ internal/test/
 Defines what we expect a rule to find:
 ```go
 type ExpectedFinding struct {
-    Message   string  // Part of the expected message
-    StartLine int     // Line where the problem should be detected
+    Message           string           // Part of the expected message
+    StartLine         int              // Line where the problem should be detected
+    Severity          rules.Severity   // Optional expected severity
+    RequireConfidence rules.Confidence // Optional: proven or contextual
 }
 ```
 
@@ -743,4 +745,4 @@ This framework provides a structured and reliable way to test analysis rules. Us
 - Debug is a temporary tool - use it to discover messages and then return to `RunRuleTest()`
 - Test both positive and negative cases
 
-For questions or problems, check the example files in `internal/test/suite/` or use the available debug functions. 
+For questions or problems, check the example files in `internal/test/suite/` or use the available debug functions.

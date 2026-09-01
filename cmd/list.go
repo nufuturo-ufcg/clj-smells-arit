@@ -9,7 +9,7 @@ import (
 )
 
 var viewRulesCmd = &cobra.Command{
-	Use:   "list-rules",
+	Use:   "list",
 	Short: "List a simplified list of all available analysis rules",
 	Long:  `List a simplified list of all available analysis rules.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -38,6 +38,5 @@ var viewRulesCmd = &cobra.Command{
 }
 
 func init() {
-
-	rootCmd.AddCommand(viewRulesCmd)
+	rulesCmd.AddCommand(viewRulesCmd)
 }

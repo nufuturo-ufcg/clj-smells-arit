@@ -1,8 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
+	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
@@ -64,13 +64,45 @@ func isIfAssocRebindPattern(valueNode *reader.RichNode, sym string) bool {
 	}
 
 	thenBranch := valueNode.Children[2]
+	testBranch := valueNode.Children[1]
 	elseBranch := valueNode.Children[3]
 
 	if elseBranch == nil || elseBranch.Type != reader.NodeSymbol || elseBranch.Value != sym {
 		return false
 	}
 
-	return referencesSymbol(thenBranch, sym)
+	// The rewrite is not semantically equivalent when the predicate itself
+	// depends on the accumulated value. In that case the previous binding is
+	// part of the decision and must remain visible in the original if chain.
+	if referencesSymbol(testBranch, sym) {
+		return false
+	}
+
+	return isAssociativeUpdateOf(thenBranch, sym)
+}
+
+func isAssociativeUpdateOf(node *reader.RichNode, sym string) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
+		return false
+	}
+	head := node.Children[0]
+	if head == nil || head.Type != reader.NodeSymbol {
+		return false
+	}
+	if node.Children[1].Type != reader.NodeSymbol || node.Children[1].Value != sym {
+		return false
+	}
+	for _, canonicalName := range []string{
+		"clojure.core/assoc", "clojure.core/assoc-in", "clojure.core/dissoc",
+		"clojure.core/update", "clojure.core/update-in", "clojure.core/conj",
+		"cljs.core/assoc", "cljs.core/assoc-in", "cljs.core/dissoc",
+		"cljs.core/update", "cljs.core/update-in", "cljs.core/conj",
+	} {
+		if rules.CallResolvesTo(node, canonicalName) {
+			return true
+		}
+	}
+	return false
 }
 
 func referencesSymbol(node *reader.RichNode, sym string) bool {
@@ -113,7 +145,7 @@ func makeConditionalBuildUpFinding(r rules.Rule, letNode *reader.RichNode, filep
 		updateWord = "update"
 	}
 
-	return &rules.Finding{
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Same symbol '%s' is rebound with %d successive conditional %s using `(if ... (...) %s)`. Prefer `cond->` or `cond->>` for clarity.",
@@ -122,7 +154,7 @@ func makeConditionalBuildUpFinding(r rules.Rule, letNode *reader.RichNode, filep
 		Filepath: filepath,
 		Location: letNode.Location,
 		Severity: r.Severity,
-	}
+	}, "The rewrite is a stylistic simplification; the pipeline contract and readability depend on context.", "style-policy", "pipeline-contract")
 }
 
 func minBindingsChildren() int {
@@ -197,6 +229,9 @@ func (r *ConditionalBuildupRule) detectLetConditionalBuildUp(letNode *reader.Ric
 }
 
 func (r *ConditionalBuildupRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
 	}

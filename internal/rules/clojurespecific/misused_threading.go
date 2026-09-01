@@ -2,127 +2,189 @@ package clojurespecific
 
 import (
 	"fmt"
-	"strings"
+
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type MisusedThreadingRule struct {
 	rules.Rule
 }
 
-func (r *MisusedThreadingRule) Meta() rules.Rule {
-	return r.Rule
-}
+func (r *MisusedThreadingRule) Meta() rules.Rule { return r.Rule }
 
-func (r *MisusedThreadingRule) getDomain(funcName string) string {
-	// Keyword access
-	if strings.HasPrefix(funcName, ":") {
-		return "MAP"
-	}
-
-	// Methods
-	if strings.HasPrefix(funcName, ".") {
-		return "INTEROP"
-	}
-
-	switch funcName {
-	case "str", "name", "namespace", "pr-str":
-		return "STRING"
-	case "get", "first", "last", "nth", "assoc", "dissoc", "update", "update-in", "assoc-in", "keys", "vals", "select-keys":
-		return "MAP"
-	case "seq", "map", "filter", "reduce", "into", "concat", "reverse", "sort", "take", "drop", "rest", "next", "mapv", "filterv", "remove", "vector", "conj":
-		return "SEQ"
-	case "count", "pos?", "neg?", "zero?", "inc", "dec", "+", "-", "=", "boolean", "not", "and", "or", "<", ">", "<=", ">=", "empty?", "not-empty":
-		return "LOGIC"
-	case "slurp", "spit", "read-string", "println", "print", "prn":
-		return "IO"
-	}
-
-	if strings.Contains(funcName, "clojure.string") || strings.HasPrefix(funcName, "str/") || strings.HasPrefix(funcName, "string/") {
-		return "STRING"
-	}
-
-	if strings.Contains(funcName, "java.io") || strings.HasPrefix(funcName, "io/") || strings.Contains(funcName, "http") || strings.Contains(funcName, "json") || strings.Contains(funcName, "edn") {
-		return "IO"
-	}
-
-	return "UNKNOWN"
-}
-
+// Check reports only a consistent, resolved positional contradiction. A lone
+// step is not enough evidence: Clojure functions can intentionally receive the
+// threaded value in a role other than their conventional data argument.
 func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	if node.Type != reader.NodeList || len(node.Children) < 3 {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
+	direction, ok := resolvedThreadMacroDirection(node)
+	if !ok || r.IsInside(context, "__non-evaluated__") {
 		return nil
 	}
 
-	firstElement := node.Children[0]
-	if firstElement.Type != reader.NodeSymbol {
-		return nil
-	}
-	
-	if firstElement.Value != "->" && firstElement.Value != "->>" && firstElement.Value != "some->" && firstElement.Value != "some->>" {
-		return nil
+	opposite := threadFirst
+	if direction == threadFirst {
+		opposite = threadLast
 	}
 
-	domainsFound := make(map[string]bool)
-	hasLambda := false
-
-	for i := 1; i < len(node.Children); i++ {
-		step := node.Children[i]
-		
-		if step.Type == reader.NodeFnLiteral {
-			hasLambda = true
+	oppositeSteps := 0
+	provableOppositeSteps := 0
+	matchingSteps := 0
+	for _, step := range node.Children[2:] {
+		head := unwrapStepHead(step)
+		spec, resolved := resolvedThreadingStepSpec(step)
+		if !resolved || spec.direction == threadEither {
+			continue
+		}
+		if !threadedStepArityIsValid(step) {
+			continue
 		}
 
-		var funcName string
-		
-		if step.Type == reader.NodeSymbol || step.Type == reader.NodeKeyword {
-			funcName = step.Value
-		} else if step.Type == reader.NodeList && len(step.Children) > 0 {
-			firstStep := step.Children[0]
-			if firstStep.Type == reader.NodeSymbol || firstStep.Type == reader.NodeKeyword {
-				funcName = firstStep.Value
-			} else if firstStep.Type == reader.NodeFnLiteral {
-				hasLambda = true
-			}
+		if step.Type == reader.NodeList && len(step.Children) > 0 && step.Children[0] == head && len(step.Children) < spec.minArgs {
+			continue
 		}
 
-		if funcName != "" {
-			domain := r.getDomain(funcName)
-			if domain != "UNKNOWN" {
-				domainsFound[domain] = true
+		if spec.direction == direction {
+			matchingSteps++
+		} else if spec.direction == opposite {
+			oppositeSteps++
+			if provableThreadingContradiction(step, spec, direction) {
+				provableOppositeSteps++
 			}
 		}
 	}
 
-	if len(domainsFound) >= 5 || hasLambda {
-		message := fmt.Sprintf("Misused threading macro `%s`.", firstElement.Value)
-		if hasLambda {
-			message += " Using anonymous functions `#()` inside threading macros forces position and hurts readability. Consider using `as->` or a `let` block."
-		} else {
-			message += fmt.Sprintf(" The pipeline heavily mixes heterogeneous types or domains (found: %v). Consider breaking it down with `let` bindings for readability.", len(domainsFound))
-		}
-
-		return &rules.Finding{
-			RuleID:   r.Meta().ID,
-			Message:  message,
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: r.Meta().Severity,
-		}
+	if oppositeSteps < 2 || provableOppositeSteps < 2 || matchingSteps != 0 {
+		return nil
 	}
 
-	return nil
+	return &rules.Finding{
+		RuleID: r.ID,
+		Message: fmt.Sprintf(
+			"Threading macro `%s` inserts the value in the %s argument, but %d resolved pipeline steps consistently use functions whose primary data argument is the %s. Use explicit positioning or review whether `%s` expresses this pipeline more accurately.",
+			direction, threadPosition(direction), oppositeSteps, threadPosition(opposite), opposite,
+		),
+		Filepath: filepath,
+		Location: node.Location,
+		Severity: r.Severity,
+	}
+}
+
+func threadedStepArityIsValid(step *reader.RichNode) bool {
+	name := canonicalStepName(step)
+	if name == "" {
+		return false
+	}
+	known, valid := semantics.CanonicalArityValid(name, len(step.Children))
+	return !known || valid
+}
+
+func provableThreadingContradiction(step *reader.RichNode, spec threadingSpec, direction threadDirection) bool {
+	if step == nil || step.Type != reader.NodeList || len(step.Children) < 2 {
+		return false
+	}
+	if direction == threadFirst && spec.direction == threadLast {
+		// -> places the pipeline value before the explicit arguments. A known
+		// function or a definitely non-function value in the first explicit
+		// position makes the contradiction concrete for collection functions
+		// such as map/filter.
+		return isFunctionLike(step.Children[1]) || isDefinitelyNonFunction(step.Children[1])
+	}
+	if direction == threadLast && spec.direction == threadFirst {
+		first := step.Children[1]
+		if first == nil {
+			return false
+		}
+		switch canonicalStepName(step) {
+		case "clojure.core/select-keys", "select-keys", "clojure.core/get-in", "get-in":
+			if first.Type == reader.NodeVector {
+				return true
+			}
+		}
+		switch first.Type {
+		case reader.NodeKeyword, reader.NodeString, reader.NodeNumber, reader.NodeBool, reader.NodeNil:
+			return true
+		}
+	}
+	return false
+}
+
+func isFunctionLike(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	if node.Type == reader.NodeFnLiteral {
+		return true
+	}
+	if node.Type == reader.NodeList && len(node.Children) == 1 && node.Children[0] != nil && node.Children[0].Type == reader.NodeFnLiteral {
+		return true
+	}
+	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol &&
+		(node.Children[0].Value == "fn" || node.Children[0].Value == "clojure.core/fn") {
+		return true
+	}
+	if node.Type != reader.NodeSymbol {
+		return false
+	}
+	name := node.Value
+	if node.Resolution != nil {
+		name = node.Resolution.CanonicalName
+	}
+	for _, candidate := range []string{
+		"inc", "dec", "identity", "even?", "odd?", "neg?", "pos?", "some?", "nil?", "string?", "number?", "true?", "false?",
+		"seq", "reverse", "file", "clojure.java.io/file",
+	} {
+		if name == candidate || name == "clojure.core/"+candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func isDefinitelyNonFunction(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type {
+	case reader.NodeKeyword, reader.NodeString, reader.NodeNumber, reader.NodeBool,
+		reader.NodeNil, reader.NodeVector, reader.NodeMap, reader.NodeSet:
+		return true
+	default:
+		return false
+	}
+}
+
+func canonicalStepName(step *reader.RichNode) string {
+	if step == nil || len(step.Children) == 0 || step.Children[0] == nil || step.Children[0].Type != reader.NodeSymbol {
+		return ""
+	}
+	if name := semantics.CallName(step); name != "" {
+		return name
+	}
+	if step.Children[0].Resolution != nil {
+		return step.Children[0].Resolution.CanonicalName
+	}
+	return step.Children[0].Value
+}
+
+func threadPosition(direction threadDirection) string {
+	if direction == threadFirst {
+		return "first"
+	}
+	return "last"
 }
 
 func init() {
-	defaultRule := &MisusedThreadingRule{
+	rules.RegisterRule(&MisusedThreadingRule{
 		Rule: rules.Rule{
 			ID:          "misused-threading",
 			Name:        "Misused Threading",
-			Description: "Detects threading macros (->, ->>) that chain together completely heterogeneous operations, hurting readability.",
+			Description: "Detects threading pipelines only when resolved call semantics consistently contradict the macro's argument position.",
 			Severity:    rules.SeverityWarning,
 		},
-	}
-	rules.RegisterRule(defaultRule)
+	})
 }

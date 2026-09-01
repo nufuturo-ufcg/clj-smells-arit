@@ -17,14 +17,19 @@ import (
 )
 
 type ExpectedFinding struct {
-	Message   string
-	StartLine int
+	Message              string
+	StartLine            int
+	Severity             rules.Severity
+	RequireConfidence    rules.Confidence
+	RequireContextual    bool
+	RequireNonContextual bool
 }
 
 type RuleTestCase struct {
-	FileToAnalyze    string
-	RuleID           string
-	ExpectedFindings []ExpectedFinding
+	FileToAnalyze     string
+	RuleID            string
+	ExpectedFindings  []ExpectedFinding
+	ForbiddenFindings []ExpectedFinding
 }
 
 func RunRuleTest(t *testing.T, tc RuleTestCase) {
@@ -81,11 +86,35 @@ func RunRuleTest(t *testing.T, tc RuleTestCase) {
 						matched = true
 						assert.Equal(t, tc.RuleID, f.RuleID,
 							"Incorrect RuleID for finding on line %d", expected.StartLine)
+						if expected.Severity != "" {
+							assert.Equal(t, expected.Severity, f.Severity,
+								"Incorrect severity for finding on line %d", expected.StartLine)
+						}
+						if expected.RequireConfidence != "" {
+							assert.Equal(t, expected.RequireConfidence, f.Confidence,
+								"Incorrect confidence for finding on line %d", expected.StartLine)
+						}
+						if expected.RequireContextual {
+							assert.True(t, f.Contextual, "Expected contextual finding on line %d", expected.StartLine)
+						}
+						if expected.RequireNonContextual {
+							assert.False(t, f.Contextual, "Expected non-contextual finding on line %d", expected.StartLine)
+						}
 						break
 					}
 				}
 				assert.True(t, matched,
 					"Expected finding on line %d with message containing %q, but none matched", expected.StartLine, expected.Message)
+			}
+		})
+	}
+
+	for i, forbidden := range tc.ForbiddenFindings {
+		t.Run(fmt.Sprintf("Forbidden_%d_line_%d", i+1, forbidden.StartLine), func(t *testing.T) {
+			for _, finding := range actualFindings[forbidden.StartLine] {
+				if forbidden.Message == "" || strings.Contains(finding.Message, forbidden.Message) {
+					t.Errorf("Unexpected finding on line %d: %s", forbidden.StartLine, finding.Message)
+				}
 			}
 		})
 	}

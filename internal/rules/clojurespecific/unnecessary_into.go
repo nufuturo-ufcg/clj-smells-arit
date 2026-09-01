@@ -1,231 +1,146 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
+	"fmt"
+
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type UnnecessaryIntoRule struct {
 	rules.Rule
+	// Retained for configuration compatibility. Generic type conversions and
+	// map rewrites do not currently meet the rule's precision contract.
 	CheckTypeTransformations bool `json:"check_type_transformations" yaml:"check_type_transformations"`
 	CheckMapMapping          bool `json:"check_map_mapping" yaml:"check_map_mapping"`
 	CheckTransducerAPI       bool `json:"check_transducer_api" yaml:"check_transducer_api"`
 }
 
-func (r *UnnecessaryIntoRule) Meta() rules.Rule {
-	return r.Rule
+func (r *UnnecessaryIntoRule) Meta() rules.Rule { return r.Rule }
+
+type transducerStepSpec struct {
+	canonical string
+	args      int
+	xformArg  string
 }
 
-var typeTransformationPatterns = map[string]string{
-	"[]":  "vec",
-	"#{}": "set",
-	"()":  "seq",
+// These operations have a transducer arity whose arguments are exactly the
+// lazy arity minus its final source collection. Operations such as pmap,
+// mapv, filterv, for and flatten are deliberately absent.
+var fusibleTransducerSteps = []transducerStepSpec{
+	{"clojure.core/map", 2, "f"},
+	{"clojure.core/filter", 2, "pred"},
+	{"clojure.core/remove", 2, "pred"},
+	{"clojure.core/keep", 2, "f"},
+	{"clojure.core/map-indexed", 2, "f"},
+	{"clojure.core/keep-indexed", 2, "f"},
+	{"clojure.core/take", 2, "n"},
+	{"clojure.core/drop", 2, "n"},
+	{"clojure.core/take-while", 2, "pred"},
+	{"clojure.core/drop-while", 2, "pred"},
+	{"clojure.core/distinct", 1, ""},
+	{"clojure.core/dedupe", 1, ""},
 }
 
-func isEmptyCollection(node *reader.RichNode) (bool, string) {
+func exactFusibleTransducerStep(node *reader.RichNode, context map[string]interface{}) (transducerStepSpec, bool) {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
+		return transducerStepSpec{}, false
+	}
+	facts := rules.FactsForNode(node, context)
+	for _, spec := range fusibleTransducerSteps {
+		if len(node.Children)-1 == spec.args && facts.CallMode == semantics.CallModeCollection && rules.HasProvenCallShape(facts) && semanticCallMatches(facts, node, spec.canonical) {
+			return spec, true
+		}
+	}
+	return transducerStepSpec{}, false
+}
+
+func semanticCallMatches(facts *semantics.Facts, node *reader.RichNode, canonical string) bool {
+	return facts != nil && rules.HasProvenCallShape(facts) && semantics.CallName(node) == canonical
+}
+
+func isPlainEmptyVector(node *reader.RichNode) bool {
+	return node != nil && node.Type == reader.NodeVector && len(node.Children) == 0 && node.Metadata == nil
+}
+
+func shortCanonicalName(canonical string) string {
+	for i := len(canonical) - 1; i >= 0; i-- {
+		if canonical[i] == '/' {
+			return canonical[i+1:]
+		}
+	}
+	return canonical
+}
+
+func hasKnownReductionProtocol(node *reader.RichNode) bool {
 	if node == nil {
-		return false, ""
+		return false
 	}
-
 	switch node.Type {
-	case reader.NodeVector:
-		if len(node.Children) == 0 {
-			return true, "[]"
-		}
-	case reader.NodeSet:
-		if len(node.Children) == 0 {
-			return true, "#{}"
-		}
-	case reader.NodeList:
-		if len(node.Children) == 0 {
-			return true, "()"
-		}
-	}
-
-	return false, ""
-}
-
-func isMapFunction(funcName string) bool {
-	mapFunctions := map[string]bool{
-		"map":    true,
-		"mapcat": true,
-		"mapv":   true,
-		"pmap":   true,
-	}
-	return mapFunctions[funcName]
-}
-
-func isFilterFunction(funcName string) bool {
-	filterFunctions := map[string]bool{
-		"filter":       true,
-		"remove":       true,
-		"keep":         true,
-		"keep-indexed": true,
-		"distinct":     true,
-		"take":         true,
-		"drop":         true,
-		"take-while":   true,
-		"drop-while":   true,
-	}
-	return filterFunctions[funcName]
-}
-
-func (r *UnnecessaryIntoRule) checkTypeTransformation(node *reader.RichNode) *rules.Finding {
-
-	if len(node.Children) == 3 {
-		firstArg := node.Children[1]
-		secondArg := node.Children[2]
-
-		if isEmpty, collType := isEmptyCollection(firstArg); isEmpty {
-			if replacement, exists := typeTransformationPatterns[collType]; exists {
-				meta := r.Meta()
-				return &rules.Finding{
-					RuleID:   meta.ID,
-					Message:  "Unnecessary use of 'into' for type transformation. Use '(" + replacement + " " + getNodeText(secondArg) + ")' instead of '(into " + collType + " " + getNodeText(secondArg) + ")' for better readability and performance.",
-					Filepath: "",
-					Location: node.Location,
-					Severity: meta.Severity,
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (r *UnnecessaryIntoRule) checkMapMapping(node *reader.RichNode) *rules.Finding {
-
-	if len(node.Children) == 3 {
-		firstArg := node.Children[1]
-		secondArg := node.Children[2]
-
-		if isEmpty, collType := isEmptyCollection(firstArg); isEmpty && collType == "{}" {
-
-			if secondArg.Type == reader.NodeList && len(secondArg.Children) > 0 {
-				if funcNode := secondArg.Children[0]; funcNode.Type == reader.NodeSymbol {
-					funcName := funcNode.Value
-					if isMapFunction(funcName) {
-						meta := r.Meta()
-						return &rules.Finding{
-							RuleID:   meta.ID,
-							Message:  "Inefficient map mapping with 'into'. Consider using 'reduce-kv' for better performance when transforming map values: (reduce-kv (fn [m k v] (assoc m k (f v))) {} m)",
-							Filepath: "",
-							Location: node.Location,
-							Severity: meta.Severity,
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (r *UnnecessaryIntoRule) checkTransducerAPI(node *reader.RichNode) *rules.Finding {
-
-	if len(node.Children) == 3 {
-		firstArg := node.Children[1]
-		secondArg := node.Children[2]
-
-		if secondArg.Type == reader.NodeList && len(secondArg.Children) >= 3 {
-			if funcNode := secondArg.Children[0]; funcNode.Type == reader.NodeSymbol {
-				funcName := funcNode.Value
-				if isMapFunction(funcName) || isFilterFunction(funcName) {
-					meta := r.Meta()
-					// Verificar se há pelo menos 4 elementos antes de acessar índice [3]
-					var message string
-					if len(secondArg.Children) > 3 {
-						message = "Consider using transducer API for better performance. Use '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + ")' instead of '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + " " + getNodeText(secondArg.Children[3]) + "))' to leverage transducers."
-					} else {
-						message = "Consider using transducer API for better performance. Use '(into " + getNodeText(firstArg) + " (" + funcName + " " + getNodeText(secondArg.Children[1]) + " " + getNodeText(secondArg.Children[2]) + ")' to leverage transducers."
-					}
-					return &rules.Finding{
-						RuleID:   meta.ID,
-						Message:  message,
-						Filepath: "",
-						Location: node.Location,
-						Severity: meta.Severity,
-					}
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func getNodeText(node *reader.RichNode) string {
-	if node == nil {
-		return "nil"
-	}
-
-	switch node.Type {
-	case reader.NodeSymbol, reader.NodeKeyword, reader.NodeString, reader.NodeNumber:
-		return node.Value
-	case reader.NodeVector:
-		return "[]"
-	case reader.NodeSet:
-		return "#{}"
-	case reader.NodeMap:
-		return "{}"
-	case reader.NodeList:
-		if len(node.Children) == 0 {
-			return "()"
-		}
-		return "(...)"
+	case reader.NodeVector, reader.NodeMap, reader.NodeSet:
+		return true
 	default:
-		return "..."
+		return false
+	}
+}
+
+func intoFinding(r *UnnecessaryIntoRule, node *reader.RichNode, filepath, operation, xformForm string, contextual bool) *rules.Finding {
+	message := fmt.Sprintf(
+		"A lazy `%s` result is immediately reduced into a plain vector. Fuse its transducer arity as `(into [] %s source)`",
+		operation, xformForm,
+	)
+	if contextual {
+		finding := &rules.Finding{
+			RuleID: r.ID, Message: message + "; review whether the source reduction protocol preserves the required behavior.",
+			Filepath: filepath, Location: node.Location, Severity: r.Severity,
+		}
+		return rules.SetContextualFindingWithEvidence(finding,
+			"Fusion equivalence depends on the source collection's reduction protocol.",
+			"source-type", "source-reduction-protocol")
+	}
+	return &rules.Finding{
+		RuleID:   r.ID,
+		Message:  message + " to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
+		Filepath: filepath,
+		Location: node.Location,
+		Severity: r.Severity,
 	}
 }
 
 func (r *UnnecessaryIntoRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-
-	if node.Type != reader.NodeList || len(node.Children) < 2 {
+	facts, intoResolved := rules.ProvenCallFacts(node, context, "clojure.core/into")
+	intoResolved = intoResolved && facts.CallMode == semantics.CallModeCollection
+	if !r.CheckTransducerAPI || r.IsInside(context, "__non-evaluated__") ||
+		!intoResolved || len(node.Children) != 3 ||
+		!isPlainEmptyVector(node.Children[1]) {
 		return nil
 	}
 
-	funcNode := node.Children[0]
-	if funcNode.Type != reader.NodeSymbol || funcNode.Value != "into" {
+	step, ok := exactFusibleTransducerStep(node.Children[2], context)
+	if !ok {
 		return nil
 	}
 
-	if r.CheckTypeTransformations {
-		if finding := r.checkTypeTransformation(node); finding != nil {
-			finding.Filepath = filepath
-			return finding
-		}
+	operation := shortCanonicalName(step.canonical)
+	xformForm := fmt.Sprintf("(%s %s)", operation, step.xformArg)
+	if step.xformArg == "" {
+		xformForm = fmt.Sprintf("(%s)", operation)
 	}
-
-	if r.CheckMapMapping {
-		if finding := r.checkMapMapping(node); finding != nil {
-			finding.Filepath = filepath
-			return finding
-		}
-	}
-
-	if r.CheckTransducerAPI {
-		if finding := r.checkTransducerAPI(node); finding != nil {
-			finding.Filepath = filepath
-			return finding
-		}
-	}
-
-	return nil
+	source := node.Children[2].Children[len(node.Children[2].Children)-1]
+	return intoFinding(r, node, filepath, operation, xformForm, !hasKnownReductionProtocol(source))
 }
 
 func init() {
-	defaultRule := &UnnecessaryIntoRule{
+	rules.RegisterRule(&UnnecessaryIntoRule{
 		Rule: rules.Rule{
 			ID:          "unnecessary-into",
 			Name:        "Unnecessary Into",
-			Description: "Detects unnecessary usage of the 'into' function when more idiomatic alternatives exist. The 'into' function is useful for combining collections, but is often misused for simple type transformations like (into [] coll) instead of (vec coll), or (into #{} coll) instead of (set coll). This rule also identifies inefficient map mapping patterns and missed opportunities to use the transducer API.",
+			Description: "Detects a lazy intermediate directly consumed by into only when an exact transducer fusion preserves a plain vector target and evaluation semantics.",
 			Severity:    rules.SeverityHint,
 		},
 		CheckTypeTransformations: true,
 		CheckMapMapping:          true,
 		CheckTransducerAPI:       true,
-	}
-
-	rules.RegisterRule(defaultRule)
+	})
 }

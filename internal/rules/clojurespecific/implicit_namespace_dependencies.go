@@ -1,8 +1,8 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"fmt"
+	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 	"sync"
 
@@ -21,7 +21,7 @@ func (r *ImplicitNamespaceDependenciesRule) Meta() rules.Rule {
 }
 
 func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	if strings.HasSuffix(filepath, "project.clj") {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
 		return nil
 	}
 	r.collectNamespaces(node, filepath)
@@ -37,37 +37,59 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 	first := node.Children[0]
 
 	if first.Type == reader.NodeKeyword && first.Value == ":use" {
-		return r.checkUseDirective(node, filepath)
+		return r.checkUseDirective(node, context, filepath)
 	}
 
 	if first.Type == reader.NodeSymbol && first.Value == "use" {
-		return r.checkStandaloneUse(node, filepath)
+		return r.checkStandaloneUse(node, context, filepath)
 	}
 
 	if first.Type == reader.NodeKeyword && first.Value == ":require" {
-		return r.checkRequireForReferAll(node, filepath)
+		return r.checkRequireForReferAll(node, context, filepath)
+	}
+
+	if first.Type == reader.NodeSymbol && strings.Contains(first.Value, "/") && rules.ProjectSemanticIndex(context) != nil {
+		return r.checkQualifiedDependency(node, context, filepath)
 	}
 
 	return nil
 }
 
-func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichNode, filepath string) *rules.Finding {
+func (r *ImplicitNamespaceDependenciesRule) checkQualifiedDependency(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	name := node.Children[0].Value
+	separator := strings.Index(name, "/")
+	if separator <= 0 {
+		return nil
+	}
+	namespace := name[:separator]
+	if isCommonOrCoreNamespace(namespace) || namespace == rules.CurrentNamespace(context) {
+		return nil
+	}
+	if resolution := node.Children[0].Resolution; resolution != nil {
+		switch resolution.Kind {
+		case reader.ResolutionJavaStatic, reader.ResolutionJavaConstructor, reader.ResolutionJavaMethod:
+			return nil
+		}
+	}
+	required, _ := context["namespace-requires"].(map[string]bool)
+	aliases, _ := context["namespace-aliases"].(map[string]string)
+	if required[namespace] || aliases[namespace] != "" {
+		return nil
+	}
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
+		RuleID:   r.ID,
+		Message:  fmt.Sprintf("Qualified namespace dependency `%s` is used without a visible local :require declaration. Declare the dependency explicitly or document the project-level loading contract.", name),
+		Filepath: filepath,
+		Location: node.Children[0].Location,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
+	}, "A qualified symbol may be provided by a project-level loader or a deliberate runtime dependency.", "namespace-loading-contract", "project-dependency-index")
+}
+
+func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	implicitNamespaces := r.extractImplicitNamespacesFromUseDirective(node)
 	if len(implicitNamespaces) == 0 {
 		return nil
-	}
-
-	if isDevOrTestFile(filepath) {
-		var filtered []string
-		for _, ns := range implicitNamespaces {
-			if !isAllowedReferAllNs(ns) {
-				filtered = append(filtered, ns)
-			}
-		}
-		implicitNamespaces = filtered
-		if len(implicitNamespaces) == 0 {
-			return nil
-		}
 	}
 
 	nsStr := strings.Join(implicitNamespaces, ", ")
@@ -75,7 +97,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichN
 		nsStr = "unknown"
 	}
 
-	return &rules.Finding{
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Implicit namespace dependency: :use directive imports all public symbols from [%s]. "+
@@ -84,11 +106,15 @@ func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichN
 		),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
-	}
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
+	}, "Broad imports may be deliberate in REPLs, scripts, or DSLs; the AST does not prove a collision or an unsuitable contract.", "namespace-import-scope", "symbol-collision-contract")
 }
 
-func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.RichNode, filepath string) *rules.Finding {
+func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if isInteropMethodCall(context) {
+		return nil
+	}
 	if r.standaloneUseHasExplicitOnly(node) {
 		return nil
 	}
@@ -98,7 +124,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.Rich
 		namespaceName = "unknown namespace"
 	}
 
-	return &rules.Finding{
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Implicit namespace dependency: standalone (use '%s) imports all public symbols. "+
@@ -107,19 +133,24 @@ func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.Rich
 		),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
+	}, "Broad imports may be deliberate in REPLs, scripts, or DSLs; the AST does not prove a collision or an unsuitable contract.", "namespace-import-scope", "symbol-collision-contract")
+}
+
+func isInteropMethodCall(context map[string]interface{}) bool {
+	parent, _ := context["parent"].(*reader.RichNode)
+	if parent == nil || parent.Type != reader.NodeList || len(parent.Children) == 0 {
+		return false
 	}
+	head := parent.Children[0]
+	if head == nil || head.Type != reader.NodeSymbol {
+		return false
+	}
+	return head.Value == "." || head.Value == ".."
 }
 
-func isDevOrTestFile(filepath string) bool {
-	return strings.HasSuffix(filepath, "_test.clj") || strings.Contains(filepath, "/dev/") || strings.Contains(filepath, "/test/") || strings.Contains(filepath, "/int-test/")
-}
-
-func isAllowedReferAllNs(nsName string) bool {
-	return nsName == "clojure.repl" || nsName == "clojure.test" || nsName == "clojure.tools.namespace.repl" || nsName == "clojure.pprint" || nsName == "alex-and-georges.debug-repl"
-}
-
-func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader.RichNode, filepath string) *rules.Finding {
+func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	var problematicNs []string
 
 	for i := 1; i < len(node.Children); i++ {
@@ -131,9 +162,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 		if r.vectorContainsReferAll(spec) {
 			if spec.Children[0].Type == reader.NodeSymbol {
 				nsName := spec.Children[0].Value
-				if !(isDevOrTestFile(filepath) && isAllowedReferAllNs(nsName)) {
-					problematicNs = append(problematicNs, nsName)
-				}
+				problematicNs = append(problematicNs, nsName)
 			}
 		}
 
@@ -152,9 +181,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 					fullNs = prefix + "." + subNs
 				}
 				if fullNs != "" {
-					if !(isDevOrTestFile(filepath) && isAllowedReferAllNs(fullNs)) {
-						problematicNs = append(problematicNs, fullNs)
-					}
+					problematicNs = append(problematicNs, fullNs)
 				}
 			}
 		}
@@ -164,7 +191,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 		return nil
 	}
 
-	return &rules.Finding{
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Implicit namespace dependency: :refer :all in :require for [%s] imports all public symbols. "+
@@ -173,8 +200,9 @@ func (r *ImplicitNamespaceDependenciesRule) checkRequireForReferAll(node *reader
 		),
 		Filepath: filepath,
 		Location: node.Location,
-		Severity: r.Severity,
-	}
+		Severity: rules.ContextualSeverity(context, r.Severity),
+		Tags:     rules.ContextualTags(context),
+	}, "Using :refer :all may be deliberate in internal APIs, REPLs, or DSLs; the AST does not prove a collision or an unsuitable contract.", "namespace-import-scope", "symbol-collision-contract")
 }
 
 func (r *ImplicitNamespaceDependenciesRule) vectorContainsReferAll(v *reader.RichNode) bool {
@@ -260,15 +288,15 @@ func (r *ImplicitNamespaceDependenciesRule) extractNameFromStandaloneArg(node *r
 }
 
 func isCommonOrCoreNamespace(prefix string) bool {
-	// clojure.core e cljs.core são sempre disponíveis sem :require
+	// clojure.core and cljs.core are always available without :require
 	if prefix == "clojure.core" || prefix == "cljs.core" {
 		return true
 	}
-	// java.lang é importado automaticamente pela JVM
+	// java.lang is imported automatically by the JVM
 	if strings.HasPrefix(prefix, "java.lang.") || prefix == "java.lang" {
 		return true
 	}
-	// ClojureScript host/browser namespaces — sempre globais, nunca declaradas em :require
+	// ClojureScript host/browser namespaces — always global and never declared in :require
 	switch prefix {
 	case "js", "goog", "Math", "console", "window", "document", "navigator",
 		"location", "history", "XMLHttpRequest", "Promise", "Error",
@@ -368,10 +396,11 @@ func (r *ImplicitNamespaceDependenciesRule) extractNamespacesFromArgs(reqNode *r
 func init() {
 	defaultRule := &ImplicitNamespaceDependenciesRule{
 		Rule: rules.Rule{
-			ID:          "implicit-namespace-dependencies",
-			Name:        "Implicit Namespace Dependencies",
-			Description: "Detects implicit namespace dependencies introduced by :use without :only, :refer :all in :require, or standalone (use ...) without :only. :use [ns :only [syms]] lists explicit imports and is not reported. Unrestricted imports cause symbol ambiguity, namespace pollution, and dependencies that static analysis tools cannot reliably resolve.",
-			Severity:    rules.SeverityWarning,
+			ID:                    "implicit-namespace-dependencies",
+			Name:                  "Implicit Namespace Dependencies",
+			Description:           "Detects implicit namespace dependencies introduced by :use without :only, :refer :all in :require, or standalone (use ...) without :only. :use [ns :only [syms]] lists explicit imports and is not reported. Unrestricted imports cause symbol ambiguity, namespace pollution, and dependencies that static analysis tools cannot reliably resolve.",
+			ContextualDescription: "It may be contextual in REPLs, scripts, DSLs, and development code; in those cases, the finding is marked contextual and appears with --include-contextual.",
+			Severity:              rules.SeverityWarning,
 		},
 	}
 

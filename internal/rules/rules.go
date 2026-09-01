@@ -12,11 +12,12 @@ import (
 )
 
 type Rule struct {
-	ID          string   `json:"id" yaml:"id"`
-	Name        string   `json:"name" yaml:"name"`
-	Description string   `json:"description" yaml:"description"`
-	Severity    Severity `json:"severity" yaml:"severity"`
-	Group       string   `json:"group" yaml:"group"`
+	ID                    string   `json:"id" yaml:"id"`
+	Name                  string   `json:"name" yaml:"name"`
+	Description           string   `json:"description" yaml:"description"`
+	ContextualDescription string   `json:"contextual_description,omitempty" yaml:"contextual_description,omitempty"`
+	Severity              Severity `json:"severity" yaml:"severity"`
+	Group                 string   `json:"group" yaml:"group"`
 }
 
 func (r *Rule) IsInside(context map[string]interface{}, formNames ...string) bool {

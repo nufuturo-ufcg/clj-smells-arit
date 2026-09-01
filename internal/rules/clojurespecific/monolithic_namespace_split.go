@@ -1,10 +1,10 @@
 package clojurespecific
 
 import (
-	"github.com/thlaurentino/arit/internal/rules"
 	"strings"
 
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules"
 )
 
 type MonolithicNamespaceSplitRule struct {
@@ -16,6 +16,9 @@ func (r *MonolithicNamespaceSplitRule) Meta() rules.Rule {
 }
 
 func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
 	if node.Type != reader.NodeList || len(node.Children) < 1 {
 		return nil
 	}
@@ -25,66 +28,53 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 		return nil
 	}
 
-	base := symbolBaseName(first.Value)
-	switch base {
-	case "load":
-		if isUnderCommentMacro(context) {
-			return nil
-		}
+	execution := rules.CurrentExecutionContext(context)
+	if execution == rules.ExecutionNonEvaluated || execution == rules.ExecutionUnknown {
+		return nil
+	}
+	switch rules.FileRole(context) {
+	case "generated", "dev", "test", "build":
+		return nil
+	}
+	namespace := strings.ToLower(rules.CurrentNamespace(context))
+	if strings.HasPrefix(namespace, "clojure.") || strings.HasPrefix(namespace, "cljs.") ||
+		strings.Contains(namespace, ".compiler") || strings.Contains(namespace, ".runtime") ||
+		strings.HasSuffix(namespace, ".test") || strings.Contains(namespace, ".test-") {
+		return nil
+	}
+
+	switch {
+	case rules.CallResolvesTo(node, "clojure.core/load"):
 		return r.finding(
 			filepath,
 			node,
 			"Use of load stitches compilation from other files into this namespace and breaks static analysis and dependency tooling. Prefer separate namespaces and require.",
+			true,
 		)
-	case "in-ns":
-		if isUnderCommentMacro(context) {
-			return nil
-		}
+	case rules.CallResolvesTo(node, "clojure.core/in-ns"):
 		return r.finding(
 			filepath,
 			node,
 			"Use of in-ns switches namespaces imperatively and is often used to continue a logical namespace across files. Prefer a proper ns form and require for each namespace.",
+			true,
 		)
 	default:
 		return nil
 	}
 }
 
-func (r *MonolithicNamespaceSplitRule) finding(filepath string, node *reader.RichNode, message string) *rules.Finding {
-	return &rules.Finding{
+func (r *MonolithicNamespaceSplitRule) finding(filepath string, node *reader.RichNode, message string, contextual bool) *rules.Finding {
+	finding := &rules.Finding{
 		RuleID:   r.ID,
 		Message:  message,
 		Filepath: filepath,
 		Location: node.Location,
 		Severity: r.Severity,
 	}
-}
-
-// symbolBaseName returns the segment after the last slash (e.g. clojure.core/load -> load).
-func symbolBaseName(sym string) string {
-	if i := strings.LastIndex(sym, "/"); i >= 0 {
-		return sym[i+1:]
+	if contextual {
+		return rules.SetContextualFindingWithEvidence(finding, "An imperative namespace change may be deliberate in REPLs, plugins, and dynamic loading mechanisms.", "namespace-lifecycle", "dynamic-loading-contract")
 	}
-	return sym
-}
-
-func isUnderCommentMacro(context map[string]interface{}) bool {
-	if context == nil {
-		return false
-	}
-	raw, ok := context["parent"]
-	if !ok {
-		return false
-	}
-	parent, ok := raw.(*reader.RichNode)
-	if !ok || parent == nil || parent.Type != reader.NodeList || len(parent.Children) < 1 {
-		return false
-	}
-	head := parent.Children[0]
-	if head.Type != reader.NodeSymbol {
-		return false
-	}
-	return symbolBaseName(head.Value) == "comment"
+	return finding
 }
 
 func init() {

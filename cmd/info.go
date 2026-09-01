@@ -9,11 +9,9 @@ import (
 )
 
 var listRulesCmd = &cobra.Command{
-	Use:   "info-rules",
-	Short: "List all available analysis rules",
-	Long: `List all available analysis rules with their descriptions.
-
-This command displays all registered rules that can be used for code analysis,
+	Use:   "info",
+	Short: "Detailed information about analysis rules",
+	Long: `Display all registered rules that can be used for code analysis,
 including their IDs, names, descriptions, and default severity levels.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 
@@ -36,6 +34,9 @@ including their IDs, names, descriptions, and default severity levels.`,
 			fmt.Printf("Name: %s\n", meta.Name)
 			fmt.Printf("Severity: %s\n", meta.Severity)
 			fmt.Printf("Description: %s\n", meta.Description)
+			if meta.ContextualDescription != "" {
+				fmt.Printf("Contextual note: %s\n", meta.ContextualDescription)
+			}
 			fmt.Println("---")
 		}
 
@@ -44,6 +45,5 @@ including their IDs, names, descriptions, and default severity levels.`,
 }
 
 func init() {
-
-	rootCmd.AddCommand(listRulesCmd)
+	rulesCmd.AddCommand(listRulesCmd)
 }

@@ -7,10 +7,10 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-// markerProtocolRule detecta (defprotocol XYZ) sem nenhum método declarado.
-// Um defprotocol vazio é um anti-padrão herdado de Java (Marker Interface),
-// que introduz sobrecarga do sistema de protocolos da JVM sem valor funcional.
-// A alternativa idiomática em Clojure é usar metadados, chaves de mapa ou Clojure Spec.
+// markerProtocolRule detects (defprotocol XYZ) with no declared methods.
+// An empty defprotocol is a Java-inherited anti-pattern (marker interface)
+// that adds JVM protocol overhead without functional value.
+// The idiomatic Clojure alternatives are metadata, map keys, or Clojure Spec.
 type markerProtocolRule struct {
 	rules.Rule
 }
@@ -20,17 +20,20 @@ func (r *markerProtocolRule) Meta() rules.Rule {
 }
 
 func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	// Nó deve ser uma lista
-	if node.Type != reader.NodeList || len(node.Children) == 0 {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
+		return nil
+	}
+	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
+		return nil
+	}
+	if rules.CurrentExecutionContext(context) != rules.ExecutionAtLoad {
+		return nil
+	}
+	if !rules.CallResolvesTo(node, "clojure.core/defprotocol") {
 		return nil
 	}
 
-	first := node.Children[0]
-	if first.Type != reader.NodeSymbol || first.Value != "defprotocol" {
-		return nil
-	}
-
-	// defprotocol precisa ter pelo menos o nome do protocolo
+	// defprotocol must have at least the protocol name
 	if len(node.Children) < 2 {
 		return nil
 	}
@@ -40,31 +43,20 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 		protocolName = node.Children[1].Value
 	}
 
-	// Conta quantos filhos são declarações de método.
-	// Um método no defprotocol é uma lista: (method-name [args] ...)
-	// Pode haver docstring (NodeString) logo após o nome — não conta como método
 	methodCount := 0
 	for i := 2; i < len(node.Children); i++ {
-		child := node.Children[i]
-		// Docstring — não é método
-		if child.Type == reader.NodeString {
-			continue
-		}
-		// Declaração de método: (method-name [args] ...)
-		if child.Type == reader.NodeList && len(child.Children) >= 1 {
-			if child.Children[0].Type == reader.NodeSymbol {
-				methodCount++
-			}
+		if isProtocolMethodDeclaration(node.Children[i]) {
+			methodCount++
 		}
 	}
 
-	// Se não há nenhum método → marker protocol
+	// If there are no methods, this is a marker protocol
 	if methodCount == 0 {
 		name := protocolName
 		if name == "" {
 			name = "anonymous"
 		}
-		return &rules.Finding{
+		return rules.SetContextualFindingWithEvidence(&rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
 				"Marker protocol: `(defprotocol %s)` has no methods. "+
@@ -74,11 +66,35 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 			),
 			Filepath: filepath,
 			Location: node.Location,
-			Severity: r.Severity,
-		}
+			Severity: rules.ContextualSeverity(context, r.Severity),
+			Tags:     rules.ContextualTags(context),
+		}, "An empty protocol may be a deliberate type marker; the AST does not prove that its use is inappropriate.", "marker-type-contract", "protocol-consumer-contract")
 	}
 
 	return nil
+}
+
+// goclj exposes metadata such as (^:export method [args]) as a leading
+// keyword in the method list. A valid declaration therefore is not limited to
+// lists whose first child is the method symbol: it is a list containing a
+// method symbol followed by at least one arity vector.
+func isProtocolMethodDeclaration(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList {
+		return false
+	}
+	methodSeen := false
+	for _, child := range node.Children {
+		if !methodSeen {
+			if child.Type == reader.NodeSymbol {
+				methodSeen = true
+			}
+			continue
+		}
+		if child.Type == reader.NodeVector {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

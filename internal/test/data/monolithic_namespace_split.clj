@@ -1,4 +1,6 @@
-(ns monolithic-namespace-split.example)
+(ns monolithic-namespace-split.example
+  (:import
+   (example SchemaLoader)))
 
 ;; ========== SHOULD BE DETECTED ==========
 
@@ -26,3 +28,15 @@
 (comment
   (load "not-executed")
   (in-ns 'not.really))
+
+;; Java static methods and similarly named namespace vars are not core/load.
+(SchemaLoader/load "schema.json")
+(example.loader/load "application-data")
+
+;; A local definition shadows clojure.core/load.
+(defn load [value] value)
+(load "local-value")
+
+;; A lexical binding shadows clojure.core/in-ns.
+(let [in-ns identity]
+  (in-ns 'local-value))

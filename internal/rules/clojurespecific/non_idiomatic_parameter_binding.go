@@ -7,21 +7,22 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-// nonIdiomaticParameterBindingRule detecta o padrão & [x] para capturar
-// um único parâmetro opcional em funções. Esse padrão é não-idiomático em Clojure:
-// força o chamador a lidar com aridade variádica quando a intenção é apenas
-// um parâmetro opcional. A forma idiomática é usar múltiplas aridades de função
-// ou um mapa de opções.
+// nonIdiomaticParameterBindingRule detects the & [x] pattern for capturing
+// a single optional function parameter. This pattern is non-idiomatic in Clojure:
+// it forces callers to handle variadic arity when only one optional parameter is needed.
+// The idiomatic form is to use multiple function arities or an options map.
 //
-// Detecta:
-//   (defn f [x & [y]] ...)       → smell: & [y] com apenas 1 elemento no vetor rest
-//   (defn f [x & [y z]] ...)     → smell: & [y z] — deveria usar mapa de opções
-//   (fn [x & [y]] ...)           → smell: lambdas também
-//   (defn- f [x & [y]] ...)      → smell: funções privadas também
+// Detects:
 //
-// NÃO detecta:
-//   (defn f [x & args] ...)      → legítimo: captura variádica aberta
-//   (defmacro m [& body] ...)    → legítimo: macros com body variádico
+//	(defn f [x & [y]] ...)       → smell: & [y] with only one element in the rest vector
+//	(defn f [x & [y z]] ...)     → smell: & [y z] — should use an options map
+//	(fn [x & [y]] ...)           → smell: lambdas as well
+//	(defn- f [x & [y]] ...)      → smell: private functions as well
+//
+// Does not detect:
+//
+//	(defn f [x & args] ...)      → valid: open variadic capture
+//	(defmacro m [& body] ...)    → valid: macros with variadic bodies
 type nonIdiomaticParameterBindingRule struct {
 	rules.Rule
 }
@@ -30,44 +31,60 @@ func (r *nonIdiomaticParameterBindingRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-// findParamVector retorna o vetor de parâmetros de um defn/fn/defn-.
-// A estrutura é: (defn name docstring? [params] body)
-// ou multi-arity: (defn name docstring? ([params] body) ...)
-func findParamVector(node *reader.RichNode) *reader.RichNode {
-	if len(node.Children) < 3 {
+// findParamVectors returns every parameter vector belonging to a defn/fn/defn-.
+// The structure is either (defn name docstring? [params] body) or a sequence
+// of arity clauses: (defn name docstring? ([params] body) ...). Looking at all
+// clauses matters because a smell can be present only in one overload.
+func findParamVectors(node *reader.RichNode) []*reader.RichNode {
+	if node == nil || len(node.Children) < 2 {
 		return nil
 	}
-	for i := 2; i < len(node.Children); i++ {
-		child := node.Children[i]
-		if child.Type == reader.NodeVector {
-			return child
-		}
-		// Pula docstring
-		if child.Type == reader.NodeString {
+
+	start := 1
+	if node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value != "fn" {
+		start = 2 // skip the defn/defn- name
+	} else if node.Children[0].Type == reader.NodeSymbol && node.Children[0].Value == "fn" &&
+		start < len(node.Children) && node.Children[start].Type == reader.NodeSymbol {
+		start++ // skip an optional name on a named fn
+	}
+	for start < len(node.Children) {
+		child := node.Children[start]
+		if child.Type == reader.NodeString || child.Type == reader.NodeMap {
+			start++ // optional docstring or metadata
 			continue
 		}
-		// Pula metadados (maps de metadados)
-		if child.Type == reader.NodeMap {
-			continue
-		}
-		// Se encontrou algo que não é vetor nem string/map, para
 		break
 	}
-	return nil
+
+	if start >= len(node.Children) {
+		return nil
+	}
+	if node.Children[start].Type == reader.NodeVector {
+		return []*reader.RichNode{node.Children[start]}
+	}
+
+	var vectors []*reader.RichNode
+	for _, child := range node.Children[start:] {
+		if child.Type != reader.NodeList || len(child.Children) == 0 || child.Children[0].Type != reader.NodeVector {
+			break
+		}
+		vectors = append(vectors, child.Children[0])
+	}
+	return vectors
 }
 
-// hasRestDestructuring verifica se um vetor de parâmetros tem & [x ...] (rest destructuring)
-// e retorna (true, contagem de elementos no vetor de rest) se encontrar.
+// hasRestDestructuring checks whether a parameter vector has & [x ...] (rest destructuring)
+// and returns (true, element count, description) if found.
 func hasRestDestructuring(paramVec *reader.RichNode) (bool, int, string) {
 	if paramVec == nil || paramVec.Type != reader.NodeVector {
 		return false, 0, ""
 	}
 	children := paramVec.Children
 	for i := 0; i < len(children)-1; i++ {
-		// Procura pelo símbolo "&"
+		// Look for the "&" symbol
 		if children[i].Type == reader.NodeSymbol && children[i].Value == "&" {
 			next := children[i+1]
-			// O padrão problemático: & [x] ou & [x y z] — rest como vetor destruturado
+			// The problematic pattern: & [x] or & [x y z] — destructured rest vector
 			if next.Type == reader.NodeVector {
 				elemCount := 0
 				names := []string{}
@@ -98,6 +115,11 @@ func (r *nonIdiomaticParameterBindingRule) Check(node *reader.RichNode, context 
 	if node.Type != reader.NodeList || len(node.Children) == 0 {
 		return nil
 	}
+	if r.IsInside(context, "__non-evaluated__", "comment") ||
+		rules.CurrentExecutionContext(context) == rules.ExecutionUnknown ||
+		parameterBindingIsInsideMacroDefinition(context) {
+		return nil
+	}
 
 	first := node.Children[0]
 	if first.Type != reader.NodeSymbol {
@@ -106,23 +128,41 @@ func (r *nonIdiomaticParameterBindingRule) Check(node *reader.RichNode, context 
 
 	sym := first.Value
 
-	// Só verifica defn, defn- e fn (não defmacro — rest args em macros são idiomáticos)
+	// Check only defn, defn-, and fn (not defmacro — variadic rest args in macros are idiomatic)
 	if sym != "defn" && sym != "defn-" && sym != "fn" {
 		return nil
 	}
-
-	// Busca o vetor de parâmetros
-	paramVec := findParamVector(node)
-	if paramVec == nil {
+	if first.Resolution != nil {
+		switch first.Resolution.Kind {
+		case reader.ResolutionLocal, reader.ResolutionNamespaceVar, reader.ResolutionJavaStatic,
+			reader.ResolutionJavaConstructor, reader.ResolutionJavaMethod:
+			return nil
+		case reader.ResolutionClojureCore:
+			if sym == "fn" && first.Resolution.CanonicalName != "clojure.core/fn" {
+				return nil
+			}
+		}
+	}
+	if sym != "fn" && parameterBindingIsInsideLexicalBinding(context) {
 		return nil
 	}
 
-	hasRest, elemCount, restDescr := hasRestDestructuring(paramVec)
-	if !hasRest {
+	// Inspect every arity. A multi-arity function may expose the problematic
+	// destructuring in only one of its clauses.
+	var elemCount int
+	var restDescr string
+	for _, paramVec := range findParamVectors(node) {
+		hasRest, count, descr := hasRestDestructuring(paramVec)
+		if hasRest {
+			elemCount, restDescr = count, descr
+			break
+		}
+	}
+	if restDescr == "" {
 		return nil
 	}
 
-	// Determina a mensagem de refatoração baseado na quantidade de parâmetros
+	// Determine the refactoring message based on the number of parameters
 	var suggestion string
 	if elemCount == 1 {
 		suggestion = "use multiple arities: ([x] (f x default)) ([x opt] ...)"
@@ -135,7 +175,7 @@ func (r *nonIdiomaticParameterBindingRule) Check(node *reader.RichNode, context 
 		fnName = " '" + node.Children[1].Value + "'"
 	}
 
-	return &rules.Finding{
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Non-idiomatic parameter binding: function%s uses `& %s` for optional params. "+
@@ -145,7 +185,34 @@ func (r *nonIdiomaticParameterBindingRule) Check(node *reader.RichNode, context 
 		Filepath: filepath,
 		Location: node.Location,
 		Severity: r.Severity,
+	}, "The parameter shape may be the deliberate contract of an optional API; the AST does not prove that multiple arities or a map would be equivalent.", "public-arity-contract", "optional-parameter-contract")
+}
+
+func parameterBindingIsInsideMacroDefinition(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 || ancestor.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		if ancestor.Children[0].Value == "defmacro" {
+			return true
+		}
 	}
+	return false
+}
+
+func parameterBindingIsInsideLexicalBinding(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 || ancestor.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		switch ancestor.Children[0].Value {
+		case "let", "let*", "loop", "loop*", "binding", "with-open":
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

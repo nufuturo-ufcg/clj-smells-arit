@@ -14,10 +14,12 @@ type Predicate func(node *reader.RichNode, context map[string]interface{}, filep
 
 // DSLRule represents a generic rule whose matching criteria and messages are dynamically defined.
 type DSLRule struct {
-	meta            Rule
-	predicates      []Predicate
-	msgBuilder      func(node *reader.RichNode, context map[string]interface{}) string
-	severityBuilder func(node *reader.RichNode, context map[string]interface{}, defaultSev Severity) Severity
+	meta               Rule
+	predicates         []Predicate
+	msgBuilder         func(node *reader.RichNode, context map[string]interface{}) string
+	severityBuilder    func(node *reader.RichNode, context map[string]interface{}, defaultSev Severity) Severity
+	contextualReason   string
+	contextualEvidence []string
 }
 
 // Meta returns the rule metadata.
@@ -37,7 +39,7 @@ func (r *DSLRule) Check(node *reader.RichNode, context map[string]interface{}, f
 	if r.severityBuilder != nil {
 		sev = r.severityBuilder(node, context, sev)
 	}
-	return &Finding{
+	finding := &Finding{
 		RuleID:         r.meta.ID,
 		Message:        message,
 		Filepath:       filepath,
@@ -45,6 +47,10 @@ func (r *DSLRule) Check(node *reader.RichNode, context map[string]interface{}, f
 		Severity:       sev,
 		ASTFingerprint: ComputeFingerprint(node),
 	}
+	if r.contextualReason != "" {
+		return SetContextualFindingWithEvidence(finding, r.contextualReason, r.contextualEvidence...)
+	}
+	return finding
 }
 
 // Builder provides a fluent API to construct DSLRule instances.
@@ -126,6 +132,21 @@ func (b *Builder) MessageFunc(msgBuilder func(node *reader.RichNode, context map
 // SeverityFunc sets a dynamic severity builder function for the rule finding.
 func (b *Builder) SeverityFunc(sevBuilder func(node *reader.RichNode, context map[string]interface{}, defaultSev Severity) Severity) *Builder {
 	b.rule.severityBuilder = sevBuilder
+	return b
+}
+
+// Contextual marks matches of this rule as review candidates. It does not
+// disable the detector; the CLI can expose them with --include-contextual.
+func (b *Builder) Contextual(reason string) *Builder {
+	b.rule.contextualReason = reason
+	return b
+}
+
+// ContextualWithEvidence marks matches as review candidates and records the
+// facts that must be supplied before a match can become proven.
+func (b *Builder) ContextualWithEvidence(reason string, evidence ...string) *Builder {
+	b.rule.contextualReason = reason
+	b.rule.contextualEvidence = append([]string(nil), evidence...)
 	return b
 }
 
