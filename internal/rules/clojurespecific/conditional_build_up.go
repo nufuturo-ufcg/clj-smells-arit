@@ -89,16 +89,20 @@ func isAssociativeUpdateOf(node *reader.RichNode, sym string) bool {
 	if head == nil || head.Type != reader.NodeSymbol {
 		return false
 	}
-	name := head.Value
-	for _, prefix := range []string{"clojure.core/", "cljs.core/"} {
-		name = strings.TrimPrefix(name, prefix)
-	}
-	switch name {
-	case "assoc", "assoc-in", "dissoc", "update", "update-in", "conj":
-		return node.Children[1].Type == reader.NodeSymbol && node.Children[1].Value == sym
-	default:
+	if node.Children[1].Type != reader.NodeSymbol || node.Children[1].Value != sym {
 		return false
 	}
+	for _, canonicalName := range []string{
+		"clojure.core/assoc", "clojure.core/assoc-in", "clojure.core/dissoc",
+		"clojure.core/update", "clojure.core/update-in", "clojure.core/conj",
+		"cljs.core/assoc", "cljs.core/assoc-in", "cljs.core/dissoc",
+		"cljs.core/update", "cljs.core/update-in", "cljs.core/conj",
+	} {
+		if rules.CallResolvesTo(node, canonicalName) {
+			return true
+		}
+	}
+	return false
 }
 
 func referencesSymbol(node *reader.RichNode, sym string) bool {
@@ -141,7 +145,7 @@ func makeConditionalBuildUpFinding(r rules.Rule, letNode *reader.RichNode, filep
 		updateWord = "update"
 	}
 
-	return &rules.Finding{
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Same symbol '%s' is rebound with %d successive conditional %s using `(if ... (...) %s)`. Prefer `cond->` or `cond->>` for clarity.",
@@ -150,7 +154,7 @@ func makeConditionalBuildUpFinding(r rules.Rule, letNode *reader.RichNode, filep
 		Filepath: filepath,
 		Location: letNode.Location,
 		Severity: r.Severity,
-	}
+	}, "The rewrite is a stylistic simplification; the pipeline contract and readability depend on context.", "style-policy", "pipeline-contract")
 }
 
 func minBindingsChildren() int {

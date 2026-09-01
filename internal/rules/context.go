@@ -16,9 +16,11 @@ func MarkContextualFinding(finding *Finding) {
 		return
 	}
 	if finding.Contextual {
+		finding.Confidence = ConfidenceContextual
 		if finding.ContextualReason == "" {
-			finding.ContextualReason = "A classificação depende do contexto do arquivo ou do contrato do código."
+			finding.ContextualReason = "The classification depends on the file context or the code contract."
 		}
+		ensureMissingEvidence(finding)
 		appendContextualTag(finding)
 		return
 	}
@@ -26,12 +28,17 @@ func MarkContextualFinding(finding *Finding) {
 		switch tag {
 		case "contextual", "contract-dependent", "producer-only", "external-transaction-unknown", "conditional-load":
 			finding.Contextual = true
+			finding.Confidence = ConfidenceContextual
 			if finding.ContextualReason == "" {
-				finding.ContextualReason = "A classificação depende do contexto do arquivo ou do contrato do código."
+				finding.ContextualReason = "The classification depends on the file context or the code contract."
 			}
+			ensureMissingEvidence(finding)
 			appendContextualTag(finding)
 			return
 		}
+	}
+	if finding.Confidence == "" {
+		finding.Confidence = ConfidenceProven
 	}
 }
 
@@ -40,15 +47,32 @@ func MarkContextualFinding(finding *Finding) {
 // Rules should use this only when the evidence is insufficient to call the
 // occurrence a real issue independently of its contract or lifecycle.
 func SetContextualFinding(finding *Finding, reason string) *Finding {
+	return SetContextualFindingWithEvidence(finding, reason)
+}
+
+// SetContextualFindingWithEvidence marks a finding as contextual and records
+// the evidence that must be supplied before it can become proven.
+func SetContextualFindingWithEvidence(finding *Finding, reason string, missingEvidence ...string) *Finding {
 	if finding == nil {
 		return nil
 	}
 	finding.Contextual = true
+	finding.Confidence = ConfidenceContextual
 	if reason != "" {
 		finding.ContextualReason = reason
 	}
+	if len(missingEvidence) > 0 {
+		finding.MissingEvidence = append([]string(nil), missingEvidence...)
+	}
+	ensureMissingEvidence(finding)
 	appendContextualTag(finding)
 	return finding
+}
+
+func ensureMissingEvidence(finding *Finding) {
+	if finding != nil && len(finding.MissingEvidence) == 0 {
+		finding.MissingEvidence = []string{"external-contract"}
+	}
 }
 
 func appendContextualTag(finding *Finding) {
@@ -86,7 +110,9 @@ func FileRole(context map[string]interface{}) string {
 }
 
 // ContextualSeverity keeps structurally relevant findings visible while
-// lowering confidence for objectively non-production source roles.
+// lowering severity for objectively non-production source roles. Source role
+// is deliberately not contextuality: a proven defect in a fixture is still a
+// proven defect.
 func ContextualSeverity(context map[string]interface{}, defaultSeverity Severity) Severity {
 	if IsContextualSource(context) {
 		return SeverityHint
@@ -95,10 +121,9 @@ func ContextualSeverity(context map[string]interface{}, defaultSeverity Severity
 }
 
 func ContextualTags(context map[string]interface{}) []string {
-	if !IsContextualSource(context) {
-		return nil
-	}
-	return []string{"contextual", "low-confidence"}
+	// Kept for compatibility with existing rule code. Source role is stored on
+	// Finding.SourceRole by the analyzer and must not hide a proven finding.
+	return nil
 }
 
 func IsContextualSource(context map[string]interface{}) bool {

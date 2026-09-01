@@ -17,9 +17,12 @@ import (
 )
 
 type ExpectedFinding struct {
-	Message   string
-	StartLine int
-	Severity  rules.Severity
+	Message              string
+	StartLine            int
+	Severity             rules.Severity
+	RequireConfidence    rules.Confidence
+	RequireContextual    bool
+	RequireNonContextual bool
 }
 
 type RuleTestCase struct {
@@ -86,6 +89,16 @@ func RunRuleTest(t *testing.T, tc RuleTestCase) {
 						if expected.Severity != "" {
 							assert.Equal(t, expected.Severity, f.Severity,
 								"Incorrect severity for finding on line %d", expected.StartLine)
+						}
+						if expected.RequireConfidence != "" {
+							assert.Equal(t, expected.RequireConfidence, f.Confidence,
+								"Incorrect confidence for finding on line %d", expected.StartLine)
+						}
+						if expected.RequireContextual {
+							assert.True(t, f.Contextual, "Expected contextual finding on line %d", expected.StartLine)
+						}
+						if expected.RequireNonContextual {
+							assert.False(t, f.Contextual, "Expected non-contextual finding on line %d", expected.StartLine)
 						}
 						break
 					}

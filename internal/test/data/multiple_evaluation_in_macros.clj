@@ -5,7 +5,7 @@
 ;; Example 1: Basic double evaluation of macro argument in syntax quote
 (defmacro double-eval-basic [expr]
   `(do
-     (println "Executando:" ~expr)
+     (println "Executing:" ~expr)
      ~expr))
 
 ;; Example 2: Unhygienic macro duplicating expression in arithmetic operation
@@ -35,7 +35,7 @@
   `(try
      ~expr
      (catch Exception e#
-       (println "Falhou ao avaliar:" ~expr))))
+       (println "Evaluation failed:" ~expr))))
 
 ;; Example 7: Macro argument evaluated multiple times in map construction
 (defmacro pair-value [expr]
@@ -55,8 +55,8 @@
 ;; Example 10: Triple evaluation of assertion expression in error messaging
 (defmacro assert-verbose [expr]
   `(if ~expr
-     (println "Sucesso com valor:" ~expr)
-     (throw (Exception. (str "Falhou no teste da expressão: " ~expr)))))
+     (println "Value succeeded:" ~expr)
+     (throw (Exception. (str "Expression test failed: " ~expr)))))
 
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
@@ -85,7 +85,7 @@
 ;; Example 15: Argument evaluated once and quoted (') for metadata/logging (False Positive)
 (defmacro trace-ast-safe [expr]
   `(do
-     (println "AST estática:" '~expr) ;; Quoted: static data, 0 evaluations
+     (println "Static AST:" '~expr) ;; Quoted: static data, 0 evaluations
      ~expr))                          ;; Single runtime evaluation
 
 ;; Example 16: Argument used in mutually exclusive cond branches (False Positive)
@@ -162,3 +162,14 @@
   `(do
      (defprotocol GeneratedPath (navigate [~@params]))
      (defrichnav GeneratedPath ~params)))
+
+;; A declaration symbol used in defn, var, and fn positions is not evaluated.
+(defmacro declaration-name-safe [name]
+  `(do
+     (defn ~name [] 1)
+     (var ~name)
+     (fn ~name [] 1)))
+
+;; Reader-conditional branches are selected during macro expansion.
+(defmacro compile-branch-safe [expr]
+  `(if-cljs ~expr ~expr))

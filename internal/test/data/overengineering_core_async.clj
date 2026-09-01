@@ -1,5 +1,6 @@
 (ns overengineering-core-async
-  (:require [clojure.core.async :as a]))
+  (:require [clojure.core.async :as a]
+            [example.async :as custom]))
 
 (defn one-value [x]
   (let [c (a/chan 1)]
@@ -27,4 +28,14 @@
   (let [c (a/chan 1)]
     (proxy [java.nio.channels.CompletionHandler] []
       (completed [value attachment] (a/put! c value)))
+    c))
+
+(defn external-channel [x]
+  (let [c (custom/chan 1)]
+    (custom/put! c x)
+    c))
+
+(defn local-channel-name [x]
+  (let [chan (fn [_] nil)
+        c (chan 1)]
     c))

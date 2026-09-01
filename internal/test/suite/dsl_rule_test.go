@@ -11,10 +11,10 @@ import (
 )
 
 func init() {
-	// Registra a regra DSL de teste durante a inicialização do pacote
+	// Register the test DSL rule during package initialization
 	rules.NewRule("test-dsl-rule").
 		Name("Test DSL Rule").
-		Description("Detecta chamadas a test-func com um número como argumento.").
+		Description("Detects calls to test-func with a number as an argument.").
 		Severity(rules.SeverityInfo).
 		When(rules.IsList()).
 		When(rules.HasChildrenCount(2)).
@@ -46,7 +46,7 @@ func TestDSLRule(t *testing.T) {
 }
 
 func TestDSLConfigLookup(t *testing.T) {
-	// Cria uma regra DSL que utiliza as configurações passadas no contexto
+	// Create a DSL rule that uses the configuration supplied in the context
 	rule := rules.NewRule("test-dsl-config-rule").
 		When(func(node *reader.RichNode, context map[string]interface{}, filepath string) bool {
 			val := rules.GetConfigInt(context, "test-dsl-config-rule", "test_key", 10)
@@ -57,12 +57,12 @@ func TestDSLConfigLookup(t *testing.T) {
 
 	node := &reader.RichNode{}
 
-	// Caso 1: Sem arquivo/objeto de configuração no contexto
-	// Deve retornar o padrão (10 != 42), fazendo o predicado falhar (retorna nil)
+	// Case 1: No configuration file/object in the context
+	// It should return the default (10 != 42), causing the predicate to fail (return nil)
 	finding1 := rule.Check(node, map[string]interface{}{}, "test.clj")
 	assert.Nil(t, finding1)
 
-	// Caso 2: Configuração presente, mas com valor diferente
+	// Case 2: Configuration is present but has a different value
 	cfgWrong := &config.Config{
 		RuleConfig: map[string]config.RuleSettings{
 			"test-dsl-config-rule": {
@@ -73,8 +73,8 @@ func TestDSLConfigLookup(t *testing.T) {
 	findingWrong := rule.Check(node, map[string]interface{}{"config": cfgWrong}, "test.clj")
 	assert.Nil(t, findingWrong)
 
-	// Caso 3: Configuração correta presente (valor = 42)
-	// Predicado deve passar e retornar o Finding correto
+	// Case 3: Correct configuration is present (value = 42)
+	// The predicate should pass and return the correct Finding
 	cfgCorrect := &config.Config{
 		RuleConfig: map[string]config.RuleSettings{
 			"test-dsl-config-rule": {
@@ -107,7 +107,7 @@ func TestNewPredicates(t *testing.T) {
 	}
 	assert.NotNil(t, descendantRule.Check(nodeWithDescendant, map[string]interface{}{}, "test.clj"))
 
-	// 2. ChildValueEquals e ChildIsSymbol
+	// 2. ChildValueEquals and ChildIsSymbol
 	childRule := rules.NewRule("test-child-shortcuts").
 		When(rules.ChildValueEquals(0, "reset!")).
 		When(rules.ChildIsSymbol(1)).

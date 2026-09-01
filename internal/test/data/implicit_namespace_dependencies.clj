@@ -21,3 +21,7 @@
 
 ;; Standalone use with :only
 (use '[clojure.string :only [join]])
+
+;; Qualified calls are not inspected without the experimental project index.
+(defn unresolved-qualified-call []
+  (project.runtime/start!))

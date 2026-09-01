@@ -14,6 +14,7 @@ func TestMisusedThreading(t *testing.T) {
 			{Message: "3 resolved pipeline steps consistently", StartLine: 6},
 			{Message: "2 resolved pipeline steps consistently", StartLine: 12},
 			{Message: "2 resolved pipeline steps consistently", StartLine: 17},
+			{Message: "2 resolved pipeline steps consistently", StartLine: 22},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 28},
@@ -28,7 +29,7 @@ func TestMisusedThreading(t *testing.T) {
 			{StartLine: 67},
 			{StartLine: 71},
 			{StartLine: 75},
-			{StartLine: 22},
+			{StartLine: 80},
 		},
 	})
 }

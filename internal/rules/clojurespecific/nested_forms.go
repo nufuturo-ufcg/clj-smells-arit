@@ -8,10 +8,6 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-// NestedFormsRule intentionally keeps the legacy configuration fields so old
-// configuration files continue to load. MaxConditionalDepth and TrackedForms
-// are deprecated: depth and membership in a broad form list are not evidence
-// that a semantics-preserving rewrite exists.
 type NestedFormsRule struct {
 	rules.Rule
 	MaxConsecutiveSameForms int      `json:"max_consecutive_same_forms" yaml:"max_consecutive_same_forms"`
@@ -73,9 +69,6 @@ func (r *NestedFormsRule) isExcludedContext(context map[string]interface{}) bool
 		return true
 	}
 
-	// A candidate rooted in a binding vector is an initializer, not a chain in
-	// the form's direct body. The inner nodes are then suppressed as
-	// continuations of that excluded root.
 	parent, _ := context["parent"].(*reader.RichNode)
 	return parent != nil && parent.Type == reader.NodeVector
 }

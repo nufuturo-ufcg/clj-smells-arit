@@ -2,15 +2,15 @@ package traditional
 
 import (
 	"github.com/thlaurentino/arit/internal/rules"
-	"sort"  
-	"strings" 
-	"sync"  
+	"sort"
+	"strings"
+	"sync"
 
-	"github.com/thlaurentino/arit/internal/reader" 
+	"github.com/thlaurentino/arit/internal/reader"
 )
 
 type CyclicDependencyRule struct {
-	rules.Rule 
+	rules.Rule
 }
 
 var (
@@ -26,8 +26,8 @@ var (
 func NewCyclicDependencyRule() *CyclicDependencyRule {
 	return &CyclicDependencyRule{
 		Rule: rules.Rule{
-			ID:          "cyclic-dependency", 
-			Name:        "Cyclic Dependency", 
+			ID:          "cyclic-dependency",
+			Name:        "Cyclic Dependency",
 			Description: "Detects when two functions call each other, creating a direct mutual recursion cycle (e.g., A calls B, and B calls A).",
 			Severity:    rules.SeverityWarning,
 		},
@@ -43,23 +43,22 @@ func (r *CyclicDependencyRule) Check(node *reader.RichNode, context map[string]i
 	defer cyclicDepMutex.Unlock()
 
 	if cyclicDepCallGraph[filepath] == nil {
-		cyclicDepCallGraph[filepath] = make(map[string]map[string]*reader.RichNode) 
-		cyclicDepFuncs[filepath] = make(map[string]bool)                            
-		cyclicDepChecked[filepath] = false     
+		cyclicDepCallGraph[filepath] = make(map[string]map[string]*reader.RichNode)
+		cyclicDepFuncs[filepath] = make(map[string]bool)
+		cyclicDepChecked[filepath] = false
 	}
 
-	callGraph := cyclicDepCallGraph[filepath] 
-	visitedFuncs := cyclicDepFuncs[filepath]  
-
+	callGraph := cyclicDepCallGraph[filepath]
+	visitedFuncs := cyclicDepFuncs[filepath]
 
 	if node.Type == reader.NodeList && len(node.Children) > 1 {
 		if node.Children[0].Type == reader.NodeSymbol {
 			head := node.Children[0]
 
-			if head.Value == "defn" || head.Value == "defn-" { // é uma função
+			if head.Value == "defn" || head.Value == "defn-" { // is a function
 
 				if node.Children[1].Type == reader.NodeSymbol {
-					funcName := node.Children[1].Value 
+					funcName := node.Children[1].Value
 
 					visitedFuncs[funcName] = true
 
@@ -81,7 +80,7 @@ func (r *CyclicDependencyRule) Check(node *reader.RichNode, context map[string]i
 		delete(cyclicDepCallGraph, filepath)
 		delete(cyclicDepFuncs, filepath)
 		delete(cyclicDepChecked, filepath)
-		
+
 		return finding
 	}
 
@@ -104,7 +103,7 @@ func collectCalls(funcDefNode *reader.RichNode, callerName string, graph map[str
 		}
 
 		for _, child := range node.Children {
-			walk(child) 
+			walk(child)
 		}
 	}
 

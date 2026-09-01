@@ -7,6 +7,12 @@
 (defn redundant-filterv [items]
   (clojure.core/doall (filterv even? items)))
 
+(defn redundant-vec [items]
+  (doall (vec items)))
+
+(defn redundant-into [items]
+  (doall (into [] items)))
+
 ;; Negative: doall may be required to materialize a lazy return value.
 (defn returned-map [items]
   (doall (map inc items)))

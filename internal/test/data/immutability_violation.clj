@@ -17,7 +17,7 @@
 (defn update-state [k v]
   (reset! state (assoc @state k v)))
 
-;; Example 4: Using set! to mutate a local Java field (mutable state) (Analisar hidden-side-effect; OBS: Possivelmente esse caso deveria estar nos casos para java)
+;; Example 4: Using set! to mutate a local Java field (mutable state) (Analyze as hidden-side-effect; NOTE: this case may belong with the Java cases)
 (defn mutate-java-field [^java.util.concurrent.atomic.AtomicInteger ai]
   (set! (.value ai) 10))
 
@@ -135,3 +135,7 @@
   (case :x
     (def defonce goog-define) :declaration-data
     :default))
+
+;; An explicit array type hint proves the mutation target.
+(defn mutate-typed-array [^{:tag ints} arr idx val]
+  (aset-int arr idx val))

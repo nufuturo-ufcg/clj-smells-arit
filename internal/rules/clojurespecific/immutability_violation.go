@@ -22,25 +22,34 @@ func isLocalRuntimeScope(context map[string]interface{}) bool {
 }
 
 func isKnownCoreMutation(node *reader.RichNode, names ...string) bool {
-	if rules.CallResolvesTo(node, names...) {
+	return rules.CallResolvesTo(node, names...)
+}
+
+func isJavaArrayTypeHint(typeHint string) bool {
+	hint := strings.TrimSpace(typeHint)
+	if strings.HasPrefix(hint, "[") || strings.HasSuffix(hint, "[]") {
 		return true
 	}
-	if node == nil || len(node.Children) == 0 || node.Children[0] == nil {
+	switch hint {
+	case "boolean", "booleans", "byte", "bytes", "char", "chars",
+		"double", "doubles", "float", "floats", "int", "ints",
+		"long", "longs", "object", "objects", "short", "shorts":
+		return true
+	default:
 		return false
 	}
-	head := node.Children[0]
-	if head.Type != reader.NodeSymbol || strings.Contains(head.Value, "/") {
+}
+
+func isProvenArrayMutation(node *reader.RichNode, context map[string]interface{}) bool {
+	if node == nil || len(node.Children) < 2 || !isLocalRuntimeScope(context) ||
+		!isKnownCoreMutation(node,
+			"clojure.core/aset", "clojure.core/aset-boolean", "clojure.core/aset-byte",
+			"clojure.core/aset-char", "clojure.core/aset-double", "clojure.core/aset-float",
+			"clojure.core/aset-int", "clojure.core/aset-long", "clojure.core/aset-short") {
 		return false
 	}
-	if head.Resolution != nil && head.Resolution.Kind != reader.ResolutionUnresolved {
-		return false
-	}
-	for _, name := range names {
-		if strings.TrimPrefix(name, "clojure.core/") == head.Value {
-			return true
-		}
-	}
-	return false
+	target := node.Children[1]
+	return target != nil && target.Type == reader.NodeSymbol && isJavaArrayTypeHint(target.TypeHint)
 }
 
 func isGeneratedOrMacroCode(context map[string]interface{}) bool {
@@ -68,6 +77,16 @@ func isCaseConstantPosition(context map[string]interface{}) bool {
 	return value
 }
 
+func isValidAlterVarRootCall(node *reader.RichNode) bool {
+	return node != nil && len(node.Children) >= 3 &&
+		rules.CallResolvesTo(node, "clojure.core/alter-var-root")
+}
+
+func isNonExecutableContext(context map[string]interface{}) bool {
+	execution := rules.CurrentExecutionContext(context)
+	return execution == rules.ExecutionNonEvaluated || execution == rules.ExecutionUnknown
+}
+
 func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	if rules.IsPathAllowed(context, r.Meta().ID, filepath) {
 		return nil
@@ -78,6 +97,9 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 	}
 
 	if isGeneratedOrMacroCode(context) {
+		return nil
+	}
+	if isNonExecutableContext(context) || r.IsInside(context, "__non-evaluated__", "comment") {
 		return nil
 	}
 	if isCaseConstantPosition(context) {
@@ -110,6 +132,22 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 		}
 	}
 
+	if isValidAlterVarRootCall(node) {
+		finding := &rules.Finding{
+			RuleID:   r.ID,
+			Message:  "Found alter-var-root mutating a Var during runtime. Review whether this global state transition is required and whether its ownership and concurrency contract are explicit.",
+			Filepath: filepath,
+			Location: head.Location,
+			Severity: r.Severity,
+			Tags:     []string{"state-mutation", "contract-dependent"},
+		}
+		return rules.SetContextualFindingWithEvidence(
+			finding,
+			"The mutation is structurally proven, but intent, ownership, lifecycle, and concurrency requirements are not visible at the call site.",
+			"ownership", "lifecycle", "concurrency-contract",
+		)
+	}
+
 	if isKnownCoreMutation(node, "clojure.core/ref-set") {
 		insideDosync, _ := context["isInsideDosync"].(bool)
 		if !insideDosync {
@@ -120,7 +158,7 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 				severity = rules.SeverityHint
 				tags = []string{"low-confidence", "external-transaction-unknown"}
 			}
-			return &rules.Finding{
+			finding := &rules.Finding{
 				RuleID:   r.ID,
 				Message:  "Found `ref-set` outside of `dosync`. Use `dosync` to ensure transactional safety with refs.",
 				Filepath: filepath,
@@ -128,6 +166,20 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 				Severity: severity,
 				Tags:     tags,
 			}
+			if insideFunction {
+				return rules.SetContextualFindingWithEvidence(finding, "The transactional scope may be established by an external contract that is not visible in this file.", "transactional-scope", "external-transaction-boundary")
+			}
+			return finding
+		}
+	}
+
+	if isProvenArrayMutation(node, context) {
+		return &rules.Finding{
+			RuleID:   r.ID,
+			Message:  "Found direct mutation of a type-hinted Java array inside a local scope. Prefer returning a new value or document the required mutable boundary.",
+			Filepath: filepath,
+			Location: head.Location,
+			Severity: r.Severity,
 		}
 	}
 
@@ -136,9 +188,10 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 
 func init() {
 	rules.RegisterRule(&ImmutabilityViolationRule{Rule: rules.Rule{
-		ID:          "immutability-violation",
-		Name:        "Immutability Violation",
-		Description: "Detects direct state mutation and violations of functional purity. Follows Clojure Style Guide recommendations for proper use of refs, atoms, agents, and avoiding global state mutation in local scopes.",
-		Severity:    rules.SeverityWarning,
+		ID:                    "immutability-violation",
+		Name:                  "Immutability Violation",
+		Description:           "Detects direct state mutation and violations of functional purity when the mutation is structurally resolved. Contextual findings identify real mutations whose ownership, lifecycle, or concurrency contract is not locally provable.",
+		ContextualDescription: "It may be contextual when alter-var-root is used deliberately for configuration, tooling, REPL lifecycle, or another explicit global-state boundary.",
+		Severity:              rules.SeverityWarning,
 	}})
 }

@@ -299,10 +299,48 @@ func unmanagedIsReturnedBinding(node *reader.RichNode, binding string) bool {
 	if node == nil {
 		return false
 	}
-	if len(node.Children) > 0 && unmanagedNodeIsSymbol(node.Children[len(node.Children)-1], binding) {
+	if len(node.Children) < 3 {
+		return false
+	}
+	return unmanagedResultMayReturnBinding(node.Children[len(node.Children)-1], binding)
+}
+
+func unmanagedResultMayReturnBinding(node *reader.RichNode, binding string) bool {
+	if node == nil {
+		return false
+	}
+	if unmanagedNodeIsSymbol(node, binding) {
 		return true
 	}
-	return false
+	if node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0] == nil ||
+		node.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	switch node.Children[0].Value {
+	case "if", "if-not":
+		if len(node.Children) >= 3 && unmanagedResultMayReturnBinding(node.Children[2], binding) {
+			return true
+		}
+		return len(node.Children) >= 4 && unmanagedResultMayReturnBinding(node.Children[3], binding)
+	case "when", "when-not", "do", "try":
+		return len(node.Children) > 1 && unmanagedResultMayReturnBinding(node.Children[len(node.Children)-1], binding)
+	case "cond":
+		for index := 2; index < len(node.Children); index += 2 {
+			if unmanagedResultMayReturnBinding(node.Children[index], binding) {
+				return true
+			}
+		}
+		return len(node.Children)%2 == 1 && unmanagedResultMayReturnBinding(node.Children[len(node.Children)-1], binding)
+	case "case":
+		for index := 3; index < len(node.Children); index += 2 {
+			if unmanagedResultMayReturnBinding(node.Children[index], binding) {
+				return true
+			}
+		}
+		return len(node.Children)%2 == 1 && unmanagedResultMayReturnBinding(node.Children[len(node.Children)-1], binding)
+	default:
+		return false
+	}
 }
 
 func unmanagedCallUsesBinding(node *reader.RichNode, binding string) bool {
@@ -388,7 +426,7 @@ func (r *UnmanagedResourceIORule) Check(node *reader.RichNode, context map[strin
 		return nil
 	}
 
-	return &rules.Finding{
+	finding := &rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"Resource created by `%s` is bound to `%s` without a proven close; use with-open or close it in finally.",
@@ -398,6 +436,10 @@ func (r *UnmanagedResourceIORule) Check(node *reader.RichNode, context map[strin
 		Severity: rules.ContextualSeverity(context, r.Severity),
 		Tags:     rules.ContextualTags(context),
 	}
+	if strings.HasPrefix(binding, "*") || strings.Contains(operation, "getInputStream") || strings.Contains(operation, "getConnection") {
+		return rules.SetContextualFindingWithEvidence(finding, "Resource ownership may belong to an external object or lifecycle that cannot be proven locally.", "resource-ownership", "resource-lifecycle")
+	}
+	return finding
 }
 
 func init() {

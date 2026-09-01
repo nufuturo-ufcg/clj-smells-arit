@@ -6,11 +6,25 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type BlockingInsideGoRule struct{ rules.Rule }
 
 func (r *BlockingInsideGoRule) Meta() rules.Rule { return r.Rule }
+
+var knownBlockingCalls = map[string]struct{}{
+	"clojure.core.async/<!!": {}, "clojure.core.async/>!!": {},
+	"clojure.core.async/alts!!": {}, "clojure.core.async/alt!!": {},
+	"Thread/sleep": {}, "java.lang.Thread/sleep": {},
+	"clojure.core/slurp": {}, "clojure.core/spit": {}, "clojure.core/await": {},
+	"clojure.java.io/reader": {}, "clojure.java.io/writer": {},
+	"clojure.java.io/input-stream": {}, "clojure.java.io/output-stream": {},
+	"clojure.java.jdbc/execute!": {}, "clojure.java.jdbc/query": {}, "clojure.java.jdbc/insert!": {},
+	"next.jdbc/execute!": {}, "next.jdbc.sql/query": {}, "next.jdbc.sql/insert!": {},
+	"clj-http.client/get": {}, "clj-http.client/post": {}, "clj-http.client/put": {}, "clj-http.client/request": {},
+	".readLine": {}, ".acquire": {}, "java.net.Socket.": {},
+}
 
 func resolvedCanonical(node *reader.RichNode) string {
 	resolved := rules.ResolvedCall(node)
@@ -30,59 +44,23 @@ func isBlockingCall(node *reader.RichNode) bool {
 	}
 
 	canonical := resolvedCanonical(node)
-	headVal := head.Value
-	unqualifiedHead := headVal
-	if slash := strings.LastIndex(headVal, "/"); slash >= 0 {
-		unqualifiedHead = headVal[slash+1:]
+	if canonical == "" {
+		return false
 	}
+	_, ok := knownBlockingCalls[canonical]
+	return ok && blockingCallHasValidArity(canonical, len(node.Children)-1)
+}
 
-	if strings.Contains(headVal, "!!") || headVal == "Thread/sleep" || headVal == "java.lang.Thread/sleep" {
-		return true
+func blockingCallHasValidArity(canonical string, argumentCount int) bool {
+	if known, valid := semantics.CanonicalArityValid(canonical, argumentCount); known {
+		return valid
 	}
-	if canonical != "" {
-		name := canonical
-		if slash := strings.LastIndex(name, "/"); slash >= 0 {
-			name = name[slash+1:]
-		}
-		if strings.Contains(name, "!!") {
-			return true
-		}
-		switch canonical {
-		case "Thread/sleep", "java.lang.Thread/sleep",
-			"clojure.core/slurp", "clojure.core/spit", "clojure.core/await",
-			"clojure.core/future-call",
-			"clojure.java.io/reader", "clojure.java.io/writer",
-			"clojure.java.io/input-stream", "clojure.java.io/output-stream":
-			return true
-		}
-		if strings.HasPrefix(canonical, "clj-http.client/") || strings.Contains(canonical, "jdbc/execute!") ||
-			strings.Contains(canonical, "jdbc/query") || strings.Contains(canonical, "jdbc/insert!") {
-			return true
-		}
-		switch canonical {
-		case ".readLine", ".acquire", "java.net.Socket.":
-			return true
-		}
-	} else if head.Resolution == nil || head.Resolution.Kind == reader.ResolutionUnresolved {
-		switch unqualifiedHead {
-		case "slurp", "spit", "locking", "await", "Thread/sleep":
-			return true
-		}
-		if strings.HasPrefix(headVal, "http/") || strings.HasPrefix(headVal, "client/") || strings.Contains(headVal, "jdbc/") {
-			return true
-		}
-	}
-	return false
+	return argumentCount >= 1
 }
 
 func isGoBlock(node *reader.RichNode) bool {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0] == nil || node.Children[0].Type != reader.NodeSymbol {
 		return false
-	}
-	headVal := node.Children[0].Value
-	if headVal == "go" || headVal == "go-loop" || headVal == "a/go" || headVal == "a/go-loop" ||
-		headVal == "async/go" || headVal == "async/go-loop" {
-		return true
 	}
 	canonical := resolvedCanonical(node)
 	return canonical == "clojure.core.async/go" || canonical == "clojure.core.async/go-loop"

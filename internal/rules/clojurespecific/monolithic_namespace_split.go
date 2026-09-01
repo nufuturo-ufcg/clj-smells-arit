@@ -33,7 +33,7 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 		return nil
 	}
 	switch rules.FileRole(context) {
-	case "generated", "fixture", "dev", "test", "build":
+	case "generated", "dev", "test", "build":
 		return nil
 	}
 	namespace := strings.ToLower(rules.CurrentNamespace(context))
@@ -49,26 +49,32 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 			filepath,
 			node,
 			"Use of load stitches compilation from other files into this namespace and breaks static analysis and dependency tooling. Prefer separate namespaces and require.",
+			true,
 		)
 	case rules.CallResolvesTo(node, "clojure.core/in-ns"):
 		return r.finding(
 			filepath,
 			node,
 			"Use of in-ns switches namespaces imperatively and is often used to continue a logical namespace across files. Prefer a proper ns form and require for each namespace.",
+			true,
 		)
 	default:
 		return nil
 	}
 }
 
-func (r *MonolithicNamespaceSplitRule) finding(filepath string, node *reader.RichNode, message string) *rules.Finding {
-	return &rules.Finding{
+func (r *MonolithicNamespaceSplitRule) finding(filepath string, node *reader.RichNode, message string, contextual bool) *rules.Finding {
+	finding := &rules.Finding{
 		RuleID:   r.ID,
 		Message:  message,
 		Filepath: filepath,
 		Location: node.Location,
 		Severity: r.Severity,
 	}
+	if contextual {
+		return rules.SetContextualFindingWithEvidence(finding, "An imperative namespace change may be deliberate in REPLs, plugins, and dynamic loading mechanisms.", "namespace-lifecycle", "dynamic-loading-contract")
+	}
+	return finding
 }
 
 func init() {

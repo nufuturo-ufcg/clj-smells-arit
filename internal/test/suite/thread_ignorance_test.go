@@ -36,6 +36,7 @@ func TestThreadIgnorance(t *testing.T) {
 				{StartLine: 73},
 				{StartLine: 74},
 				{StartLine: 78},
+				{StartLine: 84},
 			},
 		},
 	}

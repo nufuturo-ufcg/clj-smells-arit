@@ -3,6 +3,7 @@ package clojurespecific
 import (
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type NestedAtomsRule struct {
@@ -18,8 +19,23 @@ var stateCreationNames = []string{
 	"clojure.core/volatile!",
 }
 
+// stateCreationHasValidArity filters malformed calls before they can be used
+// as evidence of nesting. The creation functions accept an initial value and
+// optional key/value options, while volatile! accepts only the initial value.
+func stateCreationHasValidArity(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
+		return false
+	}
+	if node.Children[0].Resolution == nil {
+		return false
+	}
+	name := node.Children[0].Resolution.CanonicalName
+	known, valid := semantics.CanonicalArityValid(name, len(node.Children)-1)
+	return known && valid
+}
+
 func isStateCreation(node *reader.RichNode) bool {
-	return rules.CallResolvesTo(node, stateCreationNames...)
+	return stateCreationHasValidArity(node) && rules.CallResolvesTo(node, stateCreationNames...)
 }
 
 // A nested reference is certain when it is part of a literal value. Descending
@@ -123,10 +139,10 @@ func (r *NestedAtomsRule) Check(node *reader.RichNode, _ map[string]interface{},
 	if isStateCreation(node) {
 		for _, initialValue := range node.Children[1:] {
 			if literalContainsStateCreation(initialValue) {
-				return &rules.Finding{
+				return rules.SetContextualFindingWithEvidence(&rules.Finding{
 					RuleID: r.ID, Message: "Found nested Atom/Ref/Volatile/Agent inside a stateful reference.",
 					Filepath: filepath, Location: node.Location, Severity: r.Severity,
-				}
+				}, "Nested managed references may be a deliberate state composition; the AST does not prove a modeling error.", "state-composition-contract", "reference-ownership")
 			}
 		}
 	}
@@ -144,11 +160,11 @@ func (r *NestedAtomsRule) Check(node *reader.RichNode, _ map[string]interface{},
 				}
 				for _, body := range node.Children[2:] {
 					if findCertainInsertion(body, symbol.Value) {
-						return &rules.Finding{
+						return rules.SetContextualFindingWithEvidence(&rules.Finding{
 							RuleID:   r.ID,
 							Message:  "Found stateful reference created in let binding being inserted into another stateful reference.",
 							Filepath: filepath, Location: node.Location, Severity: r.Severity,
-						}
+						}, "Nested managed references may be a deliberate state composition; the AST does not prove a modeling error.", "state-composition-contract", "reference-ownership")
 					}
 				}
 			}
@@ -157,32 +173,17 @@ func (r *NestedAtomsRule) Check(node *reader.RichNode, _ map[string]interface{},
 
 	if rules.CallResolvesTo(node, "clojure.core/swap!", "clojure.core/vswap!", "clojure.core/alter", "clojure.core/commute", "clojure.core/reset!", "clojure.core/vreset!", "clojure.core/ref-set") && len(node.Children) >= 3 {
 		for _, arg := range node.Children[2:] {
-			if containsAnyStateCreation(arg) {
-				return &rules.Finding{
+			if literalContainsStateCreation(arg) {
+				return rules.SetContextualFindingWithEvidence(&rules.Finding{
 					RuleID:   r.ID,
 					Message:  "Found stateful reference being created and inserted into another stateful reference.",
 					Filepath: filepath, Location: node.Location, Severity: r.Severity,
-				}
+				}, "Nested managed references may be a deliberate state composition; the AST does not prove a modeling error.", "state-composition-contract", "reference-ownership")
 			}
 		}
 	}
 
 	return nil
-}
-
-func containsAnyStateCreation(node *reader.RichNode) bool {
-	if node == nil {
-		return false
-	}
-	if isStateCreation(node) {
-		return true
-	}
-	for _, child := range node.Children {
-		if containsAnyStateCreation(child) {
-			return true
-		}
-	}
-	return false
 }
 
 func init() {

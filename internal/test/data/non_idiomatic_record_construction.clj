@@ -7,28 +7,28 @@
 (defrecord User [id name email]
   Object
   (toString [_]
-    (let [u (User. 1 "Ana" "ana@email.com")] ;; ERRO: Ponto após o nome dentro do defrecord
+    (let [u (User. 1 "Ana" "ana@email.com")] ;; ERROR: Dot after the name inside defrecord
       (str u))))
 
 ;; Example 2: Constructor using "->" + name (->Order) inside defrecord definition
 (defrecord Order [id total status]
   Object
   (toString [_]
-    (let [o (->Order 100 50.0 :pending)] ;; ERRO: "->" + nome da função dentro do defrecord
+    (let [o (->Order 100 50.0 :pending)] ;; ERROR: "->" + function name inside defrecord
       (str o))))
 
 ;; Example 3: Map constructor using "map->Order" inside defrecord definition
 (defrecord OrderMap [id total status]
   Object
   (toString [_]
-    (let [o (map->OrderMap {:id 100 :total 50.0})] ;; ERRO: "map->" + nome dentro do defrecord
+    (let [o (map->OrderMap {:id 100 :total 50.0})] ;; ERROR: "map->" + name inside defrecord
       (str o))))
 
 ;; Example 4: Explicit Java 'new' constructor inside defrecord definition
 (defrecord Account [id balance]
   Object
   (toString [_]
-    (let [a (new Account 1 1000.0)] ;; ERRO: Instanciação interop 'new' dentro do defrecord
+    (let [a (new Account 1 1000.0)] ;; ERROR: Interop 'new' instantiation inside defrecord
       (str a))))
 
 ;; Example 5: Interop constructor inside a protocol implementation within defrecord
@@ -38,26 +38,26 @@
 (defrecord Person [id name]
   Printable
   (print-info [_]
-    (Person. id name))) ;; ERRO: Construtor interop (Person.) dentro do defrecord
+    (Person. id name))) ;; ERROR: Interop constructor (Person.) inside defrecord
 
 ;; Example 6: Constructor using "->" + name inside a protocol implementation within defrecord
 (defrecord Customer [id name]
   Printable
   (print-info [_]
-    (->Customer id name))) ;; ERRO: "->" + nome dentro do protocolo no defrecord
+    (->Customer id name))) ;; ERROR: "->" + name inside the protocol in defrecord
 
 ;; Example 7: Nested interop constructor (Address.) inside defrecord definition
 (defrecord Address [street city]
   Object
   (toString [_]
-    (let [addr (Address. "Rua A" "SP")] ;; ERRO: Ponto no nome dentro do defrecord
+    (let [addr (Address. "Rua A" "SP")] ;; ERROR: Dot in the name inside defrecord
       (str addr))))
 
 ;; Example 8: Interop constructor inside an anonymous fn within defrecord definition
 (defrecord Task [id title]
   Object
   (toString [_]
-    (let [f (fn [] (Task. id title))] ;; ERRO: Instanciação não-idiomática em função interna
+    (let [f (fn [] (Task. id title))] ;; ERROR: Non-idiomatic instantiation in an inner function
       (str (f)))))
 
 ;; Example 9: Interop constructor inside a conditional inside defrecord definition
@@ -65,14 +65,14 @@
   Object
   (toString [_]
     (if (> price 0)
-      (str (Product. id price)) ;; ERRO: Construtor interop na ramificação do if
+      (str (Product. id price)) ;; ERROR: Interop constructor in the if branch
       "Invalido")))
 
 ;; Example 10: Interop constructor used as value in map inside defrecord definition
 (defrecord Profile [id bio]
   Object
   (toString [_]
-    (let [m {:p (Profile. id bio)}] ;; ERRO: Construtor interop dentro do mapa no defrecord
+    (let [m {:p (Profile. id bio)}] ;; ERROR: Interop constructor inside the map in defrecord
       (str m))))
 
 
@@ -90,25 +90,25 @@
 (defrecord LogWriter [path]
   Object
   (toString [_]
-    (.getAbsolutePath (java.io.File. path)))) ;; OK: Classe Java nativa real
+    (.getAbsolutePath (java.io.File. path)))) ;; OK: Real native Java class
 
 ;; Example 14: Legitimate Java native class instantiation (Date) inside defrecord
 (defrecord Session [token]
   Object
   (toString [_]
-    (str (java.util.Date.)))) ;; OK: Classe Java nativa real
+    (str (java.util.Date.)))) ;; OK: Real native Java class
 
 ;; Example 15: Legitimate Java exception instance creation inside defrecord
 (defrecord Validator [input]
   Object
   (toString [_]
-    (throw (Exception. "Invalido")))) ;; OK: Exceção Java nativa
+    (throw (Exception. "Invalido")))) ;; OK: Native Java exception
 
 ;; Example 16: Java instance method invocation (.toUpperCase) inside defrecord
 (defrecord Formatter [text]
   Object
   (toString [_]
-    (.toUpperCase text))) ;; OK: Método Java (ponto antes do nome)
+    (.toUpperCase text))) ;; OK: Java method (dot before the name)
 
 ;; Example 17: Thread-first threading macro (->) inside defrecord
 (defrecord Pipeline [data]
@@ -131,3 +131,20 @@
 ;; Example 21: Java java.sql.Timestamp instantiation
 (defn make-timestamp [t]
   (java.sql.Timestamp. (.getTime (java.util.Date.))))
+
+(defrecord EvaluatedRecord [value])
+
+(def quoted-definition
+  '(defrecord QuotedRecord [value]))
+
+(QuotedRecord. 1)
+
+(defmacro generated-record []
+  `(defrecord GeneratedRecord [value]))
+
+(GeneratedRecord. 1)
+
+(ns second-record-namespace)
+(defrecord PreviousNamespaceRecord [value])
+(ns third-record-namespace)
+(PreviousNamespaceRecord. 1)

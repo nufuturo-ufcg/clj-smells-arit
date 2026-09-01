@@ -8,7 +8,7 @@ BIN_DIR=bin
 # Go Flags for Daemon
 LDFLAGS=-ldflags="-s -w"
 
-.PHONY: all build build-aritd test clean help
+.PHONY: all build build-aritd test baseline-check clean help
 
 # Default target executed when typing just `make`
 all: clean test build build-aritd
@@ -31,6 +31,11 @@ build-aritd:
 test:
 	@echo "==> Running unit tests..."
 	go test -v ./...
+
+## baseline-check: Compares normal and cross-namespace JSON reports
+baseline-check:
+	@test -n "$(BASELINE_NORMAL)" && test -n "$(CURRENT_NORMAL)" && test -n "$(BASELINE_CROSS)" && test -n "$(CURRENT_CROSS)" || (echo "Use BASELINE_NORMAL=... CURRENT_NORMAL=... BASELINE_CROSS=... CURRENT_CROSS=..."; exit 2)
+	tools/check_baseline.sh "$(BASELINE_NORMAL)" "$(CURRENT_NORMAL)" "$(BASELINE_CROSS)" "$(CURRENT_CROSS)"
 
 ## clean: Removes generated binaries
 clean:

@@ -38,7 +38,7 @@ func TestUnmanagedResourceIo(t *testing.T) {
 				{Message: "Resource created by `clojure.java.io/reader` is bound to `r`", StartLine: 10},
 				{Message: "Resource created by `java.io.FileInputStream.` is bound to `in`", StartLine: 15},
 				{Message: "Resource created by `java.util.zip.GZIPInputStream.` is bound to `gzip`", StartLine: 20},
-				{Message: "Resource created by `java.net.ServerSocket.` is bound to `server`", StartLine: 88},
+				{Message: "Resource created by `java.net.ServerSocket.` is bound to `server`", StartLine: 93},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 26},
@@ -53,9 +53,10 @@ func TestUnmanagedResourceIo(t *testing.T) {
 				{StartLine: 67},
 				{StartLine: 72},
 				{StartLine: 83},
-				{StartLine: 93},
+				{StartLine: 65},
 				{StartLine: 94},
 				{StartLine: 107},
+				{StartLine: 66},
 			},
 		},
 	}

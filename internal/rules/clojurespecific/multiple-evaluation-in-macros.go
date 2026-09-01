@@ -7,6 +7,7 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type MultipleEvaluationInMacrosRule struct {
@@ -139,6 +140,10 @@ func macroRuntimeMax(node *reader.RichNode, parameter string) int {
 	switch head {
 	case "comment", "quote", "clojure.core/quote":
 		return 0
+	case "var":
+		// var receives a symbol at macro expansion time; its argument is not
+		// a caller expression evaluated by the generated code.
+		return 0
 	case "defn", "defn-", "defmacro":
 		return macroGeneratedFunctionMax(node, parameter, true)
 	case "fn", "fn*":
@@ -163,12 +168,16 @@ func macroRuntimeMax(node *reader.RichNode, parameter string) int {
 			return 0
 		}
 		return macroRuntimeSequence(node.Children[3:], parameter)
-	case "if", "if-not", "if-cljs":
+	case "if", "if-not":
 		if len(node.Children) < 3 {
 			return macroRuntimeSequence(node.Children[1:], parameter)
 		}
 		return macroRuntimeMax(node.Children[1], parameter) +
 			macroRuntimeBranchMax(node.Children[2:], parameter)
+	case "if-cljs":
+		// if-cljs selects one platform branch during macro expansion; its
+		// branch forms are never evaluated sequentially at runtime.
+		return macroRuntimeBranchMax(node.Children[1:], parameter)
 	case "if-let", "if-some":
 		if len(node.Children) < 3 {
 			return macroRuntimeSequence(node.Children[1:], parameter)
@@ -365,6 +374,83 @@ func multipleRuntimeParameters(node *reader.RichNode) []string {
 	return parameters
 }
 
+func macroQualifiedName(node *reader.RichNode, context map[string]interface{}) string {
+	if node == nil || len(node.Children) < 2 || node.Children[1] == nil || node.Children[1].Type != reader.NodeSymbol {
+		return ""
+	}
+	name := node.Children[1].Value
+	if namespace, ok := context["current-namespace"].(string); ok && namespace != "" {
+		return namespace + "/" + name
+	}
+	return name
+}
+
+func macroArityForCall(definition semantics.MacroDefinition, argumentCount int) *semantics.MacroArity {
+	_, arity := macroArityIndexForCall(definition, argumentCount)
+	return arity
+}
+
+func macroArityIndexForCall(definition semantics.MacroDefinition, argumentCount int) (int, *semantics.MacroArity) {
+	for index := range definition.Arities {
+		arity := &definition.Arities[index]
+		if arity.Variadic {
+			minimum := len(arity.Parameters) - 1
+			if argumentCount >= minimum {
+				return index, arity
+			}
+			continue
+		}
+		if argumentCount == len(arity.Parameters) {
+			return index, arity
+		}
+	}
+	return -1, nil
+}
+
+func macroHasConfiguredEffectfulCall(context map[string]interface{}, qualifiedName string, parameters []string) bool {
+	if !rules.MatchesConfiguredName(qualifiedName, rules.RuleSettingStringSlice(context, "multiple-evaluation-in-macros", "proven-macros")) {
+		return false
+	}
+	index := rules.ProjectSemanticIndex(context)
+	if index == nil || !index.MacroCallSitesComplete() {
+		return false
+	}
+	definition, ok := index.MacroDefinitionOf(qualifiedName)
+	if !ok {
+		return false
+	}
+	for _, call := range index.MacroCallSites(qualifiedName) {
+		arity := macroArityForCall(definition, len(call.Arguments))
+		if arity == nil {
+			continue
+		}
+		for argumentIndex, evidence := range call.ArgumentEvidence {
+			parameterIndex := argumentIndex
+			if arity.Variadic && parameterIndex >= len(arity.Parameters)-1 {
+				parameterIndex = len(arity.Parameters) - 1
+			}
+			if parameterIndex < 0 || parameterIndex >= len(arity.Parameters) {
+				continue
+			}
+			parameter := arity.Parameters[parameterIndex]
+			if !containsString(parameters, parameter) || evidence.Evidence != semantics.EvidenceProven || evidence.Effects == semantics.EffectNone {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *MultipleEvaluationInMacrosRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	if value, _ := context["isInCaseConstantPosition"].(bool); value {
 		return nil
@@ -380,7 +466,18 @@ func (r *MultipleEvaluationInMacrosRule) Check(node *reader.RichNode, context ma
 	if len(parameters) == 0 {
 		return nil
 	}
-	return &rules.Finding{
+	if macroHasConfiguredEffectfulCall(context, macroQualifiedName(node, context), parameters) {
+		return &rules.Finding{
+			RuleID: r.ID,
+			Message: fmt.Sprintf(
+				"The macro %s presents multiple calls to the input arguments %s without defining temporary local variables.",
+				node.Children[1].Value, strings.Join(parameters, ", ")),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: r.Severity,
+		}
+	}
+	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
 		Message: fmt.Sprintf(
 			"The macro %s presents multiple calls to the input arguments %s without defining temporary local variables.",
@@ -388,7 +485,7 @@ func (r *MultipleEvaluationInMacrosRule) Check(node *reader.RichNode, context ma
 		Filepath: filepath,
 		Location: node.Location,
 		Severity: r.Severity,
-	}
+	}, "Repeating an expression in a macro may be part of the generated contract; the argument's purity and cost are not proven by the AST.", "generated-contract", "argument-purity", "argument-cost")
 }
 
 func init() {

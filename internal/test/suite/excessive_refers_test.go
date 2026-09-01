@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -12,7 +13,7 @@ func TestExcessiveRefers(t *testing.T) {
 			FileToAnalyze: "excessive_refers.clj",
 			RuleID:        "excessive-refers",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "explicitly refers 24 Vars", StartLine: 136},
+				{Message: "explicitly refers 24 Vars", StartLine: 136, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 27},
@@ -23,7 +24,7 @@ func TestExcessiveRefers(t *testing.T) {
 			FileToAnalyze: "excessive_refers_reader_conditional.clj",
 			RuleID:        "excessive-refers",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "explicitly refers 24 Vars", StartLine: 1},
+				{Message: "explicitly refers 24 Vars", StartLine: 1, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 			},
 		},
 	}

@@ -9,6 +9,19 @@
     0 :number
     :default))
 
+(def global-constant :ready)
+
+(defn global-symbol [value]
+  (case value
+    global-constant :global-symbol
+    :default))
+
+(defn grouped-local-symbol [value]
+  (let [expected :ready]
+    (case value
+      (expected) :literal-group
+      :default)))
+
 (defn local-is-evaluated [value]
   (let [expected :ready]
     (case value
@@ -18,6 +31,7 @@
 (defn structured-literal-constants [value]
   (case value
     #example/tag "ready" :tagged
+    (`literal-target) :syntax-quoted
     [:a :b] :vector
     {:kind :ok} :map
     #{:a :b} :set
@@ -27,3 +41,8 @@
   `(case ~value
      runtime-symbol :generated
      :default))
+
+(defn shadowed-case [case value]
+  (case value
+    runtime-value :local-function
+    :default))

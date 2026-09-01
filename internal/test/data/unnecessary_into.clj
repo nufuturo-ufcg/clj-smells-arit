@@ -13,6 +13,10 @@
 (defn fuse-distinct [coll]
   (into [] (clojure.core/distinct coll)))
 
+;; A literal persistent vector provides a known reduction protocol.
+(defn fuse-known-vector []
+  (into [] (map inc [1 2 3])))
+
 ;; Negative: generic conversions do not preserve all observable properties.
 (defn unknown-to-vector [coll]
   (into [] coll))

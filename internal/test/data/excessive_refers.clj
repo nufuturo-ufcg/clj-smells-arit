@@ -125,7 +125,7 @@
   (:require [clojure.string :refer :all]))
 
 ;; Boundary regression for the empirically calibrated threshold (mean + 2 standard deviations
-;; across 430 repositories): 23 explicit refers must remain below the threshold.
+;; across 800 important repositories): 23 explicit refers must remain below the threshold.
 #_{:clj-kondo/ignore [:namespace-name-mismatch]}
 (ns com.my-app.refers-below-empirical-threshold
   (:require [com.my-app.stats :refer [r01 r02 r03 r04 r05 r06 r07 r08 r09 r10 r11 r12

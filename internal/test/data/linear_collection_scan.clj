@@ -2,12 +2,12 @@
 (ns lcs)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; LINEAR COLLECTION SCAN - EXEMPLARES CLÁSSICOS
-;; Exemplos clássicos de varredura de coleções em Clojure
+;; LINEAR COLLECTION SCAN - CLASSIC EXAMPLES
+;; Classic examples of collection scanning in Clojure
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;--------------------------------------------------
-;; Exemplo 1: Encontrar elemento usando loop manual (ruim)
+;; Example 1: Find an element using a manual loop (bad)
 (defn scan-find-bad [pred coll]
   (loop [c coll]
     (when (seq c)
@@ -15,43 +15,43 @@
         (first c)
         (recur (rest c))))))
 
-;; Refatorado: Usando some (idiomático)
+;; Refactored: Using some (idiomatic)
 (defn scan-find-good [pred coll]
   (some #(when (pred %) %) coll))
 
 ;;--------------------------------------------------
-;; Exemplo 2: Contar elementos que satisfazem predicado (ruim)
+;; Example 2: Count elements that satisfy a predicate (bad)
 (defn scan-count-bad [coll pred]
   (count (filter pred coll)))
 
-;; Refatorado: Usando transduce (eficiente)
+;; Refactored: Using transduce (efficient)
 (defn scan-count-good [coll pred]
   (transduce (filter pred) (completing (fn [acc _] (inc acc))) 0 coll))
 
 ;;--------------------------------------------------
-;; Exemplo 3: Encontrar mínimo usando sort (ruim)
+;; Example 3: Find the minimum using sort (bad)
 (defn scan-min-bad [coll]
   (first (sort coll)))
 
-;; Refatorado: Usando apply/min (eficiente)
+;; Refactored: Using apply/min (efficient)
 (defn scan-min-good [coll]
   (apply min coll))
 
 ;;--------------------------------------------------
-;; Exemplo 4: Checar existência usando filter+count (ruim)
+;; Example 4: Check for existence using filter+count (bad)
 (defn scan-exists-bad [x coll]
   (> (count (filter #(= % x) coll)) 0))
 
-;; Refatorado: Usando some (eficiente)
+;; Refactored: Using some (efficient)
 (defn scan-exists-good [x coll]
   (some #(= % x) coll))
 
 ;;--------------------------------------------------
-;; Exemplo 5: Múltiplos maps encadeados (ruim)
+;; Example 5: Multiple chained maps (bad)
 (defn scan-multi-map-bad [coll]
   (map inc (map #(* % 2) (map abs coll))))
 
-;; Refatorado: Composição de funções (eficiente)
+;; Refactored: Function composition (efficient)
 (defn scan-multi-map-good [coll]
   (map (comp inc #(* % 2) abs) coll))
 

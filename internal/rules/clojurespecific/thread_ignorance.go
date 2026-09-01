@@ -27,7 +27,7 @@ func (r *ThreadIgnoranceRule) Check(node *reader.RichNode, context map[string]in
 	}
 
 	if p, ok := nestedPipeline(node); ok && p.depth >= r.nestingThreshold() {
-		return &rules.Finding{
+		return rules.SetContextualFindingWithEvidence(&rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
 				"Safe %s pipeline detected across %d resolved calls. Each call has a single nested data argument in the required threading position.",
@@ -36,11 +36,11 @@ func (r *ThreadIgnoranceRule) Check(node *reader.RichNode, context map[string]in
 			Filepath: filepath,
 			Location: node.Location,
 			Severity: r.Severity,
-		}
+		}, "The threading transformation is a readability preference, even when structural equivalence has been proven.", "style-policy", "pipeline-api-contract")
 	}
 
 	if p, ok := r.letPipeline(node); ok {
-		return &rules.Finding{
+		return rules.SetContextualFindingWithEvidence(&rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
 				"Safe %s pipeline detected in %d let bindings. Intermediates are generic, used once, and the final binding is returned directly.",
@@ -49,7 +49,7 @@ func (r *ThreadIgnoranceRule) Check(node *reader.RichNode, context map[string]in
 			Filepath: filepath,
 			Location: node.Location,
 			Severity: r.Severity,
-		}
+		}, "The threading transformation is a readability preference, even when structural equivalence has been proven.", "style-policy", "pipeline-api-contract")
 	}
 
 	return nil

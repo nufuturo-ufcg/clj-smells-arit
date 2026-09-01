@@ -116,3 +116,8 @@
 #?(:clj
    (do
      (clojure.core/require '[clojure.pprint :as pp2])))
+
+;; A local function summary proves that this initializer loads a namespace.
+(defn load-dependency []
+  (clojure.core/require '[clojure.set :as set]))
+(def local-load-dependency (load-dependency))

@@ -6,22 +6,61 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/thlaurentino/arit/internal/config"
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/rules/functional"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 var EnableExperimentalMacroExpansion bool
+var EnableExperimentalCrossNamespace bool
+var EnableExperimentalTypeInference bool
+var EnableExperimentalAsyncCFG bool
+var EnableTiming bool
+
+// PhaseTimings contains diagnostic-only timings for one file analysis. It is
+// populated only when EnableTiming is true and does not affect findings.
+type PhaseTimings struct {
+	Parse             time.Duration
+	BuildRichTree     time.Duration
+	MacroExpansion    time.Duration
+	Resolution        time.Duration
+	FunctionSummaries time.Duration
+	SemanticFacts     time.Duration
+	RuleTraversal     time.Duration
+	Postprocess       time.Duration
+	ProjectIndex      time.Duration
+	FileDiscovery     time.Duration
+}
+
+func (t *PhaseTimings) Add(other PhaseTimings) {
+	if t == nil {
+		return
+	}
+	t.Parse += other.Parse
+	t.BuildRichTree += other.BuildRichTree
+	t.MacroExpansion += other.MacroExpansion
+	t.Resolution += other.Resolution
+	t.FunctionSummaries += other.FunctionSummaries
+	t.SemanticFacts += other.SemanticFacts
+	t.RuleTraversal += other.RuleTraversal
+	t.Postprocess += other.Postprocess
+	t.ProjectIndex += other.ProjectIndex
+	t.FileDiscovery += other.FileDiscovery
+}
 
 type AnalysisResult struct {
-	Findings        []rules.Finding
-	RichRoots       []*reader.RichNode
-	GlobalScope     *Scope
-	Namespace       string
-	Aliases         []NamespaceAlias
-	ReferredSymbols []ReferredSymbol
+	Findings            []rules.Finding
+	SemanticDiagnostics rules.SemanticDiagnosticsReport
+	RichRoots           []*reader.RichNode
+	GlobalScope         *Scope
+	Namespace           string
+	Aliases             []NamespaceAlias
+	ReferredSymbols     []ReferredSymbol
+	Timings             PhaseTimings
 }
 
 type Scope struct {
@@ -54,12 +93,37 @@ const (
 type SymbolInfo struct {
 	Name            string
 	Definition      *reader.RichNode
+	BindingValue    *reader.RichNode
 	Type            SymbolType
 	IsPrivate       bool
 	IsUsed          bool
 	OriginNamespace string
 	TypeHint        string
 	InferredType    string
+}
+
+// The semantic package intentionally does not import analyzer. These methods
+// expose the package-independent portion of a local binding through a small
+// structural interface consumed by semantic facts.
+func (s *SymbolInfo) SemanticTypeHint() string {
+	if s == nil {
+		return ""
+	}
+	return s.TypeHint
+}
+
+func (s *SymbolInfo) SemanticInferredType() string {
+	if s == nil {
+		return ""
+	}
+	return s.InferredType
+}
+
+func (s *SymbolInfo) SemanticBindingValue() *reader.RichNode {
+	if s == nil {
+		return nil
+	}
+	return s.BindingValue
 }
 
 type NamespaceAlias struct {
@@ -72,6 +136,7 @@ type ReferredSymbol struct {
 	SymbolName        string
 	OriginalNamespace string
 	DefinitionNode    *reader.RichNode
+	IsJavaClass       bool
 }
 
 func NewScope(parent *Scope) *Scope {
@@ -131,9 +196,8 @@ func (s *Scope) invalidateCache() {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.cacheValid {
+		s.mu.Unlock()
 		return
 	}
 
@@ -142,9 +206,11 @@ func (s *Scope) invalidateCache() {
 	if s.lookupCache != nil {
 		s.lookupCache = nil
 	}
+	parent := s.parent
+	s.mu.Unlock()
 
-	if s.parent != nil && s.parent.cacheValid {
-		go s.parent.invalidateCache()
+	if parent != nil {
+		parent.invalidateCache()
 	}
 }
 
@@ -296,7 +362,7 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 					}
 				}
 
-			case "let", "loop":
+			case "let", "loop", "if-let", "when-let":
 				if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeVector {
 					bindingsNode := node.Children[1]
 					letScope := NewScope(currentScope)
@@ -307,8 +373,13 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 							break
 						}
 						bindingVarNode := bindingsNode.Children[i]
-						if bindingVarNode != nil {
-							bindingValNode := bindingsNode.Children[i+1]
+						bindingValNode := bindingsNode.Children[i+1]
+						// let/loop bindings are sequential: an initializer sees
+						// only bindings defined to its left.
+						visit(bindingValNode, letScope)
+						if node.Children[0].Value == "loop" {
+							defineBindingForm(bindingVarNode, letScope, localDefs, TypeVariable)
+						} else {
 							defineBindingFormWithValue(bindingVarNode, bindingValNode, letScope, localDefs, TypeVariable)
 						}
 					}
@@ -361,17 +432,14 @@ func CollectDefinitions(nodes []*reader.RichNode, globalScope *Scope) {
 			currentChildScope := nextScope
 
 			isLetLoopBindingVector := false
-			if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
+			if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && isBindingScopeForm(node.Children[0].Value) {
 				if idx == 1 && child.Type == reader.NodeVector {
 					isLetLoopBindingVector = true
-					for bindingValIdx := 1; bindingValIdx < len(child.Children); bindingValIdx += 2 {
-						if bindingValIdx < len(child.Children) && child.Children[bindingValIdx] != nil {
-							bindingValNode := child.Children[bindingValIdx]
-							visit(bindingValNode, currentScope)
-						}
-					}
 				} else if idx > 1 {
 					currentChildScope = nextScope
+					if node.Children[0].Value == "if-let" && idx >= 3 {
+						currentChildScope = currentScope
+					}
 				}
 			}
 
@@ -398,6 +466,12 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 		}
 
 		nextScope := currentScope
+
+		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil &&
+			node.Children[0].Type == reader.NodeSymbol &&
+			(node.Children[0].Value == "defmulti" || node.Children[0].Value == "defmethod") {
+			node.Children[0].Resolution = resolveSymbolIdentity(node.Children[0], currentScope)
+		}
 
 		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol {
 			funcNameNodeVal := node.Children[0].Value
@@ -450,7 +524,7 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 				}
 				nextScope = newFnScope
 
-			case "let", "loop":
+			case "let", "loop", "if-let", "when-let":
 				if len(node.Children) > 1 && node.Children[1].Type == reader.NodeVector {
 					newLetScope := NewScope(currentScope)
 					bindingsNode := node.Children[1]
@@ -458,7 +532,14 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 						if i+1 < len(bindingsNode.Children) {
 							bindingVarNode := bindingsNode.Children[i]
 							bindingValNode := bindingsNode.Children[i+1]
-							defineBindingFormWithValue(bindingVarNode, bindingValNode, newLetScope, nil, TypeVariable)
+							// Resolve the initializer before introducing its own
+							// binding, matching Clojure's sequential let semantics.
+							visit(bindingValNode, newLetScope)
+							if node.Children[0].Value == "loop" {
+								defineBindingForm(bindingVarNode, newLetScope, nil, TypeVariable)
+							} else {
+								defineBindingFormWithValue(bindingVarNode, bindingValNode, newLetScope, nil, TypeVariable)
+							}
 						}
 					}
 					nextScope = newLetScope
@@ -489,16 +570,14 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 		for idx, child := range node.Children {
 			currentChildScope := nextScope
 
-			if node.Type == reader.NodeList && len(node.Children) > 0 && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
+			if node.Type == reader.NodeList && len(node.Children) > 0 && isBindingScopeForm(node.Children[0].Value) {
 				if idx == 1 && child.Type == reader.NodeVector {
-
-					for bindingValIdx := 1; bindingValIdx < len(child.Children); bindingValIdx += 2 {
-						bindingValNode := child.Children[bindingValIdx]
-						visit(bindingValNode, currentScope)
-					}
 					continue
 				} else if idx > 1 {
 					currentChildScope = nextScope
+					if node.Children[0].Value == "if-let" && idx >= 3 {
+						currentChildScope = currentScope
+					}
 				}
 			}
 
@@ -518,8 +597,11 @@ func javaClassName(name string, scope *Scope) (string, bool) {
 	if name == "" {
 		return "", false
 	}
-	if info, found := scope.Lookup(name); found && info != nil && info.Type == TypeJava {
-		return info.OriginNamespace, true
+	if info, found := scope.Lookup(name); found {
+		if info != nil && info.Type == TypeJava && info.OriginNamespace != "" {
+			return info.OriginNamespace, true
+		}
+		return "", false
 	}
 	lastSegment := name
 	if dot := strings.LastIndex(lastSegment, "."); dot >= 0 {
@@ -596,6 +678,7 @@ func resolveSymbolIdentity(node *reader.RichNode, scope *Scope) *reader.SymbolRe
 	}
 
 	if info, found := scope.Lookup(symbol); found && info != nil {
+		resolution.Lexical = info.Definition != nil && info.Definition.Type == reader.NodeSymbol
 		// Definition collection is intentionally a whole-file pass. Preserve
 		// Clojure's compilation order when a later top-level definition happens
 		// to shadow a clojure.core symbol used earlier in the file.
@@ -826,10 +909,12 @@ func childExecutionContext(parent *reader.RichNode, childIndex int, inherited ru
 	return rules.ExecutionUnknown
 }
 
-func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, comments []*reader.RichNode, globalScope *Scope, namespaceName string) []*rules.Finding {
+func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, comments []*reader.RichNode, globalScope *Scope, namespaceName string, projectIndex *semantics.ProjectIndex, timings *PhaseTimings) ([]*rules.Finding, rules.SemanticDiagnosticsReport) {
 
 	var findingsMutex sync.Mutex
 	allFindings := []*rules.Finding{}
+	diagnostics := rules.NewSemanticDiagnostics()
+	shadowedCoreCache := make(map[*Scope]map[string]bool)
 
 	var traverseAndAnalyze func(node *reader.RichNode, currentContext map[string]interface{}, scope *Scope)
 	traverseAndAnalyze = func(node *reader.RichNode, currentContext map[string]interface{}, scope *Scope) {
@@ -839,12 +924,23 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 
 		prevScope := currentContext["scope"]
 		prevConfig := currentContext["config"]
+		prevShadowedCore := currentContext["shadowed-core"]
 		currentContext["scope"] = scope
 		currentContext["config"] = a.Config
+		currentContext["shadowed-core"] = cachedShadowedCoreSymbols(shadowedCoreCache, scope)
+		semanticFacts := semantics.ForNode(node, currentContext)
+		previousSemanticFacts := currentContext["semantic-facts"]
+		currentContext["semantic-facts"] = &semanticFacts
 
 		for _, rule := range a.Rules {
 			if finding := rule.Check(node, currentContext, filepath); finding != nil {
+				finding.Generated = node.Generated
+				if node.Origin != nil {
+					finding.OriginLocation = node.Origin
+				}
 				rules.MarkContextualFinding(finding)
+				diagnostics.RecordFinding(finding)
+				finding.SourceRole = rules.FileRole(currentContext)
 				// Inject fingerprint centrally: covers both DSL rules (via builder)
 				// and hand-written detectors that instantiate Finding directly.
 				if finding.ASTFingerprint == "" {
@@ -912,7 +1008,7 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			switch nodeVal {
 			case "defn", "defn-", "defmacro", "defmethod", "defmulti", "fn":
 				currentNodeDefinesFunc = true
-			case "let":
+			case "let", "if-let", "when-let":
 				currentNodeDefinesLet = true
 			case "loop":
 				currentNodeDefinesLoop = true
@@ -928,8 +1024,10 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		for idx, child := range node.Children {
 			currentChildScope := scope
 
-			if node.Type == reader.NodeList && len(node.Children) > 0 && (node.Children[0].Value == "let" || node.Children[0].Value == "loop") {
+			if node.Type == reader.NodeList && len(node.Children) > 0 && isBindingScopeForm(node.Children[0].Value) {
 				if idx == 1 && child.Type == reader.NodeVector {
+					currentChildScope = scope
+				} else if node.Children[0].Value == "if-let" && idx >= 3 {
 					currentChildScope = scope
 				}
 			}
@@ -967,6 +1065,9 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			}
 
 			childIsInsideLet := parentIsInsideLet || (currentNodeDefinesLet && idx > 0)
+			if currentNodeDefinesLet && node.Children[0].Value == "if-let" && idx >= 3 {
+				childIsInsideLet = parentIsInsideLet
+			}
 			childIsInsideLoop := parentIsInsideLoop || (currentNodeDefinesLoop && idx > 0)
 			childIsInsideBinding := parentIsInsideBinding || (currentNodeDefinesBinding && idx > 0)
 			childIsInsideDosync := parentIsInsideDosync || (currentNodeDefinesDosync && idx > 0)
@@ -1024,6 +1125,8 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		}
 		currentContext["scope"] = prevScope
 		currentContext["config"] = prevConfig
+		currentContext["shadowed-core"] = prevShadowedCore
+		currentContext["semantic-facts"] = previousSemanticFacts
 	}
 
 	initialContext := map[string]interface{}{
@@ -1036,10 +1139,20 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		"isInsideWithOpen":         false,
 		"isInCaseConstantPosition": false,
 		"executionContext":         rules.ExecutionAtLoad,
-		"current-namespace":        namespaceName,
-		"file-role":                classifyFileRole(filepath),
-		"enclosingForms":           make([]string, 0, 32),
-		"ancestorNodes":            make([]*reader.RichNode, 0, 32),
+		"semantic-options": map[string]bool{
+			"cross-namespace": EnableExperimentalCrossNamespace,
+			"type-inference":  EnableExperimentalTypeInference,
+			"async-cfg":       EnableExperimentalAsyncCFG,
+			"macro-expansion": EnableExperimentalMacroExpansion,
+		},
+		"current-namespace":    namespaceName,
+		"file-role":            classifyFileRole(filepath),
+		"semantic-contracts":   a.Config.SemanticContracts,
+		"enclosingForms":       make([]string, 0, 32),
+		"ancestorNodes":        make([]*reader.RichNode, 0, 32),
+		"semantic-facts-cache": semantics.NewFactsCache(),
+		"semantic-diagnostics": diagnostics,
+		"dynamic-vars":         make(map[string]bool),
 		"namespace-aliases": func() map[string]string {
 			aliases := make(map[string]string)
 			if globalScope != nil {
@@ -1051,10 +1164,47 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			}
 			return aliases
 		}(),
+		"namespace-requires": func() map[string]bool {
+			required := make(map[string]bool)
+			if globalScope != nil {
+				for _, alias := range globalScope.aliases {
+					if alias != nil && alias.FullNamespace != "" {
+						required[alias.FullNamespace] = true
+					}
+				}
+				for _, referred := range globalScope.referredSymbols {
+					if referred != nil && referred.OriginalNamespace != "" {
+						required[referred.OriginalNamespace] = true
+					}
+				}
+			}
+			return required
+		}(),
+	}
+	var summaryStart time.Time
+	if EnableTiming && timings != nil {
+		summaryStart = time.Now()
+	}
+	initialContext["function-summaries"] = semantics.BuildFunctionSummaries(richRootNodes, namespaceName)
+	if EnableTiming && timings != nil {
+		timings.FunctionSummaries += time.Since(summaryStart)
+		initialContext["semantic-facts-timing"] = &timings.SemanticFacts
+	}
+	if projectIndex != nil {
+		initialContext["project-index"] = projectIndex
 	}
 
+	var ruleStart time.Time
+	if EnableTiming && timings != nil {
+		ruleStart = time.Now()
+	}
+	topLevelAfterExecutable := false
 	for _, rootNode := range richRootNodes {
+		initialContext["top-level-after-executable"] = topLevelAfterExecutable
 		traverseAndAnalyze(rootNode, initialContext, globalScope)
+		if isTopLevelExecutableForm(rootNode) {
+			topLevelAfterExecutable = true
+		}
 	}
 
 	initialContext["scope"] = globalScope
@@ -1063,18 +1213,63 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 	for _, commentNode := range comments {
 		for _, rule := range a.Rules {
 			if finding := rule.Check(commentNode, initialContext, filepath); finding != nil {
+				finding.Generated = commentNode.Generated
+				if commentNode.Origin != nil {
+					finding.OriginLocation = commentNode.Origin
+				}
 				rules.MarkContextualFinding(finding)
+				diagnostics.RecordFinding(finding)
+				finding.SourceRole = rules.FileRole(initialContext)
 				findingsMutex.Lock()
 				allFindings = append(allFindings, finding)
 				findingsMutex.Unlock()
 			}
 		}
 	}
+	if EnableTiming && timings != nil {
+		timings.RuleTraversal += time.Since(ruleStart)
+	}
 
 	delete(initialContext, "scope")
 	delete(initialContext, "config")
 
-	return allFindings
+	return allFindings, diagnostics.Report()
+}
+
+func shadowedCoreSymbols(scope *Scope) map[string]bool {
+	shadowed := make(map[string]bool)
+	for name := range coreSymbols {
+		info, found := scope.Lookup(name)
+		if !found || info == nil {
+			continue
+		}
+		if info.Type != TypeCoreFunction && info.Type != TypeCoreSpecialForm {
+			shadowed[name] = true
+		}
+	}
+	return shadowed
+}
+
+func cachedShadowedCoreSymbols(cache map[*Scope]map[string]bool, scope *Scope) map[string]bool {
+	if cached, found := cache[scope]; found {
+		return cached
+	}
+	shadowed := shadowedCoreSymbols(scope)
+	cache[scope] = shadowed
+	return shadowed
+}
+
+func isTopLevelExecutableForm(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0] == nil || node.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	name := strings.TrimPrefix(node.Children[0].Value, "clojure.core/")
+	switch name {
+	case "ns", "require", "use", "import", "load-file":
+		return false
+	default:
+		return true
+	}
 }
 
 // classifyFileRole gives rules a conservative signal about source provenance.
@@ -1090,7 +1285,7 @@ func classifyFileRole(path string) string {
 		switch strings.ToLower(part) {
 		case "target":
 			return "generated"
-		case "generated", "fixtures", "fixture", "testcases", "test-resources", "corpus", "examples", "example", "benchmark", "benchmarks":
+		case "generated", "fixtures", "fixture", "testcases", "test-resources", "corpus", "examples", "example", "benchmark", "benchmarks", "expanded_smells_catalog", "synthetic-catalog":
 			return "fixture"
 		case "tests", "test", "int-test", "integration-test":
 			return "test"
@@ -1123,16 +1318,31 @@ func defineBindingFormWithValue(bindingNode *reader.RichNode, valNode *reader.Ri
 	if bindingNode == nil {
 		return
 	}
+	defineBindingPatternWithValue(bindingNode, valNode, targetScope, localDefs, defaultSymbolType)
+}
+
+func defineBindingPatternWithValue(bindingNode *reader.RichNode, valNode *reader.RichNode, targetScope *Scope, localDefs map[*reader.RichNode]*SymbolInfo, defaultSymbolType SymbolType) {
+	if bindingNode == nil || targetScope == nil {
+		return
+	}
+	if bindingNode.Type == reader.NodeTag {
+		if len(bindingNode.Children) == 1 && bindingNode.Children[0] != nil {
+			bindingNode.Children[0].TypeHint = bindingNode.Value
+			defineBindingPatternWithValue(bindingNode.Children[0], valNode, targetScope, localDefs, defaultSymbolType)
+		}
+		return
+	}
 	if bindingNode.Type == reader.NodeSymbol {
 		symbolName := bindingNode.Value
 		if symbolName == "_" || symbolName == "&" || strings.HasPrefix(symbolName, ".") || strings.Contains(symbolName, "/") {
 			return
 		}
 		info := &SymbolInfo{
-			Name:       symbolName,
-			Definition: bindingNode,
-			Type:       defaultSymbolType,
-			IsUsed:     false,
+			Name:         symbolName,
+			Definition:   bindingNode,
+			BindingValue: valNode,
+			Type:         defaultSymbolType,
+			IsUsed:       false,
 		}
 		if bindingNode.TypeHint != "" {
 			info.TypeHint = bindingNode.TypeHint
@@ -1152,7 +1362,122 @@ func defineBindingFormWithValue(bindingNode *reader.RichNode, valNode *reader.Ri
 		}
 		return
 	}
-	defineBindingForm(bindingNode, targetScope, localDefs, defaultSymbolType)
+
+	switch bindingNode.Type {
+	case reader.NodeVector:
+		sourceNode := bindingSourceValue(valNode)
+		if sourceNode == nil || sourceNode.Type != reader.NodeVector {
+			defineBindingForm(bindingNode, targetScope, localDefs, defaultSymbolType)
+			return
+		}
+		sourceIndex := 0
+		for i := 0; i < len(bindingNode.Children); i++ {
+			pattern := bindingNode.Children[i]
+			if pattern == nil {
+				continue
+			}
+			if pattern.Type == reader.NodeKeyword && pattern.Value == ":as" {
+				if i+1 < len(bindingNode.Children) {
+					defineBindingPatternWithValue(bindingNode.Children[i+1], valNode, targetScope, localDefs, defaultSymbolType)
+				}
+				i++
+				continue
+			}
+			if pattern.Type == reader.NodeSymbol && pattern.Value == "&" {
+				// A rest binding needs sequence semantics, not just an AST slice.
+				// Keep it lexical-only until that contract is modeled explicitly.
+				if i+1 < len(bindingNode.Children) {
+					defineBindingForm(bindingNode.Children[i+1], targetScope, localDefs, defaultSymbolType)
+				}
+				i++
+				continue
+			}
+			var projected *reader.RichNode
+			if sourceIndex < len(sourceNode.Children) {
+				projected = sourceNode.Children[sourceIndex]
+			}
+			defineBindingPatternWithValue(pattern, projected, targetScope, localDefs, defaultSymbolType)
+			sourceIndex++
+		}
+	case reader.NodeMap:
+		sourceNode := bindingSourceValue(valNode)
+		if sourceNode == nil || sourceNode.Type != reader.NodeMap || len(sourceNode.Children)%2 != 0 {
+			defineBindingForm(bindingNode, targetScope, localDefs, defaultSymbolType)
+			return
+		}
+		for i := 0; i+1 < len(bindingNode.Children); i += 2 {
+			keyNode := bindingNode.Children[i]
+			patternNode := bindingNode.Children[i+1]
+			if keyNode == nil || patternNode == nil || keyNode.Type != reader.NodeKeyword {
+				if sourceValue, found := literalMapValue(sourceNode, keyNode); found {
+					defineBindingPatternWithValue(patternNode, sourceValue, targetScope, localDefs, defaultSymbolType)
+				} else if keyNode != nil && keyNode.Type != reader.NodeKeyword {
+					defineBindingForm(patternNode, targetScope, localDefs, defaultSymbolType)
+				}
+				continue
+			}
+			switch strings.TrimPrefix(keyNode.Value, ":") {
+			case "as":
+				defineBindingPatternWithValue(patternNode, sourceNode, targetScope, localDefs, defaultSymbolType)
+			case "keys", "strs", "syms":
+				if patternNode.Type != reader.NodeVector {
+					continue
+				}
+				for _, nameNode := range patternNode.Children {
+					if nameNode == nil || nameNode.Type != reader.NodeSymbol {
+						continue
+					}
+					lookupKey := &reader.RichNode{Type: reader.NodeKeyword, Value: ":" + nameNode.Value}
+					switch strings.TrimPrefix(keyNode.Value, ":") {
+					case "strs":
+						lookupKey = &reader.RichNode{Type: reader.NodeString, Value: nameNode.Value}
+					case "syms":
+						lookupKey = &reader.RichNode{Type: reader.NodeSymbol, Value: nameNode.Value}
+					}
+					if sourceValue, found := literalMapValue(sourceNode, lookupKey); found {
+						defineBindingPatternWithValue(nameNode, sourceValue, targetScope, localDefs, defaultSymbolType)
+					} else {
+						defineBindingForm(nameNode, targetScope, localDefs, defaultSymbolType)
+					}
+				}
+			case "or":
+				// Defaults require presence/absence semantics and are deliberately
+				// not promoted by this structural summary.
+			default:
+				if sourceValue, found := literalMapValue(sourceNode, keyNode); found {
+					defineBindingPatternWithValue(patternNode, sourceValue, targetScope, localDefs, defaultSymbolType)
+				} else {
+					defineBindingForm(patternNode, targetScope, localDefs, defaultSymbolType)
+				}
+			}
+		}
+	default:
+		defineBindingForm(bindingNode, targetScope, localDefs, defaultSymbolType)
+	}
+}
+
+func bindingSourceValue(node *reader.RichNode) *reader.RichNode {
+	if node == nil || node.Type != reader.NodeSymbol || node.SymbolRef == nil {
+		return node
+	}
+	if info, ok := node.SymbolRef.(*SymbolInfo); ok && info != nil && info.BindingValue != nil {
+		return bindingSourceValue(info.BindingValue)
+	}
+	return node
+}
+
+func literalMapValue(node, key *reader.RichNode) (*reader.RichNode, bool) {
+	if node == nil || node.Type != reader.NodeMap || key == nil || len(node.Children)%2 != 0 {
+		return nil, false
+	}
+	var found *reader.RichNode
+	for i := 0; i+1 < len(node.Children); i += 2 {
+		candidate := node.Children[i]
+		if candidate != nil && candidate.Type == key.Type && candidate.Value == key.Value {
+			found = node.Children[i+1]
+		}
+	}
+	return found, found != nil
 }
 
 func defineBindingForm(bindingNode *reader.RichNode, targetScope *Scope, localDefs map[*reader.RichNode]*SymbolInfo, defaultSymbolType SymbolType) {
@@ -1161,6 +1486,12 @@ func defineBindingForm(bindingNode *reader.RichNode, targetScope *Scope, localDe
 	}
 
 	switch bindingNode.Type {
+	case reader.NodeTag:
+		if len(bindingNode.Children) == 1 && bindingNode.Children[0] != nil {
+			bindingNode.Children[0].TypeHint = bindingNode.Value
+			defineBindingForm(bindingNode.Children[0], targetScope, localDefs, defaultSymbolType)
+		}
+
 	case reader.NodeSymbol:
 		symbolName := bindingNode.Value
 		if symbolName == "_" || symbolName == "&" || strings.HasPrefix(symbolName, ".") || strings.Contains(symbolName, "/") {
@@ -1197,7 +1528,7 @@ func defineBindingForm(bindingNode *reader.RichNode, targetScope *Scope, localDe
 			valueNode := bindingNode.Children[i+1]
 
 			if keyNode.Type == reader.NodeKeyword {
-				switch keyNode.Value {
+				switch strings.TrimPrefix(keyNode.Value, ":") {
 				case "keys", "strs", "syms":
 					if valueNode.Type == reader.NodeVector {
 						for _, symInVec := range valueNode.Children {
@@ -1222,6 +1553,15 @@ func defineBindingForm(bindingNode *reader.RichNode, targetScope *Scope, localDe
 		if asSymbolNode != nil {
 			defineBindingForm(asSymbolNode, targetScope, localDefs, defaultSymbolType)
 		}
+	}
+}
+
+func isBindingScopeForm(name string) bool {
+	switch name {
+	case "let", "loop", "if-let", "when-let":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1263,7 +1603,7 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 				return true
 			}
 
-		case "let", "loop":
+		case "let", "loop", "if-let", "when-let":
 			if childIndex == 1 && childNode.Type == reader.NodeVector {
 				return true
 			}
@@ -1282,6 +1622,144 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 	return false
 }
 
+type namespaceItems struct {
+	aliases  []NamespaceAlias
+	referred []ReferredSymbol
+}
+
+func parseNamespaceClause(clauseNode *reader.RichNode) namespaceItems {
+	items := namespaceItems{}
+	if clauseNode == nil || clauseNode.Type != reader.NodeList || len(clauseNode.Children) == 0 || clauseNode.Children[0] == nil || clauseNode.Children[0].Type != reader.NodeKeyword {
+		return items
+	}
+
+	switch strings.TrimPrefix(clauseNode.Children[0].Value, ":") {
+	case "require":
+		for j := 1; j < len(clauseNode.Children); j++ {
+			specNode := clauseNode.Children[j]
+			if specNode == nil || specNode.Type != reader.NodeVector || len(specNode.Children) == 0 || specNode.Children[0] == nil || specNode.Children[0].Type != reader.NodeSymbol {
+				continue
+			}
+			fullNs := specNode.Children[0].Value
+			var currentAlias string
+			var refers []string
+			for k := 1; k < len(specNode.Children); k++ {
+				optionKeyNode := specNode.Children[k]
+				if optionKeyNode == nil || optionKeyNode.Type != reader.NodeKeyword || k+1 >= len(specNode.Children) {
+					continue
+				}
+				optionValueNode := specNode.Children[k+1]
+				k++
+				switch strings.TrimPrefix(optionKeyNode.Value, ":") {
+				case "as":
+					if optionValueNode != nil && optionValueNode.Type == reader.NodeSymbol {
+						currentAlias = optionValueNode.Value
+					}
+				case "refer":
+					if optionValueNode != nil && optionValueNode.Type == reader.NodeVector {
+						for _, referSymNode := range optionValueNode.Children {
+							if referSymNode != nil && referSymNode.Type == reader.NodeSymbol {
+								refers = append(refers, referSymNode.Value)
+							}
+						}
+					}
+				}
+			}
+			if currentAlias != "" {
+				items.aliases = append(items.aliases, NamespaceAlias{Alias: currentAlias, FullNamespace: fullNs, DefinitionNode: specNode})
+			}
+			for _, referSym := range refers {
+				items.referred = append(items.referred, ReferredSymbol{SymbolName: referSym, OriginalNamespace: fullNs, DefinitionNode: specNode})
+			}
+		}
+	case "import":
+		for j := 1; j < len(clauseNode.Children); j++ {
+			importSpecNode := clauseNode.Children[j]
+			if importSpecNode == nil {
+				continue
+			}
+			if importSpecNode.Type == reader.NodeSymbol {
+				fullClassName := importSpecNode.Value
+				lastDot := strings.LastIndex(fullClassName, ".")
+				if lastDot > 0 && lastDot < len(fullClassName)-1 {
+					items.referred = append(items.referred, ReferredSymbol{SymbolName: fullClassName[lastDot+1:], OriginalNamespace: fullClassName, DefinitionNode: importSpecNode, IsJavaClass: true})
+				}
+			} else if (importSpecNode.Type == reader.NodeList || importSpecNode.Type == reader.NodeVector) && len(importSpecNode.Children) > 0 && importSpecNode.Children[0] != nil && importSpecNode.Children[0].Type == reader.NodeSymbol {
+				packageName := importSpecNode.Children[0].Value
+				for k := 1; k < len(importSpecNode.Children); k++ {
+					classNode := importSpecNode.Children[k]
+					if classNode != nil && classNode.Type == reader.NodeSymbol {
+						items.referred = append(items.referred, ReferredSymbol{SymbolName: classNode.Value, OriginalNamespace: packageName + "." + classNode.Value, DefinitionNode: classNode, IsJavaClass: true})
+					}
+				}
+			}
+		}
+	}
+	return items
+}
+
+func mergeNamespaceItems(dst *namespaceItems, src namespaceItems) {
+	dst.aliases = append(dst.aliases, src.aliases...)
+	dst.referred = append(dst.referred, src.referred...)
+}
+
+func commonNamespaceItems(branches []namespaceItems) namespaceItems {
+	if len(branches) == 0 {
+		return namespaceItems{}
+	}
+	var common namespaceItems
+	for _, candidate := range branches[0].aliases {
+		matchesEveryBranch := true
+		for _, branch := range branches[1:] {
+			matches := 0
+			for _, alias := range branch.aliases {
+				if alias.Alias == candidate.Alias && alias.FullNamespace == candidate.FullNamespace {
+					matches++
+				}
+			}
+			if matches != 1 {
+				matchesEveryBranch = false
+				break
+			}
+		}
+		if matchesEveryBranch {
+			common.aliases = append(common.aliases, candidate)
+		}
+	}
+	for _, candidate := range branches[0].referred {
+		matchesEveryBranch := true
+		for _, branch := range branches[1:] {
+			matches := 0
+			for _, ref := range branch.referred {
+				if ref.SymbolName == candidate.SymbolName && ref.OriginalNamespace == candidate.OriginalNamespace && ref.IsJavaClass == candidate.IsJavaClass {
+					matches++
+				}
+			}
+			if matches != 1 {
+				matchesEveryBranch = false
+				break
+			}
+		}
+		if matchesEveryBranch {
+			common.referred = append(common.referred, candidate)
+		}
+	}
+	return common
+}
+
+func collectNamespaceConditional(node *reader.RichNode) namespaceItems {
+	if node == nil || (node.Type != reader.NodeReaderCond && node.Type != reader.NodeReaderCondSplice) {
+		return namespaceItems{}
+	}
+	branches := make([]namespaceItems, 0, len(node.Children)/2)
+	for i := 1; i < len(node.Children); i += 2 {
+		branch := namespaceItems{}
+		mergeNamespaceItems(&branch, parseNamespaceClause(node.Children[i]))
+		branches = append(branches, branch)
+	}
+	return commonNamespaceItems(branches)
+}
+
 func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []ReferredSymbol, error) {
 	if nsNode == nil || nsNode.Type != reader.NodeList || len(nsNode.Children) == 0 || nsNode.Children[0].Value != "ns" {
 		return "", nil, nil, fmt.Errorf("node is not a valid ns form")
@@ -1290,7 +1768,6 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 	var namespaceName string
 	var aliases []NamespaceAlias
 	var referredSymbols []ReferredSymbol
-
 	nameIndex := -1
 	for i := 1; i < len(nsNode.Children); i++ {
 		if nsNode.Children[i] != nil && nsNode.Children[i].Type == reader.NodeSymbol {
@@ -1306,89 +1783,18 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 	}
 	for i := clauseStart; i < len(nsNode.Children); i++ {
 		clauseNode := nsNode.Children[i]
-		if clauseNode.Type != reader.NodeList || len(clauseNode.Children) == 0 || clauseNode.Children[0].Type != reader.NodeKeyword {
+		if clauseNode == nil {
 			continue
 		}
-		clauseKeyword := strings.TrimPrefix(clauseNode.Children[0].Value, ":")
-
-		switch clauseKeyword {
-		case "require":
-			for j := 1; j < len(clauseNode.Children); j++ {
-				specNode := clauseNode.Children[j]
-				if specNode.Type != reader.NodeVector || len(specNode.Children) == 0 {
-					continue
-				}
-				nsToRequireNode := specNode.Children[0]
-				if nsToRequireNode.Type != reader.NodeSymbol {
-					continue
-				}
-				fullNs := nsToRequireNode.Value
-				var currentAlias string
-				var refers []string
-
-				for k := 1; k < len(specNode.Children); k++ {
-					optionKeyNode := specNode.Children[k]
-					if optionKeyNode.Type != reader.NodeKeyword {
-						continue
-					}
-					optionKey := strings.TrimPrefix(optionKeyNode.Value, ":")
-					k++
-					if k >= len(specNode.Children) {
-						break
-					}
-					optionValueNode := specNode.Children[k]
-
-					switch optionKey {
-					case "as":
-						if optionValueNode.Type == reader.NodeSymbol {
-							currentAlias = optionValueNode.Value
-						}
-					case "refer":
-						if optionValueNode.Type == reader.NodeVector {
-							for _, referSymNode := range optionValueNode.Children {
-								if referSymNode.Type == reader.NodeSymbol {
-									refers = append(refers, referSymNode.Value)
-								}
-							}
-						}
-					}
-				}
-				if currentAlias != "" {
-					aliases = append(aliases, NamespaceAlias{Alias: currentAlias, FullNamespace: fullNs, DefinitionNode: specNode})
-				}
-				for _, referSym := range refers {
-					referredSymbols = append(referredSymbols, ReferredSymbol{SymbolName: referSym, OriginalNamespace: fullNs, DefinitionNode: specNode})
-				}
-			}
-		case "import":
-			for j := 1; j < len(clauseNode.Children); j++ {
-				importSpecNode := clauseNode.Children[j]
-				if importSpecNode.Type == reader.NodeSymbol {
-					fullClassName := importSpecNode.Value
-					lastDot := strings.LastIndex(fullClassName, ".")
-					if lastDot > 0 && lastDot < len(fullClassName)-1 {
-
-						simpleName := fullClassName[lastDot+1:]
-
-						referredSymbols = append(referredSymbols, ReferredSymbol{SymbolName: simpleName, OriginalNamespace: fullClassName, DefinitionNode: importSpecNode})
-					}
-				} else if (importSpecNode.Type == reader.NodeList || importSpecNode.Type == reader.NodeVector) && len(importSpecNode.Children) > 0 {
-
-					packageNode := importSpecNode.Children[0]
-					if packageNode.Type == reader.NodeSymbol {
-						packageName := packageNode.Value
-						for k := 1; k < len(importSpecNode.Children); k++ {
-							classNode := importSpecNode.Children[k]
-							if classNode.Type == reader.NodeSymbol {
-								simpleName := classNode.Value
-								referredSymbols = append(referredSymbols, ReferredSymbol{SymbolName: simpleName, OriginalNamespace: packageName + "." + simpleName, DefinitionNode: classNode})
-							}
-						}
-					}
-				}
-			}
-
+		if clauseNode.Type == reader.NodeReaderCond || clauseNode.Type == reader.NodeReaderCondSplice {
+			items := collectNamespaceConditional(clauseNode)
+			aliases = append(aliases, items.aliases...)
+			referredSymbols = append(referredSymbols, items.referred...)
+			continue
 		}
+		items := parseNamespaceClause(clauseNode)
+		aliases = append(aliases, items.aliases...)
+		referredSymbols = append(referredSymbols, items.referred...)
 	}
 	return namespaceName, aliases, referredSymbols, nil
 }
@@ -1467,15 +1873,51 @@ func getOrCreateAnalyzer(cfg *config.Config) *Analyzer {
 }
 
 func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
-	tree, err := reader.ParseFile(filepath)
-	if err != nil {
-		return AnalysisResult{}, fmt.Errorf("parsing file failed: %w", err)
+	return a.AnalyzeFileWithProjectIndex(filepath, nil)
+}
+
+func (a *Analyzer) AnalyzeFileWithProjectIndex(filepath string, projectIndex *semantics.ProjectIndex) (AnalysisResult, error) {
+	timings := PhaseTimings{}
+	var phaseStart time.Time
+	var richRoots []*reader.RichNode
+	var comments []*reader.RichNode
+	reusedIndexedFile := false
+	if projectIndex != nil {
+		richRoots, comments, reusedIndexedFile = projectIndex.CachedFile(filepath)
+	}
+	if !reusedIndexedFile {
+		if EnableTiming {
+			phaseStart = time.Now()
+		}
+		tree, err := reader.ParseFile(filepath)
+		if err != nil {
+			return AnalysisResult{}, fmt.Errorf("parsing file failed: %w", err)
+		}
+		if EnableTiming {
+			timings.Parse = time.Since(phaseStart)
+			phaseStart = time.Now()
+		}
+
+		richRoots, comments = reader.BuildRichTree(tree)
+		if EnableTiming {
+			timings.BuildRichTree = time.Since(phaseStart)
+		}
 	}
 
-	richRoots, comments := reader.BuildRichTree(tree)
-
 	if EnableExperimentalMacroExpansion {
+		// The project index owns the parsed AST. Experimental expansion must use
+		// a derived tree so it cannot mutate shared cross-namespace state.
+		richRoots = cloneRichRoots(richRoots)
+		if EnableTiming {
+			phaseStart = time.Now()
+		}
 		ExpandMacros(richRoots)
+		if EnableTiming {
+			timings.MacroExpansion = time.Since(phaseStart)
+		}
+	}
+	if EnableTiming {
+		phaseStart = time.Now()
 	}
 
 	var namespaceName string
@@ -1518,7 +1960,7 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 			Type:            TypeReferred,
 			OriginNamespace: ref.OriginalNamespace,
 		}
-		if strings.Contains(ref.OriginalNamespace, ".") && !strings.HasPrefix(ref.OriginalNamespace, "clojure.") {
+		if ref.IsJavaClass || (strings.Contains(ref.OriginalNamespace, ".") && !strings.HasPrefix(ref.OriginalNamespace, "clojure.")) {
 			refSymInfo.Type = TypeJava
 		}
 		globalScope.Define(refSymInfo)
@@ -1527,9 +1969,18 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 	CollectDefinitions(richRoots, globalScope)
 
 	ResolveSymbols(richRoots, globalScope)
+	if projectIndex != nil {
+		projectIndex.EnrichResolutions(richRoots)
+	}
+	if EnableTiming {
+		timings.Resolution = time.Since(phaseStart)
+	}
 
-	findingsFromAnalysis := a.Analyze(filepath, richRoots, comments, globalScope, namespaceName)
+	findingsFromAnalysis, semanticDiagnostics := a.Analyze(filepath, richRoots, comments, globalScope, namespaceName, projectIndex, &timings)
 
+	if EnableTiming {
+		phaseStart = time.Now()
+	}
 	concreteFindings := make([]rules.Finding, 0, len(findingsFromAnalysis))
 	for _, fptr := range findingsFromAnalysis {
 		if fptr != nil {
@@ -1554,15 +2005,55 @@ func (a *Analyzer) AnalyzeFile(filepath string) (AnalysisResult, error) {
 			}
 		}
 	}
+	if EnableTiming {
+		timings.Postprocess = time.Since(phaseStart)
+	}
 
 	return AnalysisResult{
-		Findings:        concreteFindings,
-		RichRoots:       richRoots,
-		GlobalScope:     globalScope,
-		Namespace:       namespaceName,
-		Aliases:         aliases,
-		ReferredSymbols: referredSymbols,
+		Findings:            concreteFindings,
+		SemanticDiagnostics: semanticDiagnostics,
+		RichRoots:           richRoots,
+		GlobalScope:         globalScope,
+		Namespace:           namespaceName,
+		Aliases:             aliases,
+		ReferredSymbols:     referredSymbols,
+		Timings:             timings,
 	}, nil
+}
+
+func cloneRichRoots(roots []*reader.RichNode) []*reader.RichNode {
+	seen := make(map[*reader.RichNode]*reader.RichNode)
+	result := make([]*reader.RichNode, 0, len(roots))
+	for _, root := range roots {
+		result = append(result, cloneRichNode(root, seen))
+	}
+	return result
+}
+
+func cloneRichNode(node *reader.RichNode, seen map[*reader.RichNode]*reader.RichNode) *reader.RichNode {
+	if node == nil {
+		return nil
+	}
+	if cloned, ok := seen[node]; ok {
+		return cloned
+	}
+	cloned := *node
+	cloned.Children = nil
+	cloned.Metadata = nil
+	cloned.Comments = nil
+	cloned.ResolvedDefinition = nil
+	cloned.Scope = nil
+	cloned.SymbolRef = nil
+	cloned.Resolution = nil
+	seen[node] = &cloned
+	for _, child := range node.Children {
+		cloned.Children = append(cloned.Children, cloneRichNode(child, seen))
+	}
+	cloned.Metadata = cloneRichNode(node.Metadata, seen)
+	for _, comment := range node.Comments {
+		cloned.Comments = append(cloned.Comments, cloneRichNode(comment, seen))
+	}
+	return &cloned
 }
 
 func AnalyzeFile(filepath string, cfg *config.Config) (AnalysisResult, error) {

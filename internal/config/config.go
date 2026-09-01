@@ -11,10 +11,11 @@ import (
 const configFileName = ".arit.yaml"
 
 type Config struct {
-	AnalyzeTests  bool                    `yaml:"analyze-tests"`
-	EnabledRules  map[string]bool         `yaml:"enabled-rules"`
-	EnabledGroups map[string]bool         `yaml:"enabled-groups"`
-	RuleConfig    map[string]RuleSettings `yaml:"rule-config"`
+	AnalyzeTests      bool                              `yaml:"analyze-tests"`
+	EnabledRules      map[string]bool                   `yaml:"enabled-rules"`
+	EnabledGroups     map[string]bool                   `yaml:"enabled-groups"`
+	RuleConfig        map[string]RuleSettings           `yaml:"rule-config"`
+	SemanticContracts map[string]map[string]interface{} `yaml:"semantic-contracts"`
 }
 
 type RuleSettings map[string]interface{}
@@ -40,9 +41,10 @@ func LoadConfig(startDir string) (*Config, error) {
 
 	if !found {
 		return &Config{
-			EnabledRules:  make(map[string]bool),
-			EnabledGroups: make(map[string]bool),
-			RuleConfig:    make(map[string]RuleSettings),
+			EnabledRules:      make(map[string]bool),
+			EnabledGroups:     make(map[string]bool),
+			RuleConfig:        make(map[string]RuleSettings),
+			SemanticContracts: make(map[string]map[string]interface{}),
 		}, nil
 	}
 
@@ -65,6 +67,9 @@ func LoadConfig(startDir string) (*Config, error) {
 	}
 	if config.RuleConfig == nil {
 		config.RuleConfig = make(map[string]RuleSettings)
+	}
+	if config.SemanticContracts == nil {
+		config.SemanticContracts = make(map[string]map[string]interface{})
 	}
 
 	return &config, nil

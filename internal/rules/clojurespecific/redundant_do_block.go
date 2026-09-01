@@ -120,15 +120,15 @@ func (r *RedundantDoBlockRule) isInValidRefactoredContext(doNode *reader.RichNod
 
 	parentSymbol := parentFirstElement.Value
 
-	// Para estruturas que aceitam apenas UMA expressão por branch,
-	// o bloco `do` é OBRIGATÓRIO (não redundante) se tivermos múltiplas expressões.
+	// For forms that accept only ONE expression per branch,
+	// the `do` block is REQUIRED (not redundant) when there are multiple expressions.
 	if r.hasMultipleExpressions(doNode) {
 		switch parentSymbol {
 		case "if", "if-not", "if-let", "if-some":
-			// branches do if precisam de `do` para múltiplas expressões
+			// if branches need `do` for multiple expressions
 			return true
 		case "cond":
-			// result branches do cond precisam de `do`
+			// Result branches in cond need do for multiple expressions.
 			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
 				return true
 			}

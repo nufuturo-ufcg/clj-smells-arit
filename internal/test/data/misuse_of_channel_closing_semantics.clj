@@ -41,7 +41,7 @@
 ;; Sentinel with >!! (blocking put)
 (a/thread (a/>!! my-chan :EOF))
 
-;; Comparação com forma de take — deve ser reportada (sentinel em canal)
+;; Comparison with a take form — should be reported (sentinel in channel)
 (when (= :done (a/<! my-chan)) (prn "channel closed"))
 (when (not= (a/<! my-chan) :end) 1)
 

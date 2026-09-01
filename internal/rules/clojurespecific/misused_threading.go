@@ -5,6 +5,7 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type MisusedThreadingRule struct {
@@ -39,6 +40,9 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 		if !resolved || spec.direction == threadEither {
 			continue
 		}
+		if !threadedStepArityIsValid(step) {
+			continue
+		}
 
 		if step.Type == reader.NodeList && len(step.Children) > 0 && step.Children[0] == head && len(step.Children) < spec.minArgs {
 			continue
@@ -70,23 +74,36 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 	}
 }
 
+func threadedStepArityIsValid(step *reader.RichNode) bool {
+	name := canonicalStepName(step)
+	if name == "" {
+		return false
+	}
+	known, valid := semantics.CanonicalArityValid(name, len(step.Children))
+	return !known || valid
+}
+
 func provableThreadingContradiction(step *reader.RichNode, spec threadingSpec, direction threadDirection) bool {
 	if step == nil || step.Type != reader.NodeList || len(step.Children) < 2 {
 		return false
 	}
 	if direction == threadFirst && spec.direction == threadLast {
 		// -> places the pipeline value before the explicit arguments. A known
-		// function in the first explicit position makes the contradiction
-		// concrete for collection functions such as map/filter.
-		return isFunctionLike(step.Children[1])
+		// function or a definitely non-function value in the first explicit
+		// position makes the contradiction concrete for collection functions
+		// such as map/filter.
+		return isFunctionLike(step.Children[1]) || isDefinitelyNonFunction(step.Children[1])
 	}
 	if direction == threadLast && spec.direction == threadFirst {
 		first := step.Children[1]
 		if first == nil {
 			return false
 		}
-		if specName := canonicalStepName(step); specName == "clojure.core/select-keys" && first.Type == reader.NodeVector {
-			return true
+		switch canonicalStepName(step) {
+		case "clojure.core/select-keys", "select-keys", "clojure.core/get-in", "get-in":
+			if first.Type == reader.NodeVector {
+				return true
+			}
 		}
 		switch first.Type {
 		case reader.NodeKeyword, reader.NodeString, reader.NodeNumber, reader.NodeBool, reader.NodeNil:
@@ -103,6 +120,13 @@ func isFunctionLike(node *reader.RichNode) bool {
 	if node.Type == reader.NodeFnLiteral {
 		return true
 	}
+	if node.Type == reader.NodeList && len(node.Children) == 1 && node.Children[0] != nil && node.Children[0].Type == reader.NodeFnLiteral {
+		return true
+	}
+	if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol &&
+		(node.Children[0].Value == "fn" || node.Children[0].Value == "clojure.core/fn") {
+		return true
+	}
 	if node.Type != reader.NodeSymbol {
 		return false
 	}
@@ -110,7 +134,10 @@ func isFunctionLike(node *reader.RichNode) bool {
 	if node.Resolution != nil {
 		name = node.Resolution.CanonicalName
 	}
-	for _, candidate := range []string{"inc", "dec", "identity", "even?", "odd?", "neg?", "pos?", "some?", "nil?", "string?", "number?", "true?", "false?"} {
+	for _, candidate := range []string{
+		"inc", "dec", "identity", "even?", "odd?", "neg?", "pos?", "some?", "nil?", "string?", "number?", "true?", "false?",
+		"seq", "reverse", "file", "clojure.java.io/file",
+	} {
 		if name == candidate || name == "clojure.core/"+candidate {
 			return true
 		}
@@ -118,9 +145,25 @@ func isFunctionLike(node *reader.RichNode) bool {
 	return false
 }
 
+func isDefinitelyNonFunction(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type {
+	case reader.NodeKeyword, reader.NodeString, reader.NodeNumber, reader.NodeBool,
+		reader.NodeNil, reader.NodeVector, reader.NodeMap, reader.NodeSet:
+		return true
+	default:
+		return false
+	}
+}
+
 func canonicalStepName(step *reader.RichNode) string {
 	if step == nil || len(step.Children) == 0 || step.Children[0] == nil || step.Children[0].Type != reader.NodeSymbol {
 		return ""
+	}
+	if name := semantics.CallName(step); name != "" {
+		return name
 	}
 	if step.Children[0].Resolution != nil {
 		return step.Children[0].Resolution.CanonicalName

@@ -65,10 +65,12 @@ const (
 // of a symbol. Rules should compare CanonicalName instead of matching suffixes
 // or reimplementing alias/import resolution.
 type SymbolResolution struct {
-	Kind          SymbolResolutionKind `json:"kind"`
-	CanonicalName string               `json:"canonical_name"`
-	Namespace     string               `json:"namespace,omitempty"`
-	Name          string               `json:"name"`
+	Kind           SymbolResolutionKind `json:"kind"`
+	CanonicalName  string               `json:"canonical_name"`
+	Namespace      string               `json:"namespace,omitempty"`
+	Name           string               `json:"name"`
+	NamespaceKnown bool                 `json:"namespace_known,omitempty"`
+	Lexical        bool                 `json:"lexical,omitempty"`
 }
 
 type RichNode struct {
@@ -85,6 +87,9 @@ type RichNode struct {
 	InferredType string `json:"inferred_type,omitempty"`
 
 	OriginalNode parse.Node `json:"-"`
+	Generated    bool       `json:"generated,omitempty"`
+	Origin       *Location  `json:"origin,omitempty"`
+	GeneratedBy  string     `json:"generated_by,omitempty"`
 
 	Scope     interface{}
 	SymbolRef interface{}

@@ -46,7 +46,7 @@
 ;; Example 6: 'for' with side effect (not detected)
 (declare amplify-all)
 (defn show-and-scale [x]
-  (println "Doubling" x)  ;; efeito colateral oculto
+  (println "Doubling" x)  ;; hidden side effect
   (* 2 x))
 
 (defn amplify-all [nums]
@@ -162,4 +162,3 @@
   (lazy-seq
     (when-let [s (seq s)]
       (cons (first s) (lazy-show-nums (rest s))))))
-

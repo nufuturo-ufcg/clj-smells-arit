@@ -2,6 +2,7 @@ package clojurespecific
 
 import (
 	"github.com/thlaurentino/arit/internal/reader"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type threadDirection string
@@ -116,14 +117,15 @@ func resolvedThreadingHeadSpec(head *reader.RichNode) (threadingSpec, bool) {
 	if head == nil || head.Type != reader.NodeSymbol {
 		return threadingSpec{}, false
 	}
-	if head.Resolution != nil {
-		if spec, ok := threadingSpecs[head.Resolution.CanonicalName]; ok &&
-			head.Resolution.Kind != reader.ResolutionLocal && head.Resolution.Kind != reader.ResolutionUnresolved {
-			return spec, true
-		}
-		if head.Resolution.Kind == reader.ResolutionLocal {
-			return threadingSpec{}, false
-		}
+	if head.Resolution == nil {
+		return threadingSpec{}, false
+	}
+	if spec, ok := threadingSpecs[head.Resolution.CanonicalName]; ok &&
+		head.Resolution.Kind != reader.ResolutionLocal && head.Resolution.Kind != reader.ResolutionUnresolved {
+		return spec, true
+	}
+	if head.Resolution.Kind != reader.ResolutionUnresolved {
+		return threadingSpec{}, false
 	}
 
 	if spec, ok := threadingSpecs[head.Value]; ok {
@@ -166,6 +168,12 @@ func isCall(node *reader.RichNode) bool {
 func callArgCount(node *reader.RichNode) int { return len(node.Children) - 1 }
 
 func dataArgumentIndex(spec threadingSpec, node *reader.RichNode) (int, bool) {
+	if node != nil {
+		facts := semantics.ForNode(node, nil)
+		if facts.ArityKnown && facts.ArityValid && facts.DataArgumentIndex >= 0 {
+			return facts.DataArgumentIndex + 1, true
+		}
+	}
 	switch spec.direction {
 	case threadFirst:
 		return 1, len(node.Children) > 1

@@ -118,3 +118,10 @@
         m (if (contains? m :a) (assoc m :b 1) m)
         m (if (contains? m :b) (assoc m :c 2) m)]
     m))
+
+;; A local assoc binding is not the core associative update used by cond->.
+(defn shadowed-assoc [p assoc]
+  (let [m {}
+        m (if p (assoc m :a 1) m)
+        m (if p (assoc m :b 2) m)]
+    m))

@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -13,14 +14,15 @@ func TestRelyingOnLoadTimeSideEffects(t *testing.T) {
 		ExpectedFindings: []framework.ExpectedFinding{
 			{Message: "runs while the namespace is loaded", StartLine: 3},
 			{Message: "runs while the namespace is loaded", StartLine: 4},
-			{Message: "runs while the namespace is loaded", StartLine: 15},
-			{Message: "runs while the namespace is loaded", StartLine: 42},
-			{Message: "runs while the namespace is loaded", StartLine: 43},
+			{Message: "runs while the namespace is loaded", StartLine: 13, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "runs while the namespace is loaded", StartLine: 18},
+			{Message: "runs while the namespace is loaded", StartLine: 50},
+			{Message: "runs while the namespace is loaded", StartLine: 51},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 6}, {StartLine: 7}, {StartLine: 10},
-			{StartLine: 20}, {StartLine: 28}, {StartLine: 32}, {StartLine: 36},
-			{StartLine: 39},
+			{StartLine: 23}, {StartLine: 30}, {StartLine: 34}, {StartLine: 38},
+			{StartLine: 42}, {StartLine: 47},
 		},
 	})
 	framework.RunRuleTest(t, framework.RuleTestCase{

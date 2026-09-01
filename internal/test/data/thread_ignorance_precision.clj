@@ -1,5 +1,6 @@
 (ns thread-ignorance-precision
-  (:require [clojure.string :as string]))
+  (:require [clojure.string :as string]
+            [example.core :refer [map]]))
 
 ;; Mixed first/last positions cannot use one threading macro.
 (defn mixed-direction [m]
@@ -77,3 +78,7 @@
 ;; Logical and boolean coercion expressions must not be considered a data transformation pipeline.
 (defn boolean-conjunction [oks failures mismatches]
   (boolean (and (seq oks) (empty? failures) (empty? mismatches))))
+
+;; An externally referred function named map has no inherited core threading contract.
+(defn external-map [xs]
+  (map inc (filter pos? (take 10 xs))))

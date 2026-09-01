@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -20,6 +21,7 @@ func TestNamespaceLoadSideEffects(t *testing.T) {
 				{Message: "Namespace load side effect: 'require'", StartLine: 45},
 				{Message: "Namespace load side effect: 'require'", StartLine: 106},
 				{Message: "Namespace load side effect: 'clojure.core/require'", StartLine: 118},
+				{Message: "Namespace load side effect: 'load-dependency'", StartLine: 123, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 57},

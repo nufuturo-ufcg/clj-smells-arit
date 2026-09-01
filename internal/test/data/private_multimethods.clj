@@ -33,7 +33,7 @@
   (defmethod task-runner :test [t]
     (println "Testing")))
 
-;; Example 4: private multimethod (Analisar se faz sentido)
+;; Example 4: private multimethod (review whether this makes sense)
 (defmulti ^:private route-dispatch :page)
 
 (defmethod route-dispatch :home [_]
@@ -72,6 +72,13 @@
 
   (defmethod handle-event :logout [_]
     (println "logout")))
+
+;; Quoted and shadowed forms are not multimethod definitions for this rule.
+(defn- quoted-definition []
+  '(defmulti quoted-only :type))
+
+(defn- shadowed-definition [defmulti]
+  (defmulti not-a-multimethod :type))
 
 ;; ========== CASES THAT SHOULD NOT BE DETECTED ==========
 

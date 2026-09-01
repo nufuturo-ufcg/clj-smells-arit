@@ -6,6 +6,7 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type MisuseOfChannelClosingSemanticsRule struct {
@@ -30,14 +31,14 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	head := node.Children[0]
 	if head.Type == reader.NodeKeyword {
 		if isSentinelKeyword(head.Value) && isInsideGoBlock(context) {
-			return &rules.Finding{
+			return rules.SetContextualFindingWithEvidence(&rules.Finding{
 				RuleID:   r.ID,
 				Message:  fmt.Sprintf("Checking sentinel %s: prefer closing channels and checking for nil.", head.Value),
 				Filepath: filepath,
 				Location: node.Location,
 				Severity: rules.ContextualSeverity(context, r.Severity),
 				Tags:     rules.ContextualTags(context),
-			}
+			}, "A sentinel may be a legitimate part of the channel's domain protocol.", "channel-domain-protocol", "close-semantics")
 		}
 		return nil
 	}
@@ -47,20 +48,20 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	}
 	headVal := head.Value
 
-	if isPutSymbol(headVal) {
+	if isPutCall(node) {
 		if len(node.Children) >= 3 {
 			valueArg := node.Children[2]
 			if valueArg.Type != reader.NodeMap {
 				sentinel := isDirectSentinel(valueArg)
 				if sentinel != "" {
-					return &rules.Finding{
+					return rules.SetContextualFindingWithEvidence(&rules.Finding{
 						RuleID:   r.ID,
 						Message:  fmt.Sprintf("Sentinel value %s in %s: prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", sentinel, headVal),
 						Filepath: filepath,
 						Location: node.Location,
 						Severity: rules.SeverityHint,
 						Tags:     append(rules.ContextualTags(context), "low-confidence", "producer-only"),
-					}
+					}, "A sentinel may be a legitimate part of the channel's domain protocol.", "channel-domain-protocol", "close-semantics")
 				}
 			}
 		}
@@ -74,7 +75,7 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 			break
 		}
 	}
-	if (headVal == "not=" || headVal == "=") && (isInsideGoBlock(context) || comparisonReadsChannel) {
+	if rules.CallResolvesTo(node, "clojure.core/not=", "clojure.core/=") && validComparisonArity(node) && (isInsideGoBlock(context) || comparisonReadsChannel) {
 		var sentinel string
 		for _, child := range node.Children[1:] {
 			if s := isDirectSentinel(child); s != "" {
@@ -87,29 +88,29 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 			}
 		}
 		if sentinel != "" {
-			return &rules.Finding{
+			return rules.SetContextualFindingWithEvidence(&rules.Finding{
 				RuleID:   r.ID,
 				Message:  fmt.Sprintf("Comparison with sentinel %s: prefer (close! ch) so that (<! ch) returns nil; use (when-let [e (<! ch)] ...) when closed.", sentinel),
 				Filepath: filepath,
 				Location: node.Location,
 				Severity: rules.ContextualSeverity(context, r.Severity),
 				Tags:     rules.ContextualTags(context),
-			}
+			}, "A sentinel may be a legitimate part of the channel's domain protocol.", "channel-domain-protocol", "close-semantics")
 		}
 	}
 
-	if (headVal == "contains?" || headVal == "get") && isInsideGoBlock(context) {
+	if rules.CallResolvesTo(node, "clojure.core/contains?", "clojure.core/get") && validMapQueryArity(node) && isInsideGoBlock(context) {
 		if len(node.Children) >= 3 {
 			keyArg := node.Children[2]
 			if sentinel := isDirectSentinel(keyArg); sentinel != "" {
-				return &rules.Finding{
+				return rules.SetContextualFindingWithEvidence(&rules.Finding{
 					RuleID:   r.ID,
 					Message:  fmt.Sprintf("Checking sentinel key %s: prefer closing channels and checking for nil.", sentinel),
 					Filepath: filepath,
 					Location: node.Location,
 					Severity: rules.ContextualSeverity(context, r.Severity),
 					Tags:     rules.ContextualTags(context),
-				}
+				}, "A sentinel may be a legitimate part of the channel's domain protocol.", "channel-domain-protocol", "close-semantics")
 			}
 		}
 	}
@@ -132,9 +133,9 @@ func isInsideProtocolDeclaration(context map[string]interface{}) bool {
 }
 
 func isInsideGoBlock(context map[string]interface{}) bool {
-	enclosing, _ := context["enclosingForms"].([]string)
-	for _, form := range enclosing {
-		if form == "go" || form == "go-loop" || strings.HasSuffix(form, "/go") || strings.HasSuffix(form, "/go-loop") {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if rules.CallResolvesTo(ancestor, "clojure.core.async/go", "clojure.core.async/go-loop") {
 			return true
 		}
 	}
@@ -153,20 +154,56 @@ func isDirectSentinel(node *reader.RichNode) string {
 	return ""
 }
 
-func isPutSymbol(s string) bool {
-	switch s {
-	case "put!", ">!", ">!!":
-		return true
+func isPutCall(node *reader.RichNode) bool {
+	if !rules.CallResolvesTo(node, "clojure.core.async/put!", "clojure.core.async/>!", "clojure.core.async/>!!") {
+		return false
 	}
-	return strings.HasSuffix(s, "/put!") || strings.HasSuffix(s, "/>!") || strings.HasSuffix(s, "/>!!")
+	return validPutArity(node)
 }
 
-func isTakeSymbol(s string) bool {
-	switch s {
-	case "<!", "<!!":
-		return true
+func isTakeCall(node *reader.RichNode) bool {
+	resolved := rules.ResolvedCall(node)
+	if resolved == nil || !rules.CallResolvesTo(node, "clojure.core.async/<!", "clojure.core.async/<!!") {
+		return false
 	}
-	return strings.HasSuffix(s, "/<!") || strings.HasSuffix(s, "/<!!")
+	known, valid := semantics.CanonicalArityValid(resolved.CanonicalName, len(node.Children)-1)
+	return known && valid
+}
+
+func validPutArity(node *reader.RichNode) bool {
+	if node == nil || len(node.Children) < 3 {
+		return false
+	}
+	resolved := rules.ResolvedCall(node)
+	if resolved == nil {
+		return false
+	}
+	known, valid := semantics.CanonicalArityValid(resolved.CanonicalName, len(node.Children)-1)
+	return known && valid
+}
+
+func validComparisonArity(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	resolved := rules.ResolvedCall(node)
+	if resolved == nil {
+		return false
+	}
+	known, valid := semantics.CanonicalArityValid(resolved.CanonicalName, len(node.Children)-1)
+	return known && valid
+}
+
+func validMapQueryArity(node *reader.RichNode) bool {
+	if node == nil || len(node.Children) < 3 {
+		return false
+	}
+	resolved := rules.ResolvedCall(node)
+	if resolved == nil {
+		return false
+	}
+	known, valid := semantics.CanonicalArityValid(resolved.CanonicalName, len(node.Children)-1)
+	return known && valid
 }
 
 func isChannelTakeForm(node *reader.RichNode) bool {
@@ -177,12 +214,12 @@ func isChannelTakeForm(node *reader.RichNode) bool {
 	if head == nil || head.Type != reader.NodeSymbol {
 		return false
 	}
-	return isTakeSymbol(head.Value)
+	return isTakeCall(node)
 }
 
 var sentinelStems = []string{
 	"done", "end", "eof", "close", "stop", "exit",
-	"complete", "finish", "eos", "poison", "bye", "quit", "terminat",
+	"complete", "finish", "eos", "poison", "bye", "quit", "terminat", "terminate",
 	"closed", "finished", "completed",
 	"shutdown",
 }

@@ -7,10 +7,10 @@ import (
 	"github.com/thlaurentino/arit/internal/rules"
 )
 
-// markerProtocolRule detecta (defprotocol XYZ) sem nenhum método declarado.
-// Um defprotocol vazio é um anti-padrão herdado de Java (Marker Interface),
-// que introduz sobrecarga do sistema de protocolos da JVM sem valor funcional.
-// A alternativa idiomática em Clojure é usar metadados, chaves de mapa ou Clojure Spec.
+// markerProtocolRule detects (defprotocol XYZ) with no declared methods.
+// An empty defprotocol is a Java-inherited anti-pattern (marker interface)
+// that adds JVM protocol overhead without functional value.
+// The idiomatic Clojure alternatives are metadata, map keys, or Clojure Spec.
 type markerProtocolRule struct {
 	rules.Rule
 }
@@ -33,7 +33,7 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 		return nil
 	}
 
-	// defprotocol precisa ter pelo menos o nome do protocolo
+	// defprotocol must have at least the protocol name
 	if len(node.Children) < 2 {
 		return nil
 	}
@@ -50,13 +50,13 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 		}
 	}
 
-	// Se não há nenhum método → marker protocol
+	// If there are no methods, this is a marker protocol
 	if methodCount == 0 {
 		name := protocolName
 		if name == "" {
 			name = "anonymous"
 		}
-		return &rules.Finding{
+		return rules.SetContextualFindingWithEvidence(&rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
 				"Marker protocol: `(defprotocol %s)` has no methods. "+
@@ -68,7 +68,7 @@ func (r *markerProtocolRule) Check(node *reader.RichNode, context map[string]int
 			Location: node.Location,
 			Severity: rules.ContextualSeverity(context, r.Severity),
 			Tags:     rules.ContextualTags(context),
-		}
+		}, "An empty protocol may be a deliberate type marker; the AST does not prove that its use is inappropriate.", "marker-type-contract", "protocol-consumer-contract")
 	}
 
 	return nil

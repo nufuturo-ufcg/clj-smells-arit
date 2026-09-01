@@ -5,6 +5,7 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type UnnecessaryIntoRule struct {
@@ -42,27 +43,21 @@ var fusibleTransducerSteps = []transducerStepSpec{
 	{"clojure.core/dedupe", 1, ""},
 }
 
-func exactFusibleTransducerStep(node *reader.RichNode) (transducerStepSpec, bool) {
+func exactFusibleTransducerStep(node *reader.RichNode, context map[string]interface{}) (transducerStepSpec, bool) {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 {
 		return transducerStepSpec{}, false
 	}
+	facts := rules.FactsForNode(node, context)
 	for _, spec := range fusibleTransducerSteps {
-		if len(node.Children)-1 == spec.args && resolvesToCoreWithFallback(node, spec.canonical) {
+		if len(node.Children)-1 == spec.args && facts.CallMode == semantics.CallModeCollection && rules.HasProvenCallShape(facts) && semanticCallMatches(facts, node, spec.canonical) {
 			return spec, true
 		}
 	}
 	return transducerStepSpec{}, false
 }
 
-func resolvesToCoreWithFallback(node *reader.RichNode, canonical string) bool {
-	if rules.CallResolvesTo(node, canonical) {
-		return true
-	}
-	resolved := rules.ResolvedCall(node)
-	if resolved == nil || resolved.Kind != reader.ResolutionUnresolved || len(node.Children) == 0 {
-		return false
-	}
-	return node.Children[0].Value == shortCanonicalName(canonical)
+func semanticCallMatches(facts *semantics.Facts, node *reader.RichNode, canonical string) bool {
+	return facts != nil && rules.HasProvenCallShape(facts) && semantics.CallName(node) == canonical
 }
 
 func isPlainEmptyVector(node *reader.RichNode) bool {
@@ -78,14 +73,51 @@ func shortCanonicalName(canonical string) string {
 	return canonical
 }
 
+func hasKnownReductionProtocol(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type {
+	case reader.NodeVector, reader.NodeMap, reader.NodeSet:
+		return true
+	default:
+		return false
+	}
+}
+
+func intoFinding(r *UnnecessaryIntoRule, node *reader.RichNode, filepath, operation, xformForm string, contextual bool) *rules.Finding {
+	message := fmt.Sprintf(
+		"A lazy `%s` result is immediately reduced into a plain vector. Fuse its transducer arity as `(into [] %s source)`",
+		operation, xformForm,
+	)
+	if contextual {
+		finding := &rules.Finding{
+			RuleID: r.ID, Message: message + "; review whether the source reduction protocol preserves the required behavior.",
+			Filepath: filepath, Location: node.Location, Severity: r.Severity,
+		}
+		return rules.SetContextualFindingWithEvidence(finding,
+			"Fusion equivalence depends on the source collection's reduction protocol.",
+			"source-type", "source-reduction-protocol")
+	}
+	return &rules.Finding{
+		RuleID:   r.ID,
+		Message:  message + " to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
+		Filepath: filepath,
+		Location: node.Location,
+		Severity: r.Severity,
+	}
+}
+
 func (r *UnnecessaryIntoRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	facts, intoResolved := rules.ProvenCallFacts(node, context, "clojure.core/into")
+	intoResolved = intoResolved && facts.CallMode == semantics.CallModeCollection
 	if !r.CheckTransducerAPI || r.IsInside(context, "__non-evaluated__") ||
-		!rules.CallResolvesTo(node, "clojure.core/into") || len(node.Children) != 3 ||
+		!intoResolved || len(node.Children) != 3 ||
 		!isPlainEmptyVector(node.Children[1]) {
 		return nil
 	}
 
-	step, ok := exactFusibleTransducerStep(node.Children[2])
+	step, ok := exactFusibleTransducerStep(node.Children[2], context)
 	if !ok {
 		return nil
 	}
@@ -95,16 +127,8 @@ func (r *UnnecessaryIntoRule) Check(node *reader.RichNode, context map[string]in
 	if step.xformArg == "" {
 		xformForm = fmt.Sprintf("(%s)", operation)
 	}
-	return &rules.Finding{
-		RuleID: r.ID,
-		Message: fmt.Sprintf(
-			"A lazy `%s` result is immediately reduced into a plain vector. Fuse its transducer arity as `(into [] %s source)` to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
-			operation, xformForm,
-		),
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
-	}
+	source := node.Children[2].Children[len(node.Children[2].Children)-1]
+	return intoFinding(r, node, filepath, operation, xformForm, !hasKnownReductionProtocol(source))
 }
 
 func init() {

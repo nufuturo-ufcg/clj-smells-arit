@@ -16,26 +16,22 @@ func (r *DynamicallyScopedSingletonResourceRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-func isHeavyResourceFunction(name string) bool {
-	// True Semantic Analysis: checking for widely used Clojure ecosystem functions
-	// that consume heavy resources like databases, HTTP clients, Redis, etc.
-	knownFunctions := map[string]bool{
-		// next.jdbc / clojure.java.jdbc
-		"jdbc/execute!": true, "jdbc/query": true, "jdbc/insert!": true,
-		"sql/execute!": true, "sql/query": true, "sql/insert!": true,
-		// clj-http
-		"client/get": true, "client/post": true, "client/put": true, "client/request": true,
-		"http/get": true, "http/post": true, "http/put": true, "http/request": true,
-		// taoensso.carmine (Redis)
-		"car/wcar": true, "redis/wcar": true,
-		// cognitect.aws (AWS/S3)
-		"aws/invoke": true,
-		// Kafka / Messaging
-		"kafka/send": true, "kafka/send!": true,
-		"producer/send": true, "producer/send!": true,
+func isHeavyResourceFunction(node *reader.RichNode) bool {
+	resolved := rules.ResolvedCall(node)
+	if resolved == nil || resolved.Kind == reader.ResolutionUnresolved || resolved.Kind == reader.ResolutionLocal {
+		return false
 	}
 
-	return knownFunctions[name]
+	knownFunctions := map[string]struct{}{
+		"clojure.java.jdbc/execute!": {}, "clojure.java.jdbc/query": {}, "clojure.java.jdbc/insert!": {},
+		"next.jdbc/execute!": {}, "next.jdbc.sql/query": {}, "next.jdbc.sql/insert!": {},
+		"clj-http.client/get": {}, "clj-http.client/post": {}, "clj-http.client/put": {}, "clj-http.client/request": {},
+		"taoensso.carmine/wcar":       {},
+		"cognitect.aws.client/invoke": {},
+		"kafka/send":                  {}, "kafka/send!": {}, "producer/send": {}, "producer/send!": {},
+	}
+	_, ok := knownFunctions[resolved.CanonicalName]
+	return ok
 }
 
 func (r *DynamicallyScopedSingletonResourceRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
@@ -49,27 +45,25 @@ func (r *DynamicallyScopedSingletonResourceRule) Check(node *reader.RichNode, co
 	}
 
 	// Data-Flow Semantic Analysis
-	funcName := firstElement.Value
-
 	// Ignore definitional and binding macros
-	if funcName == "def" || funcName == "binding" || funcName == "let" || funcName == "fn" {
+	if firstElement.Value == "def" || firstElement.Value == "binding" || firstElement.Value == "let" || firstElement.Value == "fn" {
 		return nil
 	}
 
-	if isHeavyResourceFunction(funcName) {
+	if isHeavyResourceFunction(node) {
 		for i := 1; i < len(node.Children); i++ {
 			arg := node.Children[i]
 			if arg.Type == reader.NodeSymbol {
 				name := arg.Value
 				if strings.HasPrefix(name, "*") && strings.HasSuffix(name, "*") && len(name) > 2 {
 					if !isAllowedDynamicVar(name) {
-						return &rules.Finding{
+						return rules.SetContextualFindingWithEvidence(&rules.Finding{
 							RuleID:   r.Meta().ID,
-							Message:  fmt.Sprintf("Passing dynamic variable `%s` to heavy resource function `%s`. Connection pools and stateful clients should be managed via dependency injection (like component or mount), not dynamic scope.", name, funcName),
+							Message:  fmt.Sprintf("Passing dynamic variable `%s` to heavy resource function `%s`. Connection pools and stateful clients should be managed via dependency injection (like component or mount), not dynamic scope.", name, firstElement.Value),
 							Filepath: filepath,
 							Location: arg.Location,
 							Severity: r.Meta().Severity,
-						}
+						}, "Using a dynamic variable may be the deliberate contract of a library, fixture, or execution context.", "dynamic-binding-contract", "resource-ownership")
 					}
 				}
 			}

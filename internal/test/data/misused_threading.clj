@@ -73,3 +73,9 @@
 ;; Negative: quoted examples are not executable pipelines.
 (def quoted-example
   '(-> xs (map inc) (filter even?)))
+
+;; Negative: the expanded call has invalid assoc arity and is not a valid pipeline step.
+(defn invalid-threaded-arity [m]
+  (->> m
+       (assoc :active true :orphan)
+       (dissoc :temporary)))

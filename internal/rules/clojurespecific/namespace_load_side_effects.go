@@ -6,15 +6,16 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
-// NamespaceLoadSideEffectsRule detecta require/use/import em locais problemáticos:
-// 1. Dentro do corpo de funções (defn, fn)
-// 2. No top-level APÓS outras definições (segundo ns, defn, def, etc.)
+// NamespaceLoadSideEffectsRule detects require/use/import in problematic locations:
+// 1. Inside function bodies (defn, fn)
+// 2. At top level AFTER other definitions (after ns, defn, def, etc.)
 //
-// O padrão idiomático em Clojure é declarar todas as dependências no bloco (ns ...) :require.
-// require top-level imediatamente após o (ns ...) é tolerado (estilo de scripts).
-// O smell real é quando require aparece DEPOIS de definições no arquivo.
+// The idiomatic Clojure pattern is to declare all dependencies in the (ns ...) :require block.
+// A top-level require immediately after (ns ...) is tolerated (script style).
+// The actual smell is when require appears AFTER definitions in the file.
 type NamespaceLoadSideEffectsRule struct {
 	rules.Rule
 }
@@ -30,6 +31,24 @@ func isLoadTimeSideEffectCall(node *reader.RichNode) bool {
 
 func isLazyLoadCall(node *reader.RichNode) bool {
 	return rules.CallResolvesTo(node, "clojure.core/requiring-resolve")
+}
+
+func hasProvenLocalNamespaceLoadEffect(node *reader.RichNode, context map[string]interface{}) bool {
+	summaries := rules.FunctionSummaries(context)
+	if len(summaries) == 0 || node == nil || node.Type != reader.NodeList {
+		return false
+	}
+	candidates := []string{semantics.CallName(node)}
+	if len(node.Children) > 0 && node.Children[0] != nil {
+		candidates = append(candidates, node.Children[0].Value)
+	}
+	for _, candidate := range candidates {
+		if summary, found := summaries[candidate]; found && summary.Evidence == semantics.EvidenceProven &&
+			summary.Effects.Has(semantics.EffectNamespaceLoad) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
@@ -56,8 +75,9 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 
 	isLoadTime := isLoadTimeSideEffectCall(node)
 	isLazyLoad := isLazyLoadCall(node)
+	isLocalLoadTime := hasProvenLocalNamespaceLoadEffect(node, context)
 
-	if !isLoadTime && !isLazyLoad {
+	if !isLoadTime && !isLazyLoad && !isLocalLoadTime {
 		return nil
 	}
 
@@ -75,12 +95,12 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 		}
 	}
 
-	// Dentro de (ns ...) é a forma correta
+	// Inside (ns ...), this is the correct form
 	if isInsideNs {
 		return nil
 	}
 
-	// requiring-resolve dentro de função é lazy loading proposital — aceitável
+	// requiring-resolve inside a function is deliberate lazy loading and is acceptable
 	if isLazyLoad && isInsideDefn {
 		return nil
 	}
@@ -91,7 +111,7 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 	if symbol == "require" && len(node.Children) == 2 && node.Children[1].Type == reader.NodeSymbol {
 		return nil
 	}
-	// Smell 1: require/use/import DENTRO do corpo de uma função
+	// Smell 1: require/use/import INSIDE a function body
 	if isInsideDefn {
 		severity := rules.ContextualSeverity(context, r.Severity)
 		tags := rules.ContextualTags(context)
@@ -99,7 +119,7 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			severity = rules.SeverityHint
 			tags = append(tags, "conditional-load")
 		}
-		return &rules.Finding{
+		finding := &rules.Finding{
 			RuleID:   r.ID,
 			Message:  fmt.Sprintf("Side effect: '%s' called inside a function body. Move namespace dependencies to the (ns ...) :require form.", symbol),
 			Filepath: filepath,
@@ -107,6 +127,7 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			Severity: severity,
 			Tags:     tags,
 		}
+		return rules.SetContextualFindingWithEvidence(finding, "Loading inside a function or guard may be deliberate for plugins, compatibility, or optional loading.", "plugin-lifecycle", "optional-load-contract")
 	}
 
 	// A direct top-level form is tolerated for scripts. Nested top-level
@@ -119,7 +140,7 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			severity = rules.SeverityHint
 			tags = append(tags, "conditional-load")
 		}
-		return &rules.Finding{
+		finding := &rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
 				"Namespace load side effect: '%s' is nested in a load-time expression. "+
@@ -131,6 +152,25 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			Severity: severity,
 			Tags:     tags,
 		}
+		if hasOptionalLoadGuard(context) {
+			return rules.SetContextualFindingWithEvidence(finding, "Conditional loading may be deliberate for compatibility or optional availability.", "compatibility-contract", "optional-dependency")
+		}
+		return finding
+	}
+
+	// A direct load form after an executable top-level form is still evaluated
+	// during namespace loading. Keep it contextual because scripts and plugin
+	// loaders may intentionally use this ordering.
+	if afterExecutable, _ := context["top-level-after-executable"].(bool); afterExecutable {
+		finding := &rules.Finding{
+			RuleID:   r.ID,
+			Message:  fmt.Sprintf("Namespace load side effect: '%s' appears after executable top-level forms. Prefer declaring the dependency in the (ns ...) :require form.", symbol),
+			Filepath: filepath,
+			Location: node.Location,
+			Severity: rules.ContextualSeverity(context, r.Severity),
+			Tags:     rules.ContextualTags(context),
+		}
+			return rules.SetContextualFindingWithEvidence(finding, "Loading after executable code may be deliberate in scripts, plugins, or initializers.", "top-level-load-order", "plugin-lifecycle")
 	}
 
 	return nil

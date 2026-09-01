@@ -11,6 +11,17 @@
 
 ARIT is a static code analyzer for Clojure that detects code smells, anti-patterns, and quality issues. Built in Go, ARIT employs a hybrid semantic engine designed to achieve high precision by mitigating structural false positives common in purely AST-based static analysis.
 
+Findings distinguish proven issues from contextual review candidates. See
+[`CONTEXTUAL_FINDINGS_POLICY.md`](CONTEXTUAL_FINDINGS_POLICY.md) for the
+classification contract.
+
+Documentation for ongoing precision experiments can be kept locally under
+`docs/` and is not required for normal use of ARIT.
+
+Rules consume shared semantic facts for symbol resolution, abstract types,
+laziness, effects, execution phase, function summaries, and optional
+cross-namespace indexing.
+
 ## Features
 
 - **Semantic Engine Architecture**: Mitigates false positives via reader emulation (AST pruning of comments and discards), lexical scope tracking, and control-flow graphing for macros.
@@ -30,8 +41,8 @@ ARIT is a static code analyzer for Clojure that detects code smells, anti-patter
 
 ```bash
 # Clone the repository
-git clone https://github.com/thlaurentino/arit.git
-cd arit
+git clone https://github.com/nufuturo-ufcg/clj-smells-arit
+cd clj-smells-arit
 
 # Build the binary
 go build -o arit .

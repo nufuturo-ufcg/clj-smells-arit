@@ -12,7 +12,7 @@ func TestMisuseOfChannelClosingSemantics(t *testing.T) {
 			FileToAnalyze: "misuse_of_channel_closing_semantics.clj",
 			RuleID:        "misuse-of-channel-closing-semantics",
 			ExpectedFindings: []framework.ExpectedFinding{
-				// Put: sentinel value (todas usam mensagem "Sentinel value ... in ...")
+				// Put: sentinel value (all use the message "Sentinel value ... in ...")
 				{Message: "Sentinel value", StartLine: 8},
 				{Message: "Comparison with sentinel", StartLine: 14},
 				{Message: "Sentinel value", StartLine: 19},
@@ -22,7 +22,7 @@ func TestMisuseOfChannelClosingSemantics(t *testing.T) {
 				{Message: "Sentinel value", StartLine: 35},
 				{Message: "Sentinel value", StartLine: 39},
 				{Message: "Sentinel value", StartLine: 42},
-				// Comparison: (= ou not= sentinel take-form)
+				// Comparison: (= or not= sentinel take-form)
 				{Message: "Comparison with sentinel", StartLine: 45},
 				{Message: "Comparison with sentinel", StartLine: 46},
 				// More sentinels (stem-based)
@@ -40,9 +40,21 @@ func TestMisuseOfChannelClosingSemantics(t *testing.T) {
 		})
 	}
 	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze:     "misuse_of_channel_closing_semantics_precision.clj",
+		RuleID:            "misuse-of-channel-closing-semantics",
+		ExpectedFindings:  []framework.ExpectedFinding{{Message: "Sentinel value", StartLine: 22, RequireContextual: true}},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 6}, {StartLine: 10}, {StartLine: 14}, {StartLine: 18}},
+	})
+	framework.RunRuleTest(t, framework.RuleTestCase{
 		FileToAnalyze:     "channel_protocol_signature.clj",
 		RuleID:            "misuse-of-channel-closing-semantics",
 		ExpectedFindings:  []framework.ExpectedFinding{},
 		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 4}},
+	})
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze:     "misuse_of_channel_closing_semantics_invalid.clj",
+		RuleID:            "misuse-of-channel-closing-semantics",
+		ExpectedFindings:  []framework.ExpectedFinding{},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 5}, {StartLine: 6}, {StartLine: 7}},
 	})
 }

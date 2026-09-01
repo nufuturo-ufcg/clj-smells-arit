@@ -68,14 +68,14 @@
 (defn conditional-blocking-example [ch msg condicao]
   (a/go
     (if condicao
-      (a/>!! ch msg) ;; ERRO: Operação de bloqueio ativa dentro do fluxo do go
+      (a/>!! ch msg) ;; ERROR: Active blocking operation inside the go flow
       (println "Ignorado"))))
 
 ;; Example 10: Nested expression execution with blocking operation inside let
 (defn nested-expr-blocking-example [ch]
   (a/go
     (let [val (identity :teste)
-          dado (a/<!! ch)] ;; ERRO: O linter deve detectar a var síncrona dentro do escopo let
+          dado (a/<!! ch)] ;; ERROR: The linter should detect the synchronous var inside the let scope
       (println val dado))))
 
 
@@ -121,7 +121,7 @@
 (defn anonymous-fn-safe-example [ch]
   (a/go
     (let [minha-funcao (fn [] (a/<!! ch))]
-      (println "Função criada, mas não invocada!"))))
+      (println "Function created but not invoked!"))))
 
 ;; Example 18: Local function definition 'letfn' enclosing blocking call (False Positive)
 (defn letfn-safe-example [ch]

@@ -59,6 +59,11 @@
   (let [r (io/reader path)]
     r))
 
+;; A conditional result transfers ownership to the caller as well.
+(defn conditional-reader [path flag]
+  (let [r (io/reader path)]
+    (if flag r nil)))
+
 ;; Alternate Java interop close syntax is recognized.
 (defn manually-closed [path]
   (let [r (io/reader path)]

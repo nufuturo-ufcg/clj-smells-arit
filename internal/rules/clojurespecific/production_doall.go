@@ -5,6 +5,7 @@ import (
 
 	"github.com/thlaurentino/arit/internal/reader"
 	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/rules/semantics"
 )
 
 type ProductionDoallRule struct {
@@ -13,18 +14,28 @@ type ProductionDoallRule struct {
 
 func (r *ProductionDoallRule) Meta() rules.Rule { return r.Rule }
 
-var alreadyEagerVectorProducers = map[string]string{
+var alreadyEagerCollectionProducers = map[string]string{
 	"clojure.core/mapv":    "mapv",
 	"clojure.core/filterv": "filterv",
+	"clojure.core/vec":     "vec",
+	"clojure.core/into":    "into",
 }
 
-func resolvedEagerVectorProducer(node *reader.RichNode) (string, bool) {
-	resolved := rules.ResolvedCall(node)
-	if resolved == nil || resolved.Kind == reader.ResolutionUnresolved || resolved.Kind == reader.ResolutionLocal {
+func resolvedEagerCollectionProducer(node *reader.RichNode, context map[string]interface{}) (string, bool) {
+	facts, provenShape := rules.ProvenCallFacts(node, context, "")
+	if !provenShape || !rules.HasProvenSemanticEvidence(facts) || facts.Laziness != semantics.Eager || facts.Resolution.Kind == reader.ResolutionLocal {
 		return "", false
 	}
-	name, ok := alreadyEagerVectorProducers[resolved.CanonicalName]
+	canonicalName := semantics.CallName(node)
+	name, ok := alreadyEagerCollectionProducers[canonicalName]
 	return name, ok
+}
+
+func eagerProducerExplanation(producer string) string {
+	if producer == "into" {
+		return "`into` has already consumed and realized its input into the target collection before `doall` runs"
+	}
+	return fmt.Sprintf("`%s` has already realized every input element into its returned collection before `doall` runs", producer)
 }
 
 func (r *ProductionDoallRule) insideNonEvaluatedContext(context map[string]interface{}) bool {
@@ -54,21 +65,25 @@ func (r *ProductionDoallRule) Check(node *reader.RichNode, context map[string]in
 		!rules.CallResolvesTo(node, "clojure.core/doall") || len(node.Children) < 1 {
 		return nil
 	}
+	doallFacts := rules.FactsForNode(node, context)
+	if !rules.HasProvenCallShape(doallFacts) {
+		return nil
+	}
+	if len(node.Children) != 2 && len(node.Children) != 3 {
+		return nil
+	}
 
 	if len(node.Children) == 2 {
-		if producer, ok := resolvedEagerVectorProducer(node.Children[1]); ok {
+		if producer, ok := resolvedEagerCollectionProducer(node.Children[1], context); ok {
 			return &rules.Finding{
 				RuleID: r.ID,
 				Message: fmt.Sprintf(
-					"Redundant `doall` around `%s`: `%s` has already realized every input element into a persistent vector before `doall` runs. Remove only the `doall` wrapper; the value, type, order, exceptions, and producer evaluation count are preserved.",
-					producer, producer,
+					"Redundant `doall` around `%s`: %s. Remove only the `doall` wrapper; the value, type, order, exceptions, and producer evaluation count are preserved.",
+					producer, eagerProducerExplanation(producer),
 				),
-				Filepath:         filepath,
-				Location:         node.Location,
-				Severity:         r.Severity,
-				Contextual:       true,
-				ContextualReason: "A necessidade de realizar e reter a sequência depende do ciclo de vida, cardinalidade e efeitos do produtor.",
-				Tags:             []string{"contextual", "review-required"},
+				Filepath: filepath,
+				Location: node.Location,
+				Severity: r.Severity,
 			}
 		}
 	}
@@ -80,7 +95,8 @@ func (r *ProductionDoallRule) Check(node *reader.RichNode, context map[string]in
 		Location:         node.Location,
 		Severity:         r.Severity,
 		Contextual:       true,
-		ContextualReason: "A necessidade de realizar e reter a sequência depende do ciclo de vida, cardinalidade e efeitos do produtor.",
+		ContextualReason: "The need to realize and retain the sequence depends on the producer's lifecycle, cardinality, and effects.",
+		MissingEvidence:  []string{"lifecycle", "cardinality", "producer-effects", "ownership"},
 		Tags:             []string{"contextual", "review-required"},
 	}
 }
@@ -91,7 +107,7 @@ func init() {
 			ID:                    "production-doall",
 			Name:                  "Production doall realization review",
 			Description:           "Warns on evaluated doall calls so developers can review cardinality, retention, effects, and lifecycle boundaries; identifies already-eager vector producers as proven redundancy.",
-			ContextualDescription: "Pode ser contextual quando doall é usado para fechar um recurso, aguardar trabalho, antecipar efeitos ou materializar uma resposta. O finding permanece visível com --include-contextual.",
+			ContextualDescription: "It may be contextual when doall is used to close a resource, await work, anticipate effects, or materialize a response. The finding remains visible with --include-contextual.",
 			Severity:              rules.SeverityWarning,
 		},
 	})

@@ -9,9 +9,10 @@ import (
 func TestSingleSegmentNamespace(t *testing.T) {
 	testCases := []framework.RuleTestCase{
 		{
-			FileToAnalyze:    "single_segment_namespace.clj",
-			RuleID:           "single-segment-namespace",
-			ExpectedFindings: []framework.ExpectedFinding{{StartLine: 10, Severity: rules.SeverityHint}},
+			FileToAnalyze:     "single_segment_namespace.clj",
+			RuleID:            "single-segment-namespace",
+			ExpectedFindings:  []framework.ExpectedFinding{{StartLine: 16, Severity: rules.SeverityHint}},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 11}, {StartLine: 14}},
 		},
 	}
 

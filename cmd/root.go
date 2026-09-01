@@ -21,16 +21,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "arit [file-or-dir...]",
 	Short: "Arit is a static analyzer for Clojure code.",
-	Long: `Arit - Static Analysis for Clojure Code
-
-###############
-    • 
-┏┓┏┓┓╋
-┗┻┛ ┗┗
-      
-###############
-
-Arit analyzes Clojure files for potential issues,
+	Long: `Arit analyzes Clojure files for potential issues,
 style violations, and opportunities for improvement.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -40,19 +31,12 @@ style violations, and opportunities for improvement.`,
 			startTime = time.Now()
 		}
 		if !quietFlag {
-			fmt.Fprint(os.Stderr, `
-###############
-    • 
-┏┓┏┓┓╋
-┗┻┛ ┗┗
-      
-###############
-
-Arit - Static Analysis for Clojure Code
-
-`)
+			if progressEnabled() {
+				fmt.Fprintln(os.Stderr, "Arit")
+			}
 		}
 
+		discoveryStart := time.Now()
 		filesToAnalyze := []string{}
 
 		for _, arg := range args {
@@ -85,6 +69,7 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		sort.Strings(filesToAnalyze)
+		discoveryDuration := time.Since(discoveryStart)
 
 		configDir := resolveConfigDir(filesToAnalyze)
 		cfg, err := config.LoadConfig(configDir)
@@ -99,10 +84,19 @@ Arit - Static Analysis for Clojure Code
 		}
 
 		filesToAnalyze = filterTestFiles(filesToAnalyze, cfg)
+		if len(filesToAnalyze) == 0 {
+			fmt.Fprintln(os.Stderr, "No Clojure files remain after filtering. Use --analyze-tests to include test files.")
+			return nil
+		}
 		outputFormat := reporter.ReportFormat(formatFlag)
 
 		// Delegate heavy execution to runner.go
-		allFindings := runAnalysisPipeline(filesToAnalyze, cfg)
+		allFindings, semanticDiagnostics := runAnalysisPipeline(filesToAnalyze, cfg, discoveryDuration)
+		if semanticDiagnosticsFlag != "" {
+			if err := writeSemanticDiagnostics(semanticDiagnosticsFlag, semanticDiagnostics); err != nil {
+				return fmt.Errorf("error writing semantic diagnostics: %w", err)
+			}
+		}
 		displayedFindings := reporter.FilterContextualFindings(allFindings, includeContextualFlag)
 
 		if !quietFlag && outputFormat != reporter.FormatSummary {
@@ -151,12 +145,15 @@ Arit - Static Analysis for Clojure Code
 }
 
 var (
-	formatFlag            string
-	verboseFlag           bool
-	timingFlag            bool
-	quietFlag             bool
-	countFindingFlag      bool
-	includeContextualFlag bool
+	formatFlag              string
+	verboseFlag             bool
+	timingFlag              bool
+	quietFlag               bool
+	countFindingFlag        bool
+	includeContextualFlag   bool
+	analyzeTestsFlag        bool
+	maxWorkersFlag          int
+	semanticDiagnosticsFlag string
 
 	// Advanced Semantic Features
 	expCrossNsFlag        bool
@@ -177,6 +174,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
 	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
 	rootCmd.PersistentFlags().BoolVar(&includeContextualFlag, "include-contextual", false, "Include possible contextual findings in the output")
+	rootCmd.PersistentFlags().BoolVar(&analyzeTestsFlag, "analyze-tests", false, "Include test files in the analysis")
+	rootCmd.PersistentFlags().IntVar(&maxWorkersFlag, "max-workers", 0, "Limit parallel file analysis workers (0 uses the automatic default)")
+	rootCmd.PersistentFlags().StringVar(&semanticDiagnosticsFlag, "semantic-diagnostics", "", "Write semantic candidate diagnostics as JSON to a file")
 
 	rootCmd.PersistentFlags().BoolVar(&expCrossNsFlag, "experimental-cross-ns", false, "Enable 2-pass cross-namespace resolution (Experimental)")
 	rootCmd.PersistentFlags().BoolVar(&expTypeInferenceFlag, "experimental-types", false, "Enable static type inference and metadata propagation (Experimental)")

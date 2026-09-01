@@ -13,6 +13,135 @@ func isCoreVerboseCall(node *reader.RichNode, name string) bool {
 	return rules.CallResolvesTo(node, "clojure.core/"+name)
 }
 
+func hasProvenCallShape(node *reader.RichNode, context map[string]interface{}) bool {
+	_, proven := rules.ProvenCallFacts(node, context, "")
+	return proven
+}
+
+func isCoreReplacementAvailable(context map[string]interface{}, name string) bool {
+	shadowed, _ := context["shadowed-core"].(map[string]bool)
+	if shadowed[name] {
+		return false
+	}
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestorBindsName(ancestor, name) {
+			return false
+		}
+	}
+	return true
+}
+
+func suggestedCoreName(suggestion string) string {
+	suggestion = strings.TrimPrefix(suggestion, "(")
+	if index := strings.IndexByte(suggestion, ' '); index >= 0 {
+		return suggestion[:index]
+	}
+	return strings.TrimSuffix(suggestion, ")")
+}
+
+func ancestorBindsName(node *reader.RichNode, name string) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 ||
+		node.Children[0] == nil || node.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	head := node.Children[0].Value
+	switch head {
+	case "defn", "defn-":
+		index := 2
+		if index < len(node.Children) && node.Children[index] != nil && node.Children[index].Type == reader.NodeString {
+			index++
+		}
+		if index < len(node.Children) && node.Children[index] != nil && node.Children[index].Type == reader.NodeMap {
+			index++
+		}
+		return functionParamsBindName(node, index, name)
+	case "fn", "fn*":
+		return functionParamsBindName(node, 1, name)
+	case "let", "let*", "loop", "loop*", "binding", "with-open", "with-local-vars", "doseq", "for":
+		if len(node.Children) > 1 {
+			return bindingVectorBindsName(node.Children[1], name)
+		}
+	case "letfn":
+		if len(node.Children) > 1 && node.Children[1] != nil && node.Children[1].Type == reader.NodeVector {
+			for _, binding := range node.Children[1].Children {
+				if binding != nil && binding.Type == reader.NodeList && len(binding.Children) > 0 &&
+					binding.Children[0] != nil && binding.Children[0].Type == reader.NodeSymbol && binding.Children[0].Value == name {
+					return true
+				}
+			}
+		}
+	case "catch":
+		return len(node.Children) > 2 && node.Children[2] != nil && node.Children[2].Type == reader.NodeSymbol && node.Children[2].Value == name
+	}
+	return false
+}
+
+func functionParamsBindName(node *reader.RichNode, index int, name string) bool {
+	if index >= len(node.Children) || node.Children[index] == nil {
+		return false
+	}
+	params := node.Children[index]
+	if params.Type == reader.NodeVector {
+		return bindingSymbolsContainName(params, name)
+	}
+	if params.Type == reader.NodeList {
+		for _, arity := range params.Children {
+			if arity != nil && arity.Type == reader.NodeList && len(arity.Children) > 0 &&
+				arity.Children[0] != nil && arity.Children[0].Type == reader.NodeVector &&
+				bindingSymbolsContainName(arity.Children[0], name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func bindingVectorBindsName(node *reader.RichNode, name string) bool {
+	if node == nil || node.Type != reader.NodeVector {
+		return false
+	}
+	for index := 0; index < len(node.Children); index += 2 {
+		if index < len(node.Children) && bindingSymbolsContainName(node.Children[index], name) {
+			return true
+		}
+	}
+	return false
+}
+
+func bindingSymbolsContainName(node *reader.RichNode, name string) bool {
+	if node == nil {
+		return false
+	}
+	if node.Type == reader.NodeSymbol {
+		return node.Value == name
+	}
+	for _, child := range node.Children {
+		if bindingSymbolsContainName(child, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDirectTestAssertionComparison(node *reader.RichNode, context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	if len(ancestors) == 0 {
+		return false
+	}
+	parent := ancestors[len(ancestors)-1]
+	if directChildIndex(parent, node) != 1 ||
+		(!rules.CallResolvesTo(parent, "clojure.test/is") && !rules.CallResolvesTo(parent, "cljs.test/is")) {
+		return false
+	}
+	for _, operator := range []string{"=", "==", "not=", ">", "<", ">=", "<=", "mod", "rem"} {
+		if isCoreVerboseCall(node, operator) {
+			return true
+		}
+	}
+	return false
+}
+
 func isDefinitelyIntegral(node *reader.RichNode) bool {
 	if node == nil {
 		return false
@@ -31,9 +160,97 @@ func isDefinitelyIntegral(node *reader.RichNode) bool {
 	if node.Type != reader.NodeList {
 		return false
 	}
-	return isCoreVerboseCall(node, "int") || isCoreVerboseCall(node, "long") ||
-		isCoreVerboseCall(node, "unchecked-int") || isCoreVerboseCall(node, "unchecked-long") ||
-		isCoreVerboseCall(node, "compare") || isCoreVerboseCall(node, "count")
+	if isKnownIntegralInteropCall(node) {
+		return true
+	}
+	for _, name := range []string{"int", "long", "unchecked-int", "unchecked-long", "count"} {
+		if isCoreVerboseCall(node, name) && len(node.Children) == 2 {
+			return true
+		}
+	}
+	return isCoreVerboseCall(node, "compare") && len(node.Children) == 3
+}
+
+func isKnownIntegralInteropCall(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 {
+		return false
+	}
+	head := node.Children[0]
+	if head == nil || head.Type != reader.NodeSymbol || !strings.HasPrefix(head.Value, ".") {
+		return false
+	}
+	receiver := node.Children[1]
+	if receiver == nil {
+		return false
+	}
+	method := strings.TrimPrefix(head.Value, ".")
+	if (method == "length" || method == "size") && len(node.Children) != 2 {
+		return false
+	}
+	if (method == "indexOf" || method == "lastIndexOf") && len(node.Children) != 3 {
+		return false
+	}
+	if receiver.Type == reader.NodeString {
+		return method == "indexOf" || method == "lastIndexOf" || method == "length"
+	}
+	switch receiver.Type {
+	case reader.NodeVector:
+		if method == "indexOf" || method == "lastIndexOf" || method == "size" {
+			return true
+		}
+	case reader.NodeMap, reader.NodeSet:
+		if method == "size" {
+			return true
+		}
+	}
+	if receiver.TypeHint == "" {
+		return false
+	}
+	hint := strings.ToLower(strings.TrimSpace(receiver.TypeHint))
+	switch method {
+	case "indexOf", "lastIndexOf":
+		return hint == "string" || hint == "java.lang.string" ||
+			hint == "java.util.list" || hint == "java.util.collection"
+	case "length":
+		return hint == "string" || hint == "java.lang.string"
+	case "size":
+		return hint == "java.util.collection" || hint == "java.util.list" ||
+			hint == "java.util.set" || hint == "java.util.map"
+	default:
+		return false
+	}
+}
+
+func isInvalidKnownIntegralExpression(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList {
+		return false
+	}
+	for _, name := range []string{"int", "long", "unchecked-int", "unchecked-long", "count"} {
+		if isCoreVerboseCall(node, name) {
+			return len(node.Children) != 2
+		}
+	}
+	if isCoreVerboseCall(node, "compare") {
+		return len(node.Children) != 3
+	}
+	if len(node.Children) < 2 || node.Children[0] == nil || node.Children[0].Type != reader.NodeSymbol ||
+		!strings.HasPrefix(node.Children[0].Value, ".") || node.Children[1] == nil {
+		return false
+	}
+	method := strings.TrimPrefix(node.Children[0].Value, ".")
+	knownReceiver := node.Children[1].Type == reader.NodeString || node.Children[1].Type == reader.NodeVector ||
+		node.Children[1].Type == reader.NodeMap || node.Children[1].Type == reader.NodeSet
+	if !knownReceiver {
+		return false
+	}
+	switch method {
+	case "length", "size":
+		return len(node.Children) != 2
+	case "indexOf", "lastIndexOf":
+		return len(node.Children) != 3
+	default:
+		return false
+	}
 }
 
 type VerboseChecksRule struct {
@@ -91,25 +308,28 @@ func initVerboseChecksMaps() {
 	})
 }
 
-func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rules.Finding {
+func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode, context map[string]interface{}) (*rules.Finding, bool) {
 	initVerboseChecksMaps()
 
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
-		return nil
+		return nil, false
 	}
 
 	opNode := node.Children[0]
 	if opNode.Type != reader.NodeSymbol {
-		return nil
+		return nil, false
 	}
 
 	operator := opNode.Value
 	if !isCoreVerboseCall(node, operator) {
-		return nil
+		return nil, false
+	}
+	if !hasProvenCallShape(node, context) {
+		return nil, false
 	}
 	comparisons, exists := numericComparisons[operator]
 	if !exists {
-		return nil
+		return nil, false
 	}
 
 	arg1 := node.Children[1]
@@ -154,8 +374,16 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 	// comparisons can return false for nil or heterogeneous values while
 	// zero?/pos?/neg? throw. Require a statically evidenced numeric operand and
 	// avoid reporting constant folding as a style smell.
-	if suggestion != "" && variableNode != nil && variableNode.Type != reader.NodeNumber &&
-		isDefinitelyIntegral(variableNode) {
+	if suggestion != "" && variableNode != nil && variableNode.Type != reader.NodeNumber {
+		if !isCoreReplacementAvailable(context, suggestedCoreName(suggestion)) {
+			return nil, false
+		}
+		if rules.FactsForNode(variableNode, context).Constant {
+			return nil, false
+		}
+		if isInvalidKnownIntegralExpression(variableNode) {
+			return nil, false
+		}
 		originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
 			RuleID:   r.ID,
@@ -163,13 +391,13 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode) *rule
 			Filepath: "",
 			Location: node.Location,
 			Severity: r.Severity,
-		}
+		}, isDefinitelyIntegral(variableNode)
 	}
 
-	return nil
+	return nil, false
 }
 
-func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rules.Finding {
+func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode, context map[string]interface{}) *rules.Finding {
 	initVerboseChecksMaps()
 
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
@@ -178,6 +406,9 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 
 	opNode := node.Children[0]
 	if opNode.Type != reader.NodeSymbol || opNode.Value != "=" || !isCoreVerboseCall(node, "=") {
+		return nil
+	}
+	if !hasProvenCallShape(node, context) {
 		return nil
 	}
 
@@ -197,6 +428,9 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 
 	if constantValue != "" {
 		if idiomaticFunc, exists := booleanComparisons[constantValue]; exists {
+			if !isCoreReplacementAvailable(context, idiomaticFunc) {
+				return nil
+			}
 			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
 			originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 			return &rules.Finding{
@@ -212,7 +446,7 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode) *rule
 	return nil
 }
 
-func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Finding {
+func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode, context map[string]interface{}) *rules.Finding {
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
 		return nil
 	}
@@ -220,6 +454,9 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	opNode := node.Children[0]
 	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") ||
 		!isCoreVerboseCall(node, opNode.Value) {
+		return nil
+	}
+	if !hasProvenCallShape(node, context) {
 		return nil
 	}
 
@@ -238,17 +475,25 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	}
 
 	if isNilComparison {
-		// `some?` returns its argument rather than a boolean. Only suggest it
-		// where the surrounding form consumes truthiness; nil? is boolean-safe
-		// in all contexts.
-		if opNode.Value == "not=" {
+		other := node.Children[2]
+		if arg1.Type == reader.NodeNil {
+			other = arg2
+		} else {
+			other = arg1
+		}
+		if rules.FactsForNode(other, context).Constant {
 			return nil
 		}
 		var suggestion string
 		if opNode.Value == "=" {
 			suggestion = fmt.Sprintf("(nil? %s)", variableExpr)
-		} else {
+		} else if opNode.Value == "not=" {
 			suggestion = fmt.Sprintf("(some? %s)", variableExpr)
+		} else {
+			return nil
+		}
+		if !isCoreReplacementAvailable(context, suggestedCoreName(suggestion)) {
+			return nil
 		}
 		originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
@@ -263,7 +508,7 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode) *rules.Fi
 	return nil
 }
 
-func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *rules.Finding {
+func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode, context map[string]interface{}) *rules.Finding {
 	initVerboseChecksMaps()
 
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
@@ -277,6 +522,9 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *rules.Fi
 
 	operator := opNode.Value
 	if !isCoreVerboseCall(node, operator) {
+		return nil
+	}
+	if !hasProvenCallShape(node, context) {
 		return nil
 	}
 	operations, exists := mathOperations[operator]
@@ -308,6 +556,9 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *rules.Fi
 
 	if constantValue != "" {
 		if idiomaticFunc, exists := operations[constantValue]; exists {
+			if !isCoreReplacementAvailable(context, idiomaticFunc) {
+				return nil
+			}
 			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
 			originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 			return &rules.Finding{
@@ -323,12 +574,15 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode) *rules.Fi
 	return nil
 }
 
-func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode) *rules.Finding {
+func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode, context map[string]interface{}) *rules.Finding {
 	if node.Type != reader.NodeList || len(node.Children) != 4 {
 		return nil
 	}
 	opNode := node.Children[0]
 	if opNode.Type != reader.NodeSymbol || opNode.Value != "if" || !isCoreVerboseCall(node, "if") {
+		return nil
+	}
+	if !hasProvenCallShape(node, context) {
 		return nil
 	}
 	cond := node.Children[1]
@@ -337,6 +591,9 @@ func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode) *rules.Findin
 
 	if thenBranch.Type == reader.NodeBool && elseBranch.Type == reader.NodeBool {
 		if thenBranch.Value == "true" && elseBranch.Value == "false" {
+			if !isCoreReplacementAvailable(context, "boolean") {
+				return nil
+			}
 			suggestion := fmt.Sprintf("(boolean %s)", getVerboseNodeText(cond))
 			originalExpr := fmt.Sprintf("(if %s true false)", getVerboseNodeText(cond))
 			return &rules.Finding{
@@ -347,6 +604,9 @@ func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode) *rules.Findin
 			}
 		}
 		if thenBranch.Value == "false" && elseBranch.Value == "true" {
+			if !isCoreReplacementAvailable(context, "not") {
+				return nil
+			}
 			suggestion := fmt.Sprintf("(not %s)", getVerboseNodeText(cond))
 			originalExpr := fmt.Sprintf("(if %s false true)", getVerboseNodeText(cond))
 			return &rules.Finding{
@@ -360,14 +620,17 @@ func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode) *rules.Findin
 	return nil
 }
 
-func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Finding {
+func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode, context map[string]interface{}) (*rules.Finding, bool) {
 	if node.Type != reader.NodeList || len(node.Children) != 3 {
-		return nil
+		return nil, false
 	}
 	opNode := node.Children[0]
 	if opNode.Type != reader.NodeSymbol || (opNode.Value != "=" && opNode.Value != "not=") ||
 		!isCoreVerboseCall(node, opNode.Value) {
-		return nil
+		return nil, false
+	}
+	if !hasProvenCallShape(node, context) {
+		return nil, false
 	}
 
 	arg1 := node.Children[1]
@@ -375,6 +638,7 @@ func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Fi
 
 	isMod := false
 	var modArg string
+	var modArgNode *reader.RichNode
 
 	if arg1.Type == reader.NodeList && len(arg1.Children) == 3 &&
 		(isCoreVerboseCall(arg1, "mod") || isCoreVerboseCall(arg1, "rem")) &&
@@ -382,6 +646,7 @@ func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Fi
 		if arg2.Type == reader.NodeNumber && arg2.Value == "0" {
 			isMod = true
 			modArg = getVerboseNodeText(arg1.Children[1])
+			modArgNode = arg1.Children[1]
 		}
 	} else if arg2.Type == reader.NodeList && len(arg2.Children) == 3 &&
 		(isCoreVerboseCall(arg2, "mod") || isCoreVerboseCall(arg2, "rem")) &&
@@ -389,6 +654,7 @@ func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Fi
 		if arg1.Type == reader.NodeNumber && arg1.Value == "0" {
 			isMod = true
 			modArg = getVerboseNodeText(arg2.Children[1])
+			modArgNode = arg2.Children[1]
 		}
 	}
 
@@ -399,15 +665,18 @@ func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode) *rules.Fi
 		} else {
 			suggestion = fmt.Sprintf("(odd? %s)", modArg)
 		}
+		if !isCoreReplacementAvailable(context, suggestedCoreName(suggestion)) {
+			return nil, false
+		}
 		originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
 			RuleID:   r.ID,
 			Message:  fmt.Sprintf("Verbose parity check: `%s`. Consider using `%s`.", originalExpr, suggestion),
 			Location: node.Location,
 			Severity: r.Severity,
-		}
+		}, isDefinitelyIntegral(modArgNode)
 	}
-	return nil
+	return nil, false
 }
 
 func getVerboseNodeText(node *reader.RichNode) string {
@@ -439,43 +708,55 @@ func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]inte
 	if node.Type != reader.NodeList || len(node.Children) < 3 {
 		return nil
 	}
+	if isDirectTestAssertionComparison(node, context) {
+		return nil
+	}
 
 	if r.CheckNumericComparisons {
-		if finding := r.detectNumericComparison(node); finding != nil {
+		if finding, proven := r.detectNumericComparison(node, context); finding != nil {
 			finding.Filepath = filepath
-			return finding
+			if proven {
+				return finding
+			}
+			return rules.SetContextualFindingWithEvidence(finding, "The simplification depends on type, nil, overflow, and the compared value's return contract.", "numeric-type", "nil-behavior", "overflow", "return-contract")
 		}
 	}
 
 	if r.CheckBooleanComparisons {
-		if finding := r.detectBooleanComparison(node); finding != nil {
+		if finding := r.detectBooleanComparison(node, context); finding != nil {
 			finding.Filepath = filepath
+			// Equality with the literal true/false is equivalent to true?/false?
+			// for every Clojure value; no external contract is required.
 			return finding
 		}
 	}
 
 	if r.CheckNilComparisons {
-		if finding := r.detectNilComparison(node); finding != nil {
+		if finding := r.detectNilComparison(node, context); finding != nil {
 			finding.Filepath = filepath
 			return finding
 		}
 	}
 
 	if r.CheckMathOperations {
-		if finding := r.detectMathOperation(node); finding != nil {
+		if finding := r.detectMathOperation(node, context); finding != nil {
 			finding.Filepath = filepath
-			return finding
+			return rules.SetContextualFindingWithEvidence(finding, "The arithmetic simplification may depend on numeric type and overflow.", "numeric-type", "overflow")
 		}
 	}
 
-	if finding := r.detectVerboseIf(node); finding != nil {
+	if finding := r.detectVerboseIf(node, context); finding != nil {
 		finding.Filepath = filepath
+		// Both forms return a boolean and preserve Clojure truthiness exactly.
 		return finding
 	}
 
-	if finding := r.detectModComparison(node); finding != nil {
+	if finding, proven := r.detectModComparison(node, context); finding != nil {
 		finding.Filepath = filepath
-		return finding
+		if proven {
+			return finding
+		}
+		return rules.SetContextualFindingWithEvidence(finding, "The parity simplification depends on the numeric domain and input contract.", "numeric-domain", "input-contract")
 	}
 
 	return nil

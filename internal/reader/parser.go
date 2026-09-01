@@ -406,5 +406,36 @@ func FindTopLevelDefns(tree *parse.Tree) []*parse.ListNode {
 }
 
 func ApplyTypeHints(nodes []*RichNode) {
-
+	metadataTag := func(node *RichNode) string {
+		if node == nil || node.Type != NodeMap {
+			return ""
+		}
+		for i := 0; i+1 < len(node.Children); i += 2 {
+			if node.Children[i] != nil && node.Children[i].Type == NodeKeyword && node.Children[i].Value == ":tag" &&
+				node.Children[i+1] != nil && node.Children[i+1].Type == NodeSymbol {
+				return node.Children[i+1].Value
+			}
+		}
+		return ""
+	}
+	var apply func(*RichNode)
+	apply = func(node *RichNode) {
+		if node == nil {
+			return
+		}
+		if node.Type == NodeTag && len(node.Children) == 1 && node.Children[0] != nil {
+			node.Children[0].TypeHint = node.Value
+		}
+		for i, child := range node.Children {
+			if tag := metadataTag(child); tag != "" && i+1 < len(node.Children) && node.Children[i+1] != nil {
+				node.Children[i+1].TypeHint = tag
+			}
+		}
+		for _, child := range node.Children {
+			apply(child)
+		}
+	}
+	for _, node := range nodes {
+		apply(node)
+	}
 }

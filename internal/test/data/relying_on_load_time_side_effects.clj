@@ -9,6 +9,9 @@
 (defn read-config [path]
   (slurp path))
 
+;; A local summary proves that this initializer performs I/O at load time.
+(def local-config (read-config "https://example.test/local-config"))
+
 ;; Known eager forms preserve proof of load-time execution.
 (def eager-nested
   (when true
@@ -37,6 +40,11 @@
 ;; A local function with the same name is not clojure.core/slurp.
 (defn slurp [value] value)
 (def local-value (slurp "not-io"))
+
+;; The blocking operation is inside a future and must not be attributed to this call.
+(defn deferred-search [kind]
+  (future (clojure.core.async/<!! (clojure.core.async/chan))))
+(def deferred-search-value (deferred-search :web))
 
 ;; Namespace aliases and explicit refers resolve to the same canonical var.
 (def aliased-shell-result (shell/sh "true"))
