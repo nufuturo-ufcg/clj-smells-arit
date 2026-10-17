@@ -73,7 +73,9 @@ func provenEagerMap(node *reader.RichNode, context map[string]interface{}) (stri
 		return "", false
 	}
 	switch mapper.Resolution.CanonicalName {
-	case "clojure.core/inc", "clojure.core/dec", "clojure.core/identity":
+	case "clojure.core/inc", "clojure.core/dec", "clojure.core/identity",
+		"clojure.core/str", "clojure.core/name", "clojure.core/keyword",
+		"clojure.core/symbol":
 		// These core functions are pure and unary, so mapv preserves the
 		// observable result for the finite literal source below.
 	default:
