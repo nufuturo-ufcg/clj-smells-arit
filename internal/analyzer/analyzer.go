@@ -906,6 +906,7 @@ var executionKnownEagerHeads = map[string]struct{}{
 	"def": {}, "defonce": {},
 	"let": {}, "let*": {}, "loop": {}, "loop*": {}, "binding": {},
 	"do": {}, "if": {}, "if-let": {}, "if-not": {}, "when": {}, "when-let": {}, "when-not": {},
+	"if-some": {}, "when-some": {}, "when-first": {},
 	"cond": {}, "condp": {}, "case": {}, "try": {}, "catch": {}, "finally": {},
 	"->": {}, "->>": {}, "some->": {}, "some->>": {}, "cond->": {}, "cond->>": {}, "as->": {},
 	"and": {}, "or": {}, "doto": {}, "..": {},
@@ -962,6 +963,11 @@ func childExecutionContext(parent *reader.RichNode, childIndex int, inherited ru
 		}
 		return inherited
 	case "delay", "lazy-seq", "future", "future-call":
+		return rules.ExecutionDeferred
+	case "deftype", "defrecord", "reify", "proxy", "extend-type", "extend-protocol",
+		"definterface", "defprotocol", "specify", "specify!":
+		// Names, fields, and protocols are declarations; method bodies run
+		// when the methods are called.
 		return rules.ExecutionDeferred
 	}
 
@@ -2147,7 +2153,9 @@ func (a *Analyzer) AnalyzeFileWithProjectIndex(filepath string, projectIndex *se
 			Type:            TypeReferred,
 			OriginNamespace: ref.OriginalNamespace,
 		}
-		if ref.IsJavaClass || (strings.Contains(ref.OriginalNamespace, ".") && !strings.HasPrefix(ref.OriginalNamespace, "clojure.")) {
+		// Only an imported class is Java; a name referred from a namespace is
+		// a Clojure var, whatever the namespace is called.
+		if ref.IsJavaClass {
 			refSymInfo.Type = TypeJava
 		}
 		globalScope.Define(refSymInfo)

@@ -597,6 +597,28 @@ func unmanagedCapturedOrCollected(node *reader.RichNode, binding string, insideC
 	return false
 }
 
+// unmanagedConnectionOfJDBCHandle reports (.getConnection x) where x is
+// type-hinted as a statement, result set, or database metadata: these return
+// the connection they were created from, which the caller that opened it owns.
+func unmanagedConnectionOfJDBCHandle(node *reader.RichNode) bool {
+	if len(node.Children) < 2 || !unmanagedNodeIsSymbol(node.Children[0], ".getConnection") {
+		return false
+	}
+	receiver := node.Children[1]
+	if receiver == nil || receiver.Type != reader.NodeSymbol {
+		return false
+	}
+	hint := receiver.TypeHint
+	if hint == "" && receiver.ResolvedDefinition != nil {
+		hint = receiver.ResolvedDefinition.TypeHint
+	}
+	switch hint[strings.LastIndex(hint, ".")+1:] {
+	case "Statement", "PreparedStatement", "CallableStatement", "ResultSet", "DatabaseMetaData":
+		return true
+	}
+	return false
+}
+
 func unmanagedIsNonEvaluated(context map[string]interface{}) bool {
 	enclosing, _ := context["enclosingForms"].([]string)
 	for _, form := range enclosing {
@@ -621,7 +643,7 @@ func (r *UnmanagedResourceIORule) Check(node *reader.RichNode, context map[strin
 	}
 
 	operation := unmanagedCanonicalOperation(node, context)
-	if operation == "" || unmanagedContainsInMemoryResource(node) ||
+	if operation == "" || unmanagedContainsInMemoryResource(node) || unmanagedConnectionOfJDBCHandle(node) ||
 		unmanagedWrapsKnownLocalResource(node, context, operation) {
 		return nil
 	}

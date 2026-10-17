@@ -117,6 +117,11 @@ func updateCertainlyStores(node *reader.RichNode, innerSymbol string) bool {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) < 3 {
 		return false
 	}
+	// Storing a reference in itself, e.g. (vreset! prev prev) as a sentinel,
+	// nests nothing in another reference.
+	if target := node.Children[1]; target != nil && target.Type == reader.NodeSymbol && target.Value == innerSymbol {
+		return false
+	}
 
 	switch {
 	case rules.CallResolvesTo(node, "clojure.core/reset!", "clojure.core/vreset!", "clojure.core/ref-set"):

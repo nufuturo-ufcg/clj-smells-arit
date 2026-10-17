@@ -87,8 +87,15 @@ func constructsLocalArray(initializer *reader.RichNode) bool {
 	return strings.HasPrefix(head, "js/") && strings.HasSuffix(head, "Array.")
 }
 
-
-func isFunctionParameter(name string, context map[string]interface{}) bool {
+// isNamedFunctionParameter reports whether symbol resolves to a parameter of
+// an enclosing defn, defn-, or defmethod: the caller's value. The resolved
+// binding node is compared, not the name, so a let that shadows the parameter
+// (e.g. (let [buf (byte-array 4)] ...)) is not mistaken for it. Anonymous fn
+// parameters stay unproven, as for a direct mutation.
+func isNamedFunctionParameter(symbol *reader.RichNode, context map[string]interface{}) bool {
+	if symbol == nil || symbol.ResolvedDefinition == nil {
+		return false
+	}
 	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
 	for _, ancestor := range ancestors {
 		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 {
@@ -99,10 +106,67 @@ func isFunctionParameter(name string, context map[string]interface{}) bool {
 			continue
 		}
 		switch strings.TrimPrefix(head.Value, "clojure.core/") {
-		case "defn", "defn-", "defmethod", "fn", "fn*":
-			if functionParamsBindSymbol(ancestor, name) {
+		case "defn", "defn-", "defmethod":
+			if functionParamsContainNode(ancestor, symbol.ResolvedDefinition) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// isMethodImplParameter reports whether symbol is bound by the parameter
+// vector of a method implemented in deftype, defrecord, reify, proxy, or an
+// extend form. The implemented interface defines what the method may do with
+// its arguments, e.g. Collection.toArray(T[]) must fill the array it receives.
+func isMethodImplParameter(symbol *reader.RichNode, context map[string]interface{}) bool {
+	if symbol == nil || symbol.ResolvedDefinition == nil {
+		return false
+	}
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for index := 1; index < len(ancestors); index++ {
+		method, host := ancestors[index], ancestors[index-1]
+		if method == nil || method.Type != reader.NodeList || len(method.Children) < 2 ||
+			method.Children[0] == nil || method.Children[0].Type != reader.NodeSymbol ||
+			host == nil || host.Type != reader.NodeList || len(host.Children) == 0 || host.Children[0] == nil {
+			continue
+		}
+		switch strings.TrimPrefix(host.Children[0].Value, "clojure.core/") {
+		case "deftype", "defrecord", "reify", "proxy", "extend-type", "extend-protocol", "specify", "specify!":
+			if functionParamsContainNode(method, symbol.ResolvedDefinition) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func functionParamsContainNode(form, target *reader.RichNode) bool {
+	for _, child := range form.Children[1:] {
+		if child == nil {
+			continue
+		}
+		if child.Type == reader.NodeVector {
+			return nodeWithin(child, target)
+		}
+		if child.Type == reader.NodeList && len(child.Children) > 0 && child.Children[0] != nil &&
+			child.Children[0].Type == reader.NodeVector && nodeWithin(child.Children[0], target) {
+			return true
+		}
+	}
+	return false
+}
+
+func nodeWithin(node, target *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	if node == target {
+		return true
+	}
+	for _, child := range node.Children {
+		if nodeWithin(child, target) {
+			return true
 		}
 	}
 	return false
@@ -140,7 +204,7 @@ func mutatedArrayOrigin(target *reader.RichNode, context map[string]interface{})
 							return arrayOriginUnknown
 						}
 						if initializer.Resolution.Kind == reader.ResolutionLocal {
-							if isFunctionParameter(initializer.Value, context) {
+							if isNamedFunctionParameter(initializer, context) {
 								return arrayOriginExternal
 							}
 							return arrayOriginUnknown
@@ -280,7 +344,7 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 	}
 
 	if isKnownCoreMutation(node, "clojure.core/def", "clojure.core/defonce") &&
-		isLocalRuntimeScope(context) {
+		isLocalRuntimeScope(context) && !argumentOfUnknownForm(context) {
 		return &rules.Finding{
 			RuleID:     r.ID,
 			Message:    fmt.Sprintf("Found `%s` inside a local scope. This mutates global state and should be avoided.", unqualifiedSym),
@@ -334,7 +398,7 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 	}
 
 	if isProvenArrayMutation(node, context) {
-			finding := &rules.Finding{
+		finding := &rules.Finding{
 			RuleID:     r.ID,
 			Message:    "Found direct mutation of a type-hinted Java array inside a local scope. Prefer returning a new value or document the required mutable boundary.",
 			Filepath:   filepath,
@@ -348,6 +412,9 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 			// externally visible state.
 			return nil
 		case arrayOriginUnknown:
+			if isMethodImplParameter(node.Children[1], context) {
+				return nil
+			}
 			return rules.SetContextualFindingWithEvidence(finding, "The array may be local construction or shared state; its ownership is not proven.", "array-ownership")
 		}
 		return finding

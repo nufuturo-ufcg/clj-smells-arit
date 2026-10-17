@@ -179,6 +179,12 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 	if firstElement.Type != reader.NodeSymbol || firstElement.Value != "do" {
 		return nil
 	}
+	// Arguments of an unknown macro, such as kibit's (defrules ...) patterns,
+	// may be data rather than code.
+	if execution := rules.CurrentExecutionContext(context); execution == rules.ExecutionNonEvaluated ||
+		execution == rules.ExecutionUnknown {
+		return nil
+	}
 
 	var parent *reader.RichNode
 	if pVal, ok := context["parent"]; ok {

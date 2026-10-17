@@ -46,4 +46,15 @@ func TestMapWithNilValues(t *testing.T) {
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 6}},
 	})
+
+	// A record's base field set to nil on the instance is not omittable.
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze: "map_with_nil_values_record_fields.clj",
+		RuleID:        "map-with-nil-values",
+		ExpectedFindings: []framework.ExpectedFinding{
+			{Message: "using 'assoc'", StartLine: 21, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "using 'assoc'", StartLine: 26, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+		},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 9}, {StartLine: 15}, {StartLine: 24}},
+	})
 }

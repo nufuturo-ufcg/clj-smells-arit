@@ -60,6 +60,16 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 4}},
 		},
+		{
+			// Parameter vectors, set! places, and ambiguous binding positions.
+			FileToAnalyze: "multiple_evaluation_in_macros_declarations.clj",
+			RuleID:        "multiple-evaluation-in-macros",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "twice-in-method", StartLine: 19, RequireContextual: true},
+				{Message: "set-twice", StartLine: 22, RequireContextual: true},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 5}, {StartLine: 10}, {StartLine: 15}, {StartLine: 26}, {StartLine: 31}},
+		},
 	}
 
 	for _, tc := range testCases {

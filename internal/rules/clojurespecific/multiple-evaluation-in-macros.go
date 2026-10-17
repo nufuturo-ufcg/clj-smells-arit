@@ -256,8 +256,41 @@ func macroRuntimeMax(node *reader.RichNode, parameter string) int {
 		return macroGeneratedFunctionMax(node, parameter, true)
 	case "fn", "fn*":
 		return macroGeneratedFunctionMax(node, parameter, false)
+	case "set!":
+		// (set! place value): a symbol place names a field or var to assign;
+		// it is not an evaluation of the caller's expression.
+		if len(node.Children) != 3 {
+			return macroRuntimeSequence(node.Children[1:], parameter)
+		}
+		place := 0
+		if !macroDirectUnquoteParameter(node.Children[1], parameter) {
+			place = macroRuntimeMax(node.Children[1], parameter)
+		}
+		return place + macroRuntimeMax(node.Children[2], parameter)
 	case "defmethod":
-		return macroRuntimeBranchMax(node.Children[1:], parameter)
+		// (defmethod name dispatch params body...) or with arities: the
+		// dispatch value runs at definition time and the body at call time;
+		// the parameter vector declares locals and is never evaluated.
+		if len(node.Children) < 4 {
+			return 0
+		}
+		dispatch := macroRuntimeMax(node.Children[2], parameter)
+		body := 0
+		if node.Children[3] != nil && node.Children[3].Type == reader.NodeVector {
+			body = macroRuntimeSequence(node.Children[4:], parameter)
+		} else {
+			for _, arity := range node.Children[3:] {
+				if arity != nil && arity.Type == reader.NodeList && len(arity.Children) > 0 {
+					if count := macroRuntimeSequence(arity.Children[1:], parameter); count > body {
+						body = count
+					}
+				}
+			}
+		}
+		if dispatch > body {
+			return dispatch
+		}
+		return body
 	case "defprotocol", "extend-type", "extend-protocol", "defrecord", "deftype":
 		// Generated methods/implementations are alternative dispatch paths;
 		// do not add their bodies as if they executed sequentially.
@@ -351,8 +384,59 @@ func macroRuntimeMax(node *reader.RichNode, parameter string) int {
 		}
 		return macroRuntimeSequence(body, parameter) + macroRuntimeBranchMax(catches, parameter)
 	default:
+		// An unknown form that receives a binding-shaped vector with the
+		// parameter in a name position may bind it, as let does; later
+		// occurrences would then name the new local, not the caller's
+		// expression. The expansion is ambiguous, so the count is suppressed.
+		if !rules.CallResolvesTo(node, "clojure.core/"+strings.TrimPrefix(head, "clojure.core/")) {
+			for _, child := range node.Children[1:] {
+				if child != nil && child.Type == reader.NodeVector && (len(child.Children)%2 == 0 || macroContainsSplice(child)) {
+					for index := 0; index < len(child.Children); index += 2 {
+						if macroDirectUnquoteParameter(child.Children[index], parameter) {
+							return -1000
+						}
+					}
+				}
+			}
+		}
+		// A variadic body spliced into a form of another namespace may feed a
+		// DSL macro that compiles it to data, as (stevedore/script ~@body)
+		// does; only the core and local forms are known to evaluate it.
+		if strings.Contains(head, "/") && !strings.HasPrefix(head, "clojure.core/") && !macroJavaStaticHead(head) {
+			total := 0
+			for _, child := range node.Children {
+				if child != nil && child.Type == reader.NodeUnquoteSplice && macroDirectUnquoteParameter(child, parameter) {
+					continue
+				}
+				total += macroRuntimeMax(child, parameter)
+			}
+			return total
+		}
 		return macroRuntimeSequence(node.Children, parameter)
 	}
+}
+
+// macroJavaStaticHead reports a Class/member head, whose arguments are always
+// evaluated.
+func macroJavaStaticHead(head string) bool {
+	slash := strings.Index(head, "/")
+	if slash <= 0 {
+		return false
+	}
+	class := head[:slash]
+	if dot := strings.LastIndex(class, "."); dot >= 0 {
+		class = class[dot+1:]
+	}
+	return class != "" && class[0] >= 'A' && class[0] <= 'Z'
+}
+
+func macroContainsSplice(node *reader.RichNode) bool {
+	for _, child := range node.Children {
+		if child != nil && child.Type == reader.NodeUnquoteSplice {
+			return true
+		}
+	}
+	return false
 }
 
 func macroContainsSyntaxQuote(node *reader.RichNode) bool {
@@ -828,6 +912,30 @@ func preservesTaint(expr *reader.RichNode, tainted map[string]bool) bool {
 // only at expansion time (e.g. the arity literal n in (curry ~n (lift-m ~n ~f))).
 // Arguments the inner macro interpolates into its own code are still runtime
 // evaluations and keep the parameter risky.
+// macroParameterNeverEvaluated reports whether, in the fixed arity of macro
+// that accepts argCount arguments, the parameter at argIndex is interpolated
+// only where the generated code does not evaluate it, e.g. (quote ~p).
+func macroParameterNeverEvaluated(macro *reader.RichNode, argCount, argIndex int) bool {
+	for _, arity := range macroArities(macro) {
+		params := arity.params
+		if params == nil || params.Type != reader.NodeVector || len(params.Children) != argCount || len(arity.body) == 0 {
+			continue
+		}
+		for _, param := range params.Children {
+			if param != nil && param.Type == reader.NodeSymbol && param.Value == "&" {
+				return false
+			}
+		}
+		param := params.Children[argIndex]
+		if param == nil || param.Type != reader.NodeSymbol {
+			return false
+		}
+		count, known := macroExpansionMax(arity.body[len(arity.body)-1], param.Value)
+		return known && count == 0
+	}
+	return false
+}
+
 func withoutLocalMacroArguments(parameters []string, node *reader.RichNode, context map[string]interface{}) []string {
 	if len(parameters) == 0 {
 		return parameters
@@ -842,6 +950,12 @@ func withoutLocalMacroArguments(parameters []string, node *reader.RichNode, cont
 		var walk func(n *reader.RichNode)
 		walk = func(n *reader.RichNode) {
 			if n == nil || !onlyExpansionArgs {
+				return
+			}
+			// Quoted generated code is data: (quote ~p) evaluates nothing.
+			if n.Type == reader.NodeQuote || (n.Type == reader.NodeList && len(n.Children) > 0 &&
+				n.Children[0] != nil && n.Children[0].Type == reader.NodeSymbol &&
+				(n.Children[0].Value == "quote" || n.Children[0].Value == "clojure.core/quote")) {
 				return
 			}
 			if macroDirectUnquoteParameter(n, parameter) {
@@ -859,7 +973,8 @@ func withoutLocalMacroArguments(parameters []string, node *reader.RichNode, cont
 					for i, child := range n.Children[1:] {
 						if macroDirectUnquoteParameter(child, parameter) {
 							seen = true
-							if !macroParameterIsExpansionOnly(macro, len(n.Children)-1, i) {
+							if !macroParameterIsExpansionOnly(macro, len(n.Children)-1, i) &&
+								!macroParameterNeverEvaluated(macro, len(n.Children)-1, i) {
 								onlyExpansionArgs = false
 								return
 							}

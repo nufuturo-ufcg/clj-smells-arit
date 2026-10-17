@@ -45,6 +45,16 @@ func TestImmutabilityViolation(t *testing.T) {
 				{StartLine: 21},
 			},
 		},
+		{
+			// The alias must resolve to the parameter binding, not just its name.
+			FileToAnalyze: "immutability_violation_array_alias.clj",
+			RuleID:        "immutability-violation",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "type-hinted Java array", StartLine: 7, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "type-hinted Java array", StartLine: 11, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+				{Message: "type-hinted Java array", StartLine: 13, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			},
+		},
 	}
 
 	for _, tc := range testCases {

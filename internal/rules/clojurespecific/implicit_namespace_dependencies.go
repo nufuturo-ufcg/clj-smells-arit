@@ -136,7 +136,7 @@ func (r *ImplicitNamespaceDependenciesRule) checkUseDirective(node *reader.RichN
 }
 
 func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
-	if isInteropMethodCall(context) {
+	if isInteropMethodCall(context) || argumentOfUnknownForm(context) {
 		return nil
 	}
 	// Only quoted arguments are known at analysis time; an evaluated argument
