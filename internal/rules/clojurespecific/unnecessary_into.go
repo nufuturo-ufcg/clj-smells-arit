@@ -81,11 +81,23 @@ func hasKnownReductionProtocol(node *reader.RichNode, context map[string]interfa
 	case reader.NodeVector, reader.NodeMap, reader.NodeSet:
 		return true
 	}
-	// clojure.core/range returns a reducible collection, so fusing its
-	// transducer into mapv/filterv preserves the eager vector result.
+	// These core producers return collections that implement the reduction
+	// protocol and traverse the same elements in the same order as seq, so
+	// fusing their transducer into into preserves the vector target.
+	knownReducibleProducers := map[string]bool{
+		"clojure.core/range":    true,
+		"clojure.core/vec":      true,
+		"clojure.core/vector":   true,
+		"clojure.core/list":     true,
+		"clojure.core/set":      true,
+		"clojure.core/hash-set": true,
+		"clojure.core/hash-map": true,
+		"clojure.core/sort":     true,
+		"clojure.core/sort-by":  true,
+	}
 	facts := rules.FactsForNode(node, context)
 	if facts != nil && facts.ResolutionKnown && facts.Resolution != nil &&
-		facts.Resolution.CanonicalName == "clojure.core/range" {
+		knownReducibleProducers[facts.Resolution.CanonicalName] {
 		return true
 	}
 	return false

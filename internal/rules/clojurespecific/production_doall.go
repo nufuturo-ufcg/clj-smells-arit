@@ -19,6 +19,8 @@ var alreadyEagerCollectionProducers = map[string]string{
 	"clojure.core/filterv": "filterv",
 	"clojure.core/vec":     "vec",
 	"clojure.core/into":    "into",
+	"clojure.core/sort":    "sort",
+	"clojure.core/sort-by": "sort-by",
 }
 
 func resolvedEagerCollectionProducer(node *reader.RichNode, context map[string]interface{}) (string, bool) {

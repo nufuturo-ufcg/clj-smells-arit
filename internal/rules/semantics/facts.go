@@ -586,6 +586,9 @@ func enrichCallFacts(facts Facts, node *reader.RichNode, context map[string]inte
 	case "clojure.core/mapv", "clojure.core/filterv", "clojure.core/keepv", "clojure.core/into", "clojure.core/vec", "clojure.core/doall":
 		facts.Laziness = Eager
 		facts.Type = TypeVector
+	case "clojure.core/sort", "clojure.core/sort-by":
+		facts.Laziness = Eager
+		facts.Type = TypeList
 	case "clojure.core/future", "clojure.core/future-call", "clojure.core/send", "clojure.core/send-off":
 		facts.Effects |= EffectAsyncBoundary
 	case "clojure.core/def", "clojure.core/defonce", "clojure.core/set!", "clojure.core/reset!", "clojure.core/swap!", "clojure.core/alter-var-root":

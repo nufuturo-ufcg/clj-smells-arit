@@ -87,6 +87,27 @@ func constructsLocalArray(initializer *reader.RichNode) bool {
 	return strings.HasPrefix(head, "js/") && strings.HasSuffix(head, "Array.")
 }
 
+
+func isFunctionParameter(name string, context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 {
+			continue
+		}
+		head := ancestor.Children[0]
+		if head == nil || head.Type != reader.NodeSymbol {
+			continue
+		}
+		switch strings.TrimPrefix(head.Value, "clojure.core/") {
+		case "defn", "defn-", "defmethod", "fn", "fn*":
+			if functionParamsBindSymbol(ancestor, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func mutatedArrayOrigin(target *reader.RichNode, context map[string]interface{}) arrayOrigin {
 	if target == nil || target.Type != reader.NodeSymbol {
 		return arrayOriginUnknown
@@ -110,8 +131,21 @@ func mutatedArrayOrigin(target *reader.RichNode, context map[string]interface{})
 			}
 			for pair := len(vector.Children) - 2; pair >= 0; pair -= 2 {
 				if name := vector.Children[pair]; name != nil && name.Type == reader.NodeSymbol && name.Value == target.Value {
-					if constructsLocalArray(vector.Children[pair+1]) {
+					initializer := vector.Children[pair+1]
+					if constructsLocalArray(initializer) {
 						return arrayOriginLocalConstruction
+					}
+					if initializer != nil && initializer.Type == reader.NodeSymbol {
+						if initializer.Resolution == nil {
+							return arrayOriginUnknown
+						}
+						if initializer.Resolution.Kind == reader.ResolutionLocal {
+							if isFunctionParameter(initializer.Value, context) {
+								return arrayOriginExternal
+							}
+							return arrayOriginUnknown
+						}
+						return arrayOriginExternal
 					}
 					return arrayOriginUnknown
 				}
