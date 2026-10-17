@@ -78,7 +78,8 @@ func isIfAssocRebindPattern(valueNode *reader.RichNode, sym string) bool {
 		return false
 	}
 
-	return isAssociativeUpdateOf(thenBranch, sym)
+	res := isAssociativeUpdateOf(thenBranch, sym)
+	return res
 }
 
 func isAssociativeUpdateOf(node *reader.RichNode, sym string) bool {
@@ -98,7 +99,8 @@ func isAssociativeUpdateOf(node *reader.RichNode, sym string) bool {
 		"cljs.core/assoc", "cljs.core/assoc-in", "cljs.core/dissoc",
 		"cljs.core/update", "cljs.core/update-in", "cljs.core/conj",
 	} {
-		if rules.CallResolvesTo(node, canonicalName) {
+		r := rules.CallResolvesTo(node, canonicalName)
+		if r {
 			return true
 		}
 	}
@@ -132,10 +134,11 @@ func isBaseBindingCandidate(valueNode *reader.RichNode, sym string) bool {
 		return false
 	}
 
-	if referencesSymbol(valueNode, sym) {
-		return false
-	}
-
+	// A binding initializer is evaluated in the enclosing scope, so it may
+	// legitimately refer to an outer binding with the same name. Rejecting
+	// every such reference made base bindings such as (let [m m ...]) invisible
+	// even though the rebinding chain itself does not depend on the accumulated
+	// value.
 	return true
 }
 
@@ -177,6 +180,7 @@ func (r *ConditionalBuildupRule) detectLetConditionalBuildUp(letNode *reader.Ric
 
 	bestName := ""
 	bestCount := 0
+
 
 	resetRun := func() {
 		currentName = ""

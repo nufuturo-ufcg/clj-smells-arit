@@ -47,6 +47,35 @@ func TestImplicitNamespaceDependencies(t *testing.T) {
 			ExpectedFindings:  []framework.ExpectedFinding{},
 			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 5}, {StartLine: 8}},
 		},
+		{
+			// Prefix lists name prefix.lib; entries with :only import explicitly.
+			FileToAnalyze: "implicit_namespace_dependencies_prefix_lists.clj",
+			RuleID:        "implicit-namespace-dependencies",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "[clojush.pushstate, clojush.interpreter, seesaw.core, mixed.b]", StartLine: 2, RequireContextual: true},
+				{Message: "(use 'seesaw.core, clojure.data)", StartLine: 9, RequireContextual: true},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 8}},
+		},
+		{
+			// The ns macro accepts colon-less clauses; elsewhere they are lookups.
+			FileToAnalyze: "implicit_namespace_dependencies_ns_clauses.clj",
+			RuleID:        "implicit-namespace-dependencies",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "[clojure.test]", StartLine: 2, RequireContextual: true},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 6}},
+		},
+		{
+			// Reader conditionals inside ns keep their clauses.
+			FileToAnalyze: "implicit_namespace_dependencies_reader_conditional.cljc",
+			RuleID:        "implicit-namespace-dependencies",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "[clojure.test]", StartLine: 2, RequireContextual: true},
+				{Message: "[clojure.string]", StartLine: 3, RequireContextual: true},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 6}},
+		},
 	}
 
 	for _, tc := range testCases {

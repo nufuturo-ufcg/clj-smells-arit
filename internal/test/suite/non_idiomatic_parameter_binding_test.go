@@ -17,6 +17,7 @@ func TestNonIdiomaticParameterBinding(t *testing.T) {
 				{Message: "Non-idiomatic parameter binding", StartLine: 6, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 				{Message: "Non-idiomatic parameter binding", StartLine: 9, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 				{Message: "Non-idiomatic parameter binding", StartLine: 16, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "`& [head & more]`", StartLine: 32, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 12},

@@ -40,6 +40,9 @@ var catalogAuditCmd = &cobra.Command{
 			return json.NewEncoder(os.Stdout).Encode(report)
 		}
 		fmt.Printf("files=%d findings=%d proven=%d contextual=%d no_findings=%d\n", len(report.Files), report.Findings, report.Proven, report.Contextual, len(report.NoFindingFiles))
+		if report.GateFiles > 0 || report.ExploratoryFiles > 0 {
+			fmt.Printf("gate_files=%d (tp=%d tn=%d fp=%d fn=%d) exploratory_files=%d\n", report.GateFiles, report.TruePositives, report.TrueNegatives, report.FalsePositives, report.FalseNegatives, report.ExploratoryFiles)
+		}
 		for _, file := range report.NoFindingFiles {
 			reason := file.Expectation.NoFindingReason
 			if reason == "" {

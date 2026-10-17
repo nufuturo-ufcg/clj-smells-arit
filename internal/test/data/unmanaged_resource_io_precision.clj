@@ -110,3 +110,65 @@
 (defn discarded-resource []
   (let [discarded (clojure.java.io/input-stream "unused")]
     (.read discarded)))
+
+;; A resource returned inside a map escapes to the caller with the map; a
+;; matching stop function owns its close.
+(defn start-server-map [port]
+  (let [server-socket (java.net.ServerSocket. port)]
+    {:server-socket server-socket
+     :port port}))
+
+(defn stop-server-map [{:keys [server-socket]}]
+  (.close server-socket))
+
+;; A resource returned inside a vector also escapes.
+(defn start-server-vector [port]
+  (let [server-socket (java.net.ServerSocket. port)]
+    [server-socket port]))
+
+;; A nested let returning a collection with the resource still escapes.
+(defn start-server-nested [port]
+  (let [server-socket (java.net.ServerSocket. port)]
+    (let [info {:port port}]
+      (assoc info :socket server-socket))))
+
+;; A returned collection that does not contain the resource is not a transfer.
+(defn leak-with-status-map [port]
+  (let [server-socket (java.net.ServerSocket. port)]
+    (.accept server-socket)
+    {:status :started}))
+
+;; Adapters over streams owned elsewhere must not be closed here.
+(defn copy-stream-to-writer [input-stream writer]
+  (let [reader (java.io.InputStreamReader. input-stream)]
+    (.read reader)))
+
+(defn read-stdin []
+  (let [r (java.io.BufferedReader. *in*)]
+    (.readLine r)))
+
+;; The socket escapes inside a map bound to another local.
+(defn connect-player [host port]
+  (let [sock (java.net.Socket. host port)
+        player {:socket sock :port port}]
+    player))
+
+;; The writer is captured by a closure returned to the caller.
+(defn make-transport [path]
+  (let [w (java.io.FileWriter. path)]
+    (fn [msg] (.write w msg))))
+
+;; A derived channel is handed to an unknown consumer.
+(defn send-region [ch path]
+  (let [raf (java.io.RandomAccessFile. path "r")
+        fc (.getChannel raf)]
+    (send-file! ch fc)))
+
+;; Fresh sources prove ownership of the clojure.java.io result.
+(defn read-literal-path []
+  (let [r (io/reader "config.edn")]
+    (.read r)))
+
+(defn read-file-object [dir]
+  (let [r (io/reader (io/file dir "config.edn"))]
+    (.read r)))

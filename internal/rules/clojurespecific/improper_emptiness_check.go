@@ -82,7 +82,12 @@ func isResolvedSafeCollectionProducer(node *reader.RichNode, facts semantics.Fac
 	switch canonicalName {
 	case "clojure.core/hash-map", "clojure.core/keys", "clojure.core/list",
 		"clojure.core/set", "clojure.core/sort", "clojure.core/sort-by",
-		"clojure.core/str", "clojure.core/vals", "clojure.core/vector":
+		"clojure.core/str", "clojure.core/vals", "clojure.core/vector",
+		"clojure.core/vec", "clojure.core/into":
+		if canonicalName == "clojure.core/into" {
+			return len(node.Children) >= 3 && node.Children[2] != nil &&
+				(node.Children[2].Type == reader.NodeVector || node.Children[2].Type == reader.NodeMap || node.Children[2].Type == reader.NodeSet)
+		}
 		return true
 	default:
 		return false
@@ -111,7 +116,8 @@ func isInvalidResolvedCollectionProducer(node *reader.RichNode, context map[stri
 	switch semantics.CallName(node) {
 	case "clojure.core/hash-map", "clojure.core/keys", "clojure.core/vals",
 		"clojure.core/list", "clojure.core/set", "clojure.core/sort",
-		"clojure.core/sort-by", "clojure.core/str", "clojure.core/vector":
+		"clojure.core/sort-by", "clojure.core/str", "clojure.core/vector",
+		"clojure.core/vec", "clojure.core/into":
 		return !validSafeCollectionProducerArity(node, semantics.CallName(node))
 	default:
 		return false
@@ -158,10 +164,34 @@ func knownCollectionForEmptiness(node *reader.RichNode, context map[string]inter
 	}
 }
 
+// knownEagerCollectionForCount guards the count-based rewrites. count realizes
+// a lazy sequence completely, running every pending element computation and
+// never returning for an infinite one, while seq and empty? realize at most the
+// first chunk; the rewrite is therefore proven only for a non-lazy collection.
+func knownEagerCollectionForCount(node *reader.RichNode, context map[string]interface{}) bool {
+	return knownCollectionForEmptiness(node, context) && rules.FactsForNode(node, context).Laziness != semantics.Lazy
+}
+
+// requireSeqableEvidence keeps a direct empty? rewrite proven only when the
+// argument's collection type is proven. In Clojure <= 1.11 empty? is defined as
+// (not (seq coll)), but Clojure 1.12+ and ClojureScript answer empty? for
+// counted values through count, so a transient (counted, not seqable) makes
+// (empty? t) valid while (seq t) throws. An unproven argument type therefore
+// leaves the rewrite contextual.
+func requireSeqableEvidence(finding *rules.Finding, collection *reader.RichNode, context map[string]interface{}) *rules.Finding {
+	if finding == nil || knownCollectionForEmptiness(collection, context) {
+		return finding
+	}
+	return rules.SetContextualFindingWithEvidence(finding,
+		"In Clojure 1.12+ and ClojureScript empty? accepts counted values that seq rejects, such as transients; the argument's collection type is not proven.",
+		"collection-type")
+}
+
 func (r *ImproperEmptinessCheckRule) finding(node *reader.RichNode, filepath, message string, contextual bool) *rules.Finding {
 	finding := &rules.Finding{
 		RuleID: r.ID, Message: message, Filepath: filepath,
 		Location: node.Location, Severity: r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 	if contextual {
 		return rules.SetContextualFindingWithEvidence(finding, "The replacement may depend on whether the result is consumed as a boolean or as a collection value.", "return-contract", "collection-type")
@@ -186,9 +216,10 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 			if isCoreCall(node, "if-not") {
 				replacement = "if"
 			}
-			return r.finding(node, filepath, fmt.Sprintf(
+			finding := r.finding(node, filepath, fmt.Sprintf(
 				"Improper emptiness check: `(%s (empty? %s))`. Consider using `(%s (seq %s) ...)`.",
 				node.Children[0].Value, collection, replacement, collection), false)
+			return requireSeqableEvidence(finding, arg.Children[1], context)
 		}
 	}
 
@@ -206,8 +237,9 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 			if !isCoreReplacementAvailable(context, "seq") {
 				return nil
 			}
-			return r.finding(node, filepath, fmt.Sprintf(
+			finding := r.finding(node, filepath, fmt.Sprintf(
 				"Improper emptiness check: `(not (empty? %s))`. Consider using `(seq %s)` or `(boolean (seq %s))`.", collection, collection, collection), false)
+			return requireSeqableEvidence(finding, arg.Children[1], context)
 		}
 	}
 
@@ -222,7 +254,7 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 				if !isCoreReplacementAvailable(context, "empty?") {
 					return nil
 				}
-				if knownCollectionForEmptiness(collectionNode, context) {
+				if knownEagerCollectionForCount(collectionNode, context) {
 					return r.finding(node, filepath, fmt.Sprintf(
 						"Improper emptiness check: `(zero? (count %s))`. Consider using `(empty? %s)`.", collection, collection), false)
 				}
@@ -232,7 +264,7 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 			if !isCoreReplacementAvailable(context, "seq") {
 				return nil
 			}
-			if knownCollectionForEmptiness(collectionNode, context) && usedOnlyForTruthiness(node, context) {
+			if knownEagerCollectionForCount(collectionNode, context) && usedOnlyForTruthiness(node, context) {
 				return r.finding(node, filepath, fmt.Sprintf(
 					"Improper emptiness check: `(pos? (count %s))`. Consider using `(seq %s)`.", collection, collection), false)
 			}
@@ -272,7 +304,7 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 		if !isCoreReplacementAvailable(context, "empty?") {
 			return nil
 		}
-		if knownCollectionForEmptiness(collectionNode, context) {
+		if knownEagerCollectionForCount(collectionNode, context) {
 			return r.finding(node, filepath, fmt.Sprintf(
 				"Improper emptiness check: using `%s` with `count`. Consider using `(empty? %s)`.", op, collection), false)
 		}
@@ -283,7 +315,7 @@ func (r *ImproperEmptinessCheckRule) Check(node *reader.RichNode, context map[st
 		if !isCoreReplacementAvailable(context, "seq") {
 			return nil
 		}
-		if knownCollectionForEmptiness(collectionNode, context) && usedOnlyForTruthiness(node, context) {
+		if knownEagerCollectionForCount(collectionNode, context) && usedOnlyForTruthiness(node, context) {
 			return r.finding(node, filepath, fmt.Sprintf(
 				"Improper emptiness check: using `%s` with `count`. Consider using `(seq %s)`.", op, collection), false)
 		}

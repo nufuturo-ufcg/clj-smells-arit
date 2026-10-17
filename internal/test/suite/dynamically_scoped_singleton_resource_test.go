@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -11,7 +12,7 @@ func TestDynamicallyScopedSingletonResource(t *testing.T) {
 		FileToAnalyze: "dynamically_scoped_singleton_resource.clj",
 		RuleID:        "dynamically-scoped-singleton-resource",
 		ExpectedFindings: []framework.ExpectedFinding{
-			{Message: "Passing dynamic variable `*current-conn*`", StartLine: 8, RequireContextual: true},
+			{Message: "Passing dynamic variable `*current-conn*`", StartLine: 8, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 11},

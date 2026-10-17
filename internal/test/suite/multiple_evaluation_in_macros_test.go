@@ -30,6 +30,9 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 				{Message: "The macro assert-verbose presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 56, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 				{Message: "The macro duplicate-body presents multiple calls to the input arguments body without defining temporary local variables.", StartLine: 140, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 				{Message: "The macro one-risky-arity presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 144, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "The macro reify-twice presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 186, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "The macro private-square presents multiple calls to the input arguments x without defining temporary local variables.", StartLine: 191, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "The macro extend-twice presents multiple calls to the input arguments expr without defining temporary local variables.", StartLine: 200, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 86},
@@ -44,7 +47,28 @@ func TestMultipleEvaluationInMacros(t *testing.T) {
 				{StartLine: 161},
 				{StartLine: 167},
 				{StartLine: 174},
+				{StartLine: 178},
+				{StartLine: 195},
 			},
+		},
+		{
+			// catch clauses are alternatives; body plus one catch is a path.
+			FileToAnalyze: "multiple_evaluation_in_macros_catch_clauses.clj",
+			RuleID:        "multiple-evaluation-in-macros",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "body-and-catch", StartLine: 10, RequireContextual: true},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 4}},
+		},
+		{
+			// Parameter vectors, set! places, and ambiguous binding positions.
+			FileToAnalyze: "multiple_evaluation_in_macros_declarations.clj",
+			RuleID:        "multiple-evaluation-in-macros",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "twice-in-method", StartLine: 19, RequireContextual: true},
+				{Message: "set-twice", StartLine: 22, RequireContextual: true},
+			},
+			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 5}, {StartLine: 10}, {StartLine: 15}, {StartLine: 26}, {StartLine: 31}},
 		},
 	}
 
@@ -99,8 +123,9 @@ func TestMultipleEvaluationInMacrosContextualFindingsHaveEvidence(t *testing.T) 
 			t.Errorf("line %d: contextual finding has no missing evidence", finding.Location.StartLine)
 		}
 	}
-	if count != 12 {
-		t.Fatalf("expected 12 contextual findings, got %d", count)
+	// 12 original positives plus reify-twice, private-square, and extend-twice.
+	if count != 15 {
+		t.Fatalf("expected 15 contextual findings, got %d", count)
 	}
 }
 

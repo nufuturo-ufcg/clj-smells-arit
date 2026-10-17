@@ -77,11 +77,12 @@ func (r *LongParameterListRule) Check(node *reader.RichNode, context map[string]
 
 			if (paramCount + optionalParamCount) > r.MaxParameters {
 				return &rules.Finding{
-					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Function %q has too many parameters: %d (max %d). Optional parameters: %d.", funcName, paramCount+optionalParamCount, r.MaxParameters, optionalParamCount),
-					Filepath: filepath,
-					Location: argsNode.Location,
-					Severity: r.Severity,
+					RuleID:     r.ID,
+					Message:    fmt.Sprintf("Function %q has too many parameters: %d (max %d). Optional parameters: %d.", funcName, paramCount+optionalParamCount, r.MaxParameters, optionalParamCount),
+					Filepath:   filepath,
+					Location:   argsNode.Location,
+					Severity:   r.Severity,
+					Confidence: rules.ConfidenceProven,
 				}
 			}
 		} else {

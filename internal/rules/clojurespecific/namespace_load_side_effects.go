@@ -56,7 +56,9 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 		return nil
 	}
 	lowerPath := strings.ToLower(filepath)
-	if strings.HasSuffix(lowerPath, "project.clj") || strings.HasSuffix(lowerPath, "deps.edn") {
+	// Build descriptors are data read by the build tool, not namespace code.
+	if strings.HasSuffix(lowerPath, "project.clj") || strings.HasSuffix(lowerPath, "profiles.clj") ||
+		strings.HasSuffix(lowerPath, "deps.edn") {
 		return nil
 	}
 
@@ -79,6 +81,11 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 
 	if !isLoadTime && !isLazyLoad && !isLocalLoadTime {
 		return nil
+	}
+	// A local function is not itself a dependency; name what it does.
+	operation := fmt.Sprintf("'%s'", symbol)
+	if !isLoadTime && !isLazyLoad {
+		operation = fmt.Sprintf("'%s' (a local function that loads a namespace)", symbol)
 	}
 
 	isInsideNs := false
@@ -115,7 +122,7 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 	if isInsideDefn {
 		severity := rules.ContextualSeverity(context, r.Severity)
 		tags := rules.ContextualTags(context)
-		if hasOptionalLoadGuard(context) {
+		if hasOptionalLoadGuard(node, context) {
 			severity = rules.SeverityHint
 			tags = append(tags, "conditional-load")
 		}
@@ -136,23 +143,24 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 	if parent, ok := context["parent"].(*reader.RichNode); ok && parent != nil {
 		severity := rules.ContextualSeverity(context, r.Severity)
 		tags := rules.ContextualTags(context)
-		if hasOptionalLoadGuard(context) {
+		if hasOptionalLoadGuard(node, context) {
 			severity = rules.SeverityHint
 			tags = append(tags, "conditional-load")
 		}
 		finding := &rules.Finding{
 			RuleID: r.ID,
 			Message: fmt.Sprintf(
-				"Namespace load side effect: '%s' is nested in a load-time expression. "+
+				"Namespace load side effect: %s is nested in a load-time expression. "+
 					"All namespace dependencies should be declared inside the (ns ...) macro at the top of the file.",
-				symbol,
+				operation,
 			),
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: severity,
-			Tags:     tags,
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   severity,
+			Confidence: rules.ConfidenceProven,
+			Tags:       tags,
 		}
-		if hasOptionalLoadGuard(context) {
+		if hasOptionalLoadGuard(node, context) || (!isLoadTime && !isLazyLoad && localLoadIsGuarded(node, context)) {
 			return rules.SetContextualFindingWithEvidence(finding, "Conditional loading may be deliberate for compatibility or optional availability.", "compatibility-contract", "optional-dependency")
 		}
 		return finding
@@ -170,22 +178,38 @@ func (r *NamespaceLoadSideEffectsRule) Check(node *reader.RichNode, context map[
 			Severity: rules.ContextualSeverity(context, r.Severity),
 			Tags:     rules.ContextualTags(context),
 		}
-			return rules.SetContextualFindingWithEvidence(finding, "Loading after executable code may be deliberate in scripts, plugins, or initializers.", "top-level-load-order", "plugin-lifecycle")
+		return rules.SetContextualFindingWithEvidence(finding, "Loading after executable code may be deliberate in scripts, plugins, or initializers.", "top-level-load-order", "plugin-lifecycle")
 	}
 
 	return nil
 }
 
-func hasOptionalLoadGuard(context map[string]interface{}) bool {
+func hasOptionalLoadGuard(node *reader.RichNode, context map[string]interface{}) bool {
 	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
-	for _, ancestor := range ancestors {
+	for index, ancestor := range ancestors {
 		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 || ancestor.Children[0].Type != reader.NodeSymbol {
 			continue
+		}
+		pathChild := node
+		if index+1 < len(ancestors) {
+			pathChild = ancestors[index+1]
 		}
 		head := strings.TrimPrefix(ancestor.Children[0].Value, "clojure.core/")
 		switch head {
 		case "if", "when", "when-not", "if-not":
 			if len(ancestor.Children) > 1 && containsOptionalGuardCall(ancestor.Children[1]) {
+				return true
+			}
+			if loadIsConditionalBranch(ancestor, pathChild, 2) && !isLiteralConstant(ancestor.Children[1]) {
+				return true
+			}
+		case "if-let", "when-let", "if-some", "when-some", "cond", "case", "and", "or":
+			// Only the first evaluated form runs unconditionally.
+			if loadIsConditionalBranch(ancestor, pathChild, 2) {
+				return true
+			}
+		case "condp":
+			if loadIsConditionalBranch(ancestor, pathChild, 3) {
 				return true
 			}
 		case "try":
@@ -195,6 +219,33 @@ func hasOptionalLoadGuard(context map[string]interface{}) bool {
 				}
 			}
 		}
+	}
+	return false
+}
+
+// loadIsConditionalBranch reports whether pathChild is a direct child of form
+// at or after firstBranch, i.e. a position that runs only when a guard holds.
+func loadIsConditionalBranch(form, pathChild *reader.RichNode, firstBranch int) bool {
+	if pathChild == nil {
+		return false
+	}
+	for index := firstBranch; index < len(form.Children); index++ {
+		if form.Children[index] == pathChild {
+			return true
+		}
+	}
+	return false
+}
+
+// isLiteralConstant reports a guard whose value is fixed in the source, such
+// as `(when true ...)`; such a guard does not make the load optional.
+func isLiteralConstant(node *reader.RichNode) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type {
+	case reader.NodeBool, reader.NodeNil, reader.NodeKeyword, reader.NodeNumber, reader.NodeString, reader.NodeCharacter:
+		return true
 	}
 	return false
 }
@@ -228,4 +279,19 @@ func init() {
 			Severity:    rules.SeverityWarning,
 		},
 	})
+}
+
+// localLoadIsGuarded reports a local function whose namespace load happens in
+// a try/catch, i.e. a probe for an optional dependency.
+func localLoadIsGuarded(node *reader.RichNode, context map[string]interface{}) bool {
+	summaries := rules.FunctionSummaries(context)
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0] == nil {
+		return false
+	}
+	for _, candidate := range []string{semantics.CallName(node), node.Children[0].Value} {
+		if summary, found := summaries[candidate]; found && summary.GuardedLoad {
+			return true
+		}
+	}
+	return false
 }

@@ -6,9 +6,26 @@ import (
 	"github.com/thlaurentino/arit/internal/reader"
 )
 
+func TestUnclassifiedFindingIsRejected(t *testing.T) {
+	finding := &Finding{RuleID: "test-rule", Severity: SeverityHint}
+	ok := MarkContextualFinding(finding)
+	if ok {
+		t.Fatal("unclassified finding without explicit confidence must be rejected")
+	}
+	if finding.Confidence != "" {
+		t.Fatalf("unclassified finding must not be given a fallback confidence, got %q", finding.Confidence)
+	}
+	if finding.Contextual {
+		t.Fatal("unclassified finding must not be silently made contextual")
+	}
+}
+
 func TestSourceRoleDoesNotMakeFindingContextual(t *testing.T) {
-	finding := &Finding{Severity: SeverityHint}
-	MarkContextualFinding(finding)
+	finding := &Finding{Severity: SeverityHint, Confidence: ConfidenceProven}
+	ok := MarkContextualFinding(finding)
+	if !ok {
+		t.Fatal("proven finding must be accepted")
+	}
 
 	if finding.Contextual {
 		t.Fatal("a source role must not be used as contextuality")

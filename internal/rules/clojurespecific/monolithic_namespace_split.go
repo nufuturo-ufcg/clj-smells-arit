@@ -32,6 +32,10 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 	if execution == rules.ExecutionNonEvaluated || execution == rules.ExecutionUnknown {
 		return nil
 	}
+	if insideSyntaxQuote(context) {
+		// Code template (e.g. an interpreter implementing ns): not executed here.
+		return nil
+	}
 	switch rules.FileRole(context) {
 	case "generated", "dev", "test", "build":
 		return nil
@@ -52,6 +56,11 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 			true,
 		)
 	case rules.CallResolvesTo(node, "clojure.core/in-ns"):
+		if temporaryNamespaceSwitch(context) || insideFunctionBody(context) {
+			// (try (in-ns 'x) ... (finally (in-ns saved))): evaluates in another
+			// namespace and restores it; it does not continue a namespace.
+			return nil
+		}
 		return r.finding(
 			filepath,
 			node,
@@ -63,13 +72,48 @@ func (r *MonolithicNamespaceSplitRule) Check(node *reader.RichNode, context map[
 	}
 }
 
+func insideSyntaxQuote(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, ancestor := range ancestors {
+		if ancestor != nil && ancestor.Type == reader.NodeSyntaxQuote {
+			return true
+		}
+	}
+	return false
+}
+
+// temporaryNamespaceSwitch reports whether the in-ns call belongs to a
+// save/restore pattern: an enclosing try whose finally clause calls in-ns.
+func temporaryNamespaceSwitch(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for i := len(ancestors) - 1; i >= 0; i-- {
+		form := ancestors[i]
+		if form == nil || form.Type != reader.NodeList || len(form.Children) == 0 ||
+			form.Children[0] == nil || form.Children[0].Type != reader.NodeSymbol || form.Children[0].Value != "try" {
+			continue
+		}
+		for _, clause := range form.Children[1:] {
+			if clause != nil && clause.Type == reader.NodeList && len(clause.Children) > 1 &&
+				clause.Children[0] != nil && clause.Children[0].Value == "finally" {
+				for _, expr := range clause.Children[1:] {
+					if rules.CallResolvesTo(expr, "clojure.core/in-ns") {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (r *MonolithicNamespaceSplitRule) finding(filepath string, node *reader.RichNode, message string, contextual bool) *rules.Finding {
 	finding := &rules.Finding{
-		RuleID:   r.ID,
-		Message:  message,
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		RuleID:     r.ID,
+		Message:    message,
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 	if contextual {
 		return rules.SetContextualFindingWithEvidence(finding, "An imperative namespace change may be deliberate in REPLs, plugins, and dynamic loading mechanisms.", "namespace-lifecycle", "dynamic-loading-contract")
@@ -87,4 +131,28 @@ func init() {
 			Severity: rules.SeverityWarning,
 		},
 	})
+}
+
+// insideFunctionBody reports an in-ns executed at call time rather than at
+// load time: REPL tooling that evaluates code in another namespace and then
+// switches back does not continue a namespace across files.
+func insideFunctionBody(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, form := range ancestors {
+		if form == nil {
+			continue
+		}
+		if form.Type == reader.NodeFnLiteral {
+			return true
+		}
+		if form.Type != reader.NodeList || len(form.Children) == 0 || form.Children[0] == nil ||
+			form.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		switch strings.TrimPrefix(form.Children[0].Value, "clojure.core/") {
+		case "defn", "defn-", "fn", "fn*", "defmethod", "letfn", "defmacro":
+			return true
+		}
+	}
+	return false
 }

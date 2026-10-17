@@ -50,11 +50,16 @@ func (tr *TextReporter) Report(findings []*rules.Finding, writer io.Writer) erro
 type SummaryReporter struct {
 	allFindings       []*rules.Finding
 	includeContextual bool
+	contextualOnly    bool
 }
 
 func (sr *SummaryReporter) SetContextualSummary(allFindings []*rules.Finding, includeContextual bool) {
 	sr.allFindings = allFindings
 	sr.includeContextual = includeContextual
+}
+
+func (sr *SummaryReporter) SetContextualOnly(contextualOnly bool) {
+	sr.contextualOnly = contextualOnly
 }
 
 func (sr *SummaryReporter) Report(findings []*rules.Finding, writer io.Writer) error {
@@ -69,6 +74,14 @@ func (sr *SummaryReporter) Report(findings []*rules.Finding, writer io.Writer) e
 		contextual += item.Contextual
 	}
 	if len(findings) == 0 {
+		if sr.contextualOnly {
+			if nonContextual > 0 {
+				_, err := fmt.Fprintf(writer, "No contextual issues found. Proven findings hidden: %d. Use without --contextual-only to display them.\n", nonContextual)
+				return err
+			}
+			_, err := fmt.Fprintln(writer, "No issues found.")
+			return err
+		}
 		if contextual > 0 && !sr.includeContextual {
 			_, err := fmt.Fprintf(writer, "No real (non-contextual) issues found. Possible contextual findings hidden: %d. Use --include-contextual to display them.\n", contextual)
 			return err
@@ -92,7 +105,11 @@ func (sr *SummaryReporter) Report(findings []*rules.Finding, writer io.Writer) e
 		_, _ = fmt.Fprintln(writer, "Smell Summary:")
 		for _, item := range contextualSummary {
 			total := item.NonContextual + item.Contextual
-			if sr.includeContextual {
+			if sr.contextualOnly {
+				if item.Contextual > 0 {
+					_, _ = fmt.Fprintf(writer, "- %s: %d (contextual)\n", item.RuleID, item.Contextual)
+				}
+			} else if sr.includeContextual {
 				_, _ = fmt.Fprintf(writer, "- %s: %d (non-contextual: %d; possible contextual: %d)\n", item.RuleID, total, item.NonContextual, item.Contextual)
 			} else if item.NonContextual > 0 {
 				_, _ = fmt.Fprintf(writer, "- %s: %d\n", item.RuleID, item.NonContextual)

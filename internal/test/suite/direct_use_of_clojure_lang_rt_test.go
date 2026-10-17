@@ -13,9 +13,9 @@ func TestDirectUseOfClojureLangRT(t *testing.T) {
 			FileToAnalyze: "direct_use_of_clojure_lang_rt.clj",
 			RuleID:        "direct-use-of-clojure-lang-rt",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "Direct usage of clojure.lang.RT detected: 'clojure.lang.RT/count'", StartLine: 5, Severity: rules.SeverityHint},
-				{Message: "Direct usage of clojure.lang.RT detected: 'RT/get'", StartLine: 8},
-				{Message: "Direct usage of clojure.lang.RT detected: 'clojure.lang.RT/count'", StartLine: 18},
+				{Message: "Direct usage of clojure.lang.RT detected: 'clojure.lang.RT/count'", StartLine: 5, Severity: rules.SeverityHint, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "Direct usage of clojure.lang.RT detected: 'RT/get'", StartLine: 8, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "Direct usage of clojure.lang.RT detected: 'clojure.lang.RT/count'", StartLine: 18, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			},
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 12},

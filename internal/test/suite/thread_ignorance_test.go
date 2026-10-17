@@ -1,8 +1,10 @@
 package suite
 
 import (
-	"github.com/thlaurentino/arit/internal/test/framework"
 	"testing"
+
+	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
 func TestThreadIgnorance(t *testing.T) {
@@ -11,10 +13,10 @@ func TestThreadIgnorance(t *testing.T) {
 			FileToAnalyze: "thread_ignorance.clj",
 			RuleID:        "thread-ignorance",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "Safe ->> pipeline detected across 4 resolved calls", StartLine: 5},
-				{Message: "Safe -> pipeline detected across 4 resolved calls", StartLine: 8},
-				{Message: "Safe ->> pipeline detected in 3 let bindings", StartLine: 11},
-				{Message: "Safe -> pipeline detected across 4 resolved calls", StartLine: 17},
+				{Message: "Safe ->> pipeline detected across 4 resolved calls", StartLine: 5, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "Safe -> pipeline detected across 4 resolved calls", StartLine: 8, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "Safe ->> pipeline detected in 3 let bindings", StartLine: 11, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "Safe -> pipeline detected across 4 resolved calls", StartLine: 17, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			},
 		},
 		{

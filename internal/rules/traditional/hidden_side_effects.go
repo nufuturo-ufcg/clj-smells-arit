@@ -48,9 +48,10 @@ func (r *HiddenSideEffectsRule) Check(node *reader.RichNode, context map[string]
 			RuleID: r.ID,
 			Message: fmt.Sprintf("Function '%s' appears to be pure based on its name but contains hidden side effects: %s. Consider making side effects explicit in the function name (e.g., 'save-user!', 'log-event!') or using 'doseq' for side-effect operations.",
 				funcName, strings.Join(sideEffects, ", ")),
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: r.Severity,
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   r.Severity,
+			Confidence: rules.ConfidenceProven,
 		}
 	}
 
@@ -63,9 +64,10 @@ func (r *HiddenSideEffectsRule) Check(node *reader.RichNode, context map[string]
 			RuleID: r.ID,
 			Message: fmt.Sprintf("Function '%s' performs side effects (%s) without explicit indication. Consider adding '!' suffix or using 'doseq' for side-effect operations to make the impurity explicit.",
 				funcName, strings.Join(sideEffects, ", ")),
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: r.Severity,
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   r.Severity,
+			Confidence: rules.ConfidenceProven,
 		}
 	}
 

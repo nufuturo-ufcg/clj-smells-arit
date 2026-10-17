@@ -47,13 +47,33 @@ func init() {
 			}
 
 			head := node.Children[0]
-			resolution := head.Resolution
-			if resolution == nil || resolution.Kind != reader.ResolutionJavaStatic ||
-				!strings.HasPrefix(resolution.CanonicalName, "clojure.lang.RT/") {
-				return false
-			}
-
 			sym := head.Value
+			dotForm := false
+			if head.Value == "." && len(node.Children) >= 3 {
+				classNode := node.Children[1]
+				if classNode != nil && classNode.Type == reader.NodeSymbol && classNode.Value == "clojure.lang.RT" &&
+					(classNode.Resolution == nil || classNode.Resolution.Kind != reader.ResolutionLocal) {
+					methodNode := node.Children[2]
+					methodName := ""
+					if methodNode != nil && methodNode.Type == reader.NodeSymbol {
+						methodName = methodNode.Value
+					} else if methodNode != nil && methodNode.Type == reader.NodeList && len(methodNode.Children) > 0 &&
+						methodNode.Children[0] != nil && methodNode.Children[0].Type == reader.NodeSymbol {
+						methodName = methodNode.Children[0].Value
+					}
+					if methodName != "" {
+						sym = "clojure.lang.RT/" + methodName
+						dotForm = true
+					}
+				}
+			}
+			if !dotForm {
+				resolution := head.Resolution
+				if resolution == nil || resolution.Kind != reader.ResolutionJavaStatic ||
+					!strings.HasPrefix(resolution.CanonicalName, "clojure.lang.RT/") {
+					return false
+				}
+			}
 
 			parts := strings.Split(sym, "/")
 			rtFunc := parts[len(parts)-1]
@@ -75,6 +95,19 @@ func init() {
 		}).
 		MessageFunc(func(node *reader.RichNode, _ map[string]interface{}) string {
 			sym := node.Children[0].Value
+			if sym == "." && len(node.Children) >= 3 {
+				methodNode := node.Children[2]
+				methodName := ""
+				if methodNode != nil && methodNode.Type == reader.NodeSymbol {
+					methodName = methodNode.Value
+				} else if methodNode != nil && methodNode.Type == reader.NodeList && len(methodNode.Children) > 0 &&
+					methodNode.Children[0] != nil && methodNode.Children[0].Type == reader.NodeSymbol {
+					methodName = methodNode.Children[0].Value
+				}
+				if methodName != "" {
+					sym = "clojure.lang.RT/" + methodName
+				}
+			}
 			parts := strings.Split(sym, "/")
 			rtFunc := parts[len(parts)-1]
 

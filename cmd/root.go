@@ -97,7 +97,12 @@ style violations, and opportunities for improvement.`,
 				return fmt.Errorf("error writing semantic diagnostics: %w", err)
 			}
 		}
-		displayedFindings := reporter.FilterContextualFindings(allFindings, includeContextualFlag)
+		var displayedFindings []*rules.Finding
+		if contextualOnlyFlag {
+			displayedFindings = reporter.FilterContextualOnly(allFindings)
+		} else {
+			displayedFindings = reporter.FilterContextualFindings(allFindings, includeContextualFlag)
+		}
 
 		if !quietFlag && outputFormat != reporter.FormatSummary {
 			switch outputFormat {
@@ -128,6 +133,7 @@ style violations, and opportunities for improvement.`,
 
 		if summary, ok := rep.(*reporter.SummaryReporter); ok {
 			summary.SetContextualSummary(allFindings, includeContextualFlag)
+			summary.SetContextualOnly(contextualOnlyFlag)
 		}
 		var outputWriter io.Writer = os.Stdout
 		err = rep.Report(displayedFindings, outputWriter)
@@ -151,6 +157,7 @@ var (
 	quietFlag               bool
 	countFindingFlag        bool
 	includeContextualFlag   bool
+	contextualOnlyFlag      bool
 	analyzeTestsFlag        bool
 	maxWorkersFlag          int
 	semanticDiagnosticsFlag string
@@ -174,6 +181,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Suppress banner and progress output")
 	rootCmd.PersistentFlags().BoolVar(&countFindingFlag, "count-finding", false, "Count the total number of findings")
 	rootCmd.PersistentFlags().BoolVar(&includeContextualFlag, "include-contextual", false, "Include possible contextual findings in the output")
+	rootCmd.PersistentFlags().BoolVar(&contextualOnlyFlag, "contextual-only", false, "Show only contextual findings")
 	rootCmd.PersistentFlags().BoolVar(&analyzeTestsFlag, "analyze-tests", false, "Include test files in the analysis")
 	rootCmd.PersistentFlags().IntVar(&maxWorkersFlag, "max-workers", 0, "Limit parallel file analysis workers (0 uses the automatic default)")
 	rootCmd.PersistentFlags().StringVar(&semanticDiagnosticsFlag, "semantic-diagnostics", "", "Write semantic candidate diagnostics as JSON to a file")

@@ -53,7 +53,11 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 			valueArg := node.Children[2]
 			if valueArg.Type != reader.NodeMap {
 				sentinel := isDirectSentinel(valueArg)
-				if sentinel != "" {
+				// A sentinel is only a misuse on a data channel: a channel that
+				// also carries ordinary values in the same top-level form. A
+				// single signal on a control channel (shutdown, done, lock token)
+				// is a legitimate protocol.
+				if sentinel != "" && channelAlsoCarriesData(node, context) {
 					return rules.SetContextualFindingWithEvidence(&rules.Finding{
 						RuleID:   r.ID,
 						Message:  fmt.Sprintf("Sentinel value %s in %s: prefer (close! ch) so that (<! ch) returns nil; avoid custom sentinels.", sentinel, headVal),
@@ -75,7 +79,12 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 			break
 		}
 	}
-	if rules.CallResolvesTo(node, "clojure.core/not=", "clojure.core/=") && validComparisonArity(node) && (isInsideGoBlock(context) || comparisonReadsChannel) {
+	// A comparison is only evidence of a channel sentinel when the compared
+	// value comes from a channel take, directly or through a symbol bound to a
+	// take. Being inside a go block is not enough: (= -1 (:season payload))
+	// compares domain data.
+	if rules.CallResolvesTo(node, "clojure.core/not=", "clojure.core/=") && validComparisonArity(node) &&
+		(comparisonReadsChannel || comparesTakeBoundSymbol(node, context)) {
 		var sentinel string
 		for _, child := range node.Children[1:] {
 			if s := isDirectSentinel(child); s != "" {
@@ -116,6 +125,171 @@ func (r *MisuseOfChannelClosingSemanticsRule) Check(node *reader.RichNode, conte
 	}
 
 	return nil
+}
+
+func comparesTakeBoundSymbol(node *reader.RichNode, context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for _, child := range node.Children[1:] {
+		if child == nil {
+			continue
+		}
+		if child.Type == reader.NodeSymbol && symbolBoundToTake(child.Value, ancestors) {
+			return true
+		}
+		// A field of the taken value: (:status msg) or (get msg :status).
+		if child.Type == reader.NodeList && len(child.Children) >= 2 && child.Children[0] != nil {
+			target := child.Children[1]
+			if child.Children[0].Type == reader.NodeKeyword ||
+				(child.Children[0].Type == reader.NodeSymbol && rules.CallResolvesTo(child, "clojure.core/get")) {
+				if target != nil && target.Type == reader.NodeSymbol && symbolBoundToTake(target.Value, ancestors) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// symbolBoundToTake walks the enclosing binding forms from the innermost one
+// and reports whether the nearest binding of symbol is a channel take.
+func symbolBoundToTake(symbol string, ancestors []*reader.RichNode) bool {
+	for i := len(ancestors) - 1; i >= 0; i-- {
+		form := ancestors[i]
+		if form == nil || form.Type != reader.NodeList || len(form.Children) < 2 ||
+			form.Children[0] == nil || form.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		head := form.Children[0].Value
+		if j := strings.LastIndex(head, "/"); j >= 0 {
+			head = head[j+1:]
+		}
+		switch head {
+		case "let", "let*", "loop", "loop*", "when-let", "if-let", "when-some", "if-some", "go-loop":
+		default:
+			continue
+		}
+		bindings := form.Children[1]
+		if bindings == nil || bindings.Type != reader.NodeVector {
+			continue
+		}
+		for k := len(bindings.Children) - 2; k >= 0; k -= 2 {
+			name := bindings.Children[k]
+			if name != nil && name.Type == reader.NodeSymbol && name.Value == symbol {
+				return isChannelTakeForm(bindings.Children[k+1])
+			}
+		}
+	}
+	return false
+}
+
+func channelAlsoCarriesData(put *reader.RichNode, context map[string]interface{}) bool {
+	channel := put.Children[1]
+	if channel == nil || channel.Type != reader.NodeSymbol {
+		return false
+	}
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	if len(ancestors) == 0 {
+		return false
+	}
+	// A channel defined at top level is shared by the whole file; a local
+	// channel is confined to its top-level form.
+	scope := []*reader.RichNode{ancestors[0]}
+	if channel.ResolvedDefinition != nil && channel.ResolvedDefinition.Type == reader.NodeList &&
+		len(channel.ResolvedDefinition.Children) > 0 && channel.ResolvedDefinition.Children[0] != nil &&
+		(channel.ResolvedDefinition.Children[0].Value == "def" || channel.ResolvedDefinition.Children[0].Value == "defonce") {
+		if roots, ok := context["file-roots"].([]*reader.RichNode); ok {
+			scope = roots
+		}
+	}
+	var found bool
+	// guarded holds symbols known, in the current branch, to be one of a set
+	// of literal keywords: (cond (#{:stopped :timeout} block) (put! ch block)).
+	var walk func(node *reader.RichNode, guarded map[string]bool)
+	walk = func(node *reader.RichNode, guarded map[string]bool) {
+		if node == nil || found {
+			return
+		}
+		if node != put && isPutCall(node) && len(node.Children) >= 3 {
+			target, value := node.Children[1], node.Children[2]
+			if target != nil && target.Type == reader.NodeSymbol && target.Value == channel.Value &&
+				isDirectSentinel(value) == "" && !(value != nil && value.Type == reader.NodeKeyword) &&
+				!(value != nil && value.Type == reader.NodeSymbol && guarded[value.Value]) {
+				found = true
+				return
+			}
+		}
+		if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol {
+			switch strings.TrimPrefix(node.Children[0].Value, "clojure.core/") {
+			case "cond":
+				for i := 1; i < len(node.Children); i++ {
+					if i%2 == 0 {
+						if sym := keywordGuardSymbol(node.Children[i-1]); sym != "" {
+							walk(node.Children[i], withGuard(guarded, sym))
+							continue
+						}
+					}
+					walk(node.Children[i], guarded)
+				}
+				return
+			case "if", "when":
+				if len(node.Children) >= 3 {
+					if sym := keywordGuardSymbol(node.Children[1]); sym != "" {
+						walk(node.Children[1], guarded)
+						walk(node.Children[2], withGuard(guarded, sym))
+						for _, rest := range node.Children[3:] {
+							walk(rest, guarded)
+						}
+						return
+					}
+				}
+			}
+		}
+		for _, child := range node.Children {
+			walk(child, guarded)
+		}
+	}
+	for _, root := range scope {
+		walk(root, map[string]bool{})
+	}
+	return found
+}
+
+func withGuard(guarded map[string]bool, symbol string) map[string]bool {
+	next := make(map[string]bool, len(guarded)+1)
+	for k, v := range guarded {
+		next[k] = v
+	}
+	next[symbol] = true
+	return next
+}
+
+// keywordGuardSymbol returns x for tests (#{:a :b} x), (= x :a) or (= :a x).
+func keywordGuardSymbol(test *reader.RichNode) string {
+	if test == nil || test.Type != reader.NodeList || len(test.Children) < 2 {
+		return ""
+	}
+	head := test.Children[0]
+	if head != nil && head.Type == reader.NodeSet && len(test.Children) == 2 && len(head.Children) > 0 {
+		for _, element := range head.Children {
+			if element == nil || element.Type != reader.NodeKeyword {
+				return ""
+			}
+		}
+		if arg := test.Children[1]; arg != nil && arg.Type == reader.NodeSymbol {
+			return arg.Value
+		}
+		return ""
+	}
+	if head != nil && head.Type == reader.NodeSymbol && strings.TrimPrefix(head.Value, "clojure.core/") == "=" && len(test.Children) == 3 {
+		a, b := test.Children[1], test.Children[2]
+		if a != nil && b != nil && a.Type == reader.NodeSymbol && b.Type == reader.NodeKeyword {
+			return a.Value
+		}
+		if a != nil && b != nil && b.Type == reader.NodeSymbol && a.Type == reader.NodeKeyword {
+			return b.Value
+		}
+	}
+	return ""
 }
 
 func isInsideProtocolDeclaration(context map[string]interface{}) bool {

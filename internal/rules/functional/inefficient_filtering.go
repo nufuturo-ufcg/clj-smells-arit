@@ -200,11 +200,12 @@ func (r *InefficientFilteringRule) checkBasicFilterPatterns(node *reader.RichNod
 
 			meta := r.Meta()
 			return &rules.Finding{
-				RuleID:   meta.ID,
-				Message:  fmt.Sprintf("%s %s", pattern.message, pattern.suggestion),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: meta.Severity,
+				RuleID:     meta.ID,
+				Message:    fmt.Sprintf("%s %s", pattern.message, pattern.suggestion),
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   meta.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}
@@ -226,21 +227,23 @@ func (r *InefficientFilteringRule) checkThreadingMacroPatterns(node *reader.Rich
 
 	if r.hasConsecutiveFilters(filterOps) {
 		return &rules.Finding{
-			RuleID:   meta.ID,
-			Message:  "Multiple consecutive filter operations detected in threading macro. Consider combining predicates into a single filter for better performance: `(filter #(and (pred1 %) (pred2 %)) coll)`",
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: meta.Severity,
+			RuleID:     meta.ID,
+			Message:    "Multiple consecutive filter operations detected in threading macro. Consider combining predicates into a single filter for better performance: `(filter #(and (pred1 %) (pred2 %)) coll)`",
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   meta.Severity,
+			Confidence: rules.ConfidenceProven,
 		}
 	}
 
 	if r.hasFilterRemovePattern(filterOps) {
 		return &rules.Finding{
-			RuleID:   meta.ID,
-			Message:  "Filter followed by remove (or vice versa) creates two passes through the collection. Consider combining into a single filter with a compound predicate for better performance.",
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: meta.Severity,
+			RuleID:     meta.ID,
+			Message:    "Filter followed by remove (or vice versa) creates two passes through the collection. Consider combining into a single filter with a compound predicate for better performance.",
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   meta.Severity,
+			Confidence: rules.ConfidenceProven,
 		}
 	}
 
@@ -263,11 +266,12 @@ func (r *InefficientFilteringRule) checkFirstFilterInBinding(valueNode *reader.R
 
 	meta := r.Meta()
 	return &rules.Finding{
-		RuleID:   meta.ID,
-		Message:  "Using `(first (filter ...))` in let binding is inefficient. Consider using `(some ...)` which stops after the first match.",
-		Filepath: filepath,
-		Location: valueNode.Location,
-		Severity: meta.Severity,
+		RuleID:     meta.ID,
+		Message:    "Using `(first (filter ...))` in let binding is inefficient. Consider using `(some ...)` which stops after the first match.",
+		Filepath:   filepath,
+		Location:   valueNode.Location,
+		Severity:   meta.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 

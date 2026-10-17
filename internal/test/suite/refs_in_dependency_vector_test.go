@@ -12,8 +12,8 @@ func TestRefsInDependencyVector(t *testing.T) {
 		FileToAnalyze: "refs_in_dependency_vector.clj",
 		RuleID:        "refs-in-dependency-vector",
 		ExpectedFindings: []framework.ExpectedFinding{
-			{Message: "used directly in an effect dependency vector", StartLine: 9},
-			{Message: "used directly in an effect dependency vector", StartLine: 37},
+			{Message: "used directly in an effect dependency vector", StartLine: 9, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "used directly in an effect dependency vector", StartLine: 37, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 5},

@@ -89,7 +89,15 @@ func isDeferredBoundary(node *reader.RichNode) bool {
 			val = val[slash+1:]
 		}
 		switch val {
-		case "fn", "fn*", "letfn", "thread", "future", "delay", "lazy-seq", "bound-fn", "bound-fn*":
+		case "fn", "fn*", "letfn", "thread", "future", "future-call", "delay", "lazy-seq", "bound-fn", "bound-fn*",
+			// Object implementations run their methods when invoked, typically
+			// as callbacks on another thread (e.g. an HTTP ResponseListener).
+			"reify", "proxy":
+			return true
+		}
+		// Project wrappers such as noisy-future or my-thread expand to a
+		// future/thread and move their body off the go thread.
+		if strings.HasSuffix(val, "-future") || strings.HasSuffix(val, "-thread") {
 			return true
 		}
 	}
@@ -217,11 +225,13 @@ func (r *BlockingInsideGoRule) Check(node *reader.RichNode, context map[string]i
 		return nil
 	}
 	return &rules.Finding{
-		RuleID:   r.ID,
-		Message:  fmt.Sprintf("Blocking function detected within the GO block %s.", node.Children[0].Value),
-		Filepath: filepath, Location: blocking.Location,
-		Severity: rules.ContextualSeverity(context, r.Severity),
-		Tags:     rules.ContextualTags(context),
+		RuleID:     r.ID,
+		Message:    fmt.Sprintf("Blocking function detected within the GO block %s.", node.Children[0].Value),
+		Filepath:   filepath,
+		Location:   blocking.Location,
+		Severity:   rules.ContextualSeverity(context, r.Severity),
+		Confidence: rules.ConfidenceProven,
+		Tags:       rules.ContextualTags(context),
 	}
 }
 

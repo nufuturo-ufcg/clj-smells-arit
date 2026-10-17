@@ -6,11 +6,12 @@ import "sort"
 // counters describe analysis coverage; they never participate in finding
 // promotion or suppression.
 type SemanticRuleDiagnostics struct {
-	ObservedCandidates int            `json:"observed_candidates"`
-	ProvenFindings     int            `json:"proven_findings"`
-	ContextualFindings int            `json:"contextual_findings"`
-	BlockedCandidates  int            `json:"blocked_candidates"`
-	BlockedByEvidence  map[string]int `json:"blocked_by_evidence,omitempty"`
+	ObservedCandidates     int            `json:"observed_candidates"`
+	ProvenFindings         int            `json:"proven_findings"`
+	ContextualFindings     int            `json:"contextual_findings"`
+	BlockedCandidates      int            `json:"blocked_candidates"`
+	UnclassifiedCandidates int            `json:"unclassified_candidates,omitempty"`
+	BlockedByEvidence      map[string]int `json:"blocked_by_evidence,omitempty"`
 }
 
 // SemanticDiagnosticsReport is the stable, serializable form of diagnostics.
@@ -70,6 +71,16 @@ func (d *SemanticDiagnostics) RecordFinding(finding *Finding) {
 	d.report.Rules[finding.RuleID] = entry
 }
 
+func (d *SemanticDiagnostics) RecordUnclassifiedFinding(finding *Finding) {
+	if d == nil || finding == nil || finding.RuleID == "" {
+		return
+	}
+	entry := d.report.ensureRule(finding.RuleID)
+	entry.ObservedCandidates++
+	entry.UnclassifiedCandidates++
+	d.report.Rules[finding.RuleID] = *entry
+}
+
 func (d *SemanticDiagnostics) RecordBlocked(ruleID string, evidence ...string) {
 	if d == nil || ruleID == "" {
 		return
@@ -118,6 +129,7 @@ func (r *SemanticDiagnosticsReport) Merge(other SemanticDiagnosticsReport) {
 		entry.ProvenFindings += incoming.ProvenFindings
 		entry.ContextualFindings += incoming.ContextualFindings
 		entry.BlockedCandidates += incoming.BlockedCandidates
+		entry.UnclassifiedCandidates += incoming.UnclassifiedCandidates
 		if len(incoming.BlockedByEvidence) > 0 {
 			if entry.BlockedByEvidence == nil {
 				entry.BlockedByEvidence = make(map[string]int)

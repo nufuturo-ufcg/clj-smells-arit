@@ -52,3 +52,25 @@
 
 (defn set-is-not-the-specified-consumer [xs]
   (set (map inc xs)))
+
+;; Promoted: every source has a standard collection type.
+(defn typed-sources [f p xs]
+  [(vec (map f (range 10)))
+   (vec (filter p #{1 2 3}))
+   (vec (map f [1 2] (sort xs)))
+   (vec (map f "abc"))])
+
+;; Contextual: the source type is not proven.
+(defn untyped-sources [f p xs acc]
+  [(vec (map f xs))
+   (vec (filter p (into acc xs)))
+   (vec (map f (seq xs)))
+   (vec (map f (my.lib/items xs)))])
+
+;; Contextual: mapv is shadowed by a local binding.
+(defn shadowed-mapv [f mapv]
+  (vec (map f [1 2 3])))
+
+;; Contextual: an unresolved head may read its argument as data.
+(defn in-dsl [f]
+  (dsl-block (vec (map f [1 2 3]))))

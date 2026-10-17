@@ -173,3 +173,32 @@
 ;; Reader-conditional branches are selected during macro expansion.
 (defmacro compile-branch-safe [expr]
   `(if-cljs ~expr ~expr))
+
+;; reify method parameter vectors declare names; methods are alternative paths.
+(defmacro binary-predicate [xvar yvar code]
+  `(reify
+     java.util.function.BiPredicate
+     (test [this# ~xvar ~yvar] (boolean ~code))
+     clojure.lang.IFn
+     (invoke [this# ~xvar ~yvar] (boolean ~code))))
+
+;; Repetition inside one reify method is still a real multiple evaluation.
+(defmacro reify-twice [expr]
+  `(reify clojure.lang.IDeref
+     (deref [_#] (+ ~expr ~expr))))
+
+;; Reader metadata before the name must not replace the macro name.
+(defmacro ^:private private-square [x]
+  `(* ~x ~x))
+
+;; Rebinding a parameter during expansion replaces the caller form.
+(defmacro deftask-like [tname & body]
+  (let [tname (keyword tname)]
+    `(do (register! ~tname) (describe ~tname) ~@body)))
+
+;; A multi-arity protocol method is still inspected arity by arity.
+(defmacro extend-twice [type expr]
+  `(extend-type ~type
+     clojure.lang.IDeref
+     (deref
+       ([this#] (+ ~expr ~expr)))))

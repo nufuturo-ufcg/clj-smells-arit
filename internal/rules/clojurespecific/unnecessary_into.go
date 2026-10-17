@@ -73,16 +73,34 @@ func shortCanonicalName(canonical string) string {
 	return canonical
 }
 
-func hasKnownReductionProtocol(node *reader.RichNode) bool {
+func hasKnownReductionProtocol(node *reader.RichNode, context map[string]interface{}) bool {
 	if node == nil {
 		return false
 	}
 	switch node.Type {
 	case reader.NodeVector, reader.NodeMap, reader.NodeSet:
 		return true
-	default:
-		return false
 	}
+	// These core producers return collections that implement the reduction
+	// protocol and traverse the same elements in the same order as seq, so
+	// fusing their transducer into into preserves the vector target.
+	knownReducibleProducers := map[string]bool{
+		"clojure.core/range":    true,
+		"clojure.core/vec":      true,
+		"clojure.core/vector":   true,
+		"clojure.core/list":     true,
+		"clojure.core/set":      true,
+		"clojure.core/hash-set": true,
+		"clojure.core/hash-map": true,
+		"clojure.core/sort":     true,
+		"clojure.core/sort-by":  true,
+	}
+	facts := rules.FactsForNode(node, context)
+	if facts != nil && facts.ResolutionKnown && facts.Resolution != nil &&
+		knownReducibleProducers[facts.Resolution.CanonicalName] {
+		return true
+	}
+	return false
 }
 
 func intoFinding(r *UnnecessaryIntoRule, node *reader.RichNode, filepath, operation, xformForm string, contextual bool) *rules.Finding {
@@ -100,11 +118,12 @@ func intoFinding(r *UnnecessaryIntoRule, node *reader.RichNode, filepath, operat
 			"source-type", "source-reduction-protocol")
 	}
 	return &rules.Finding{
-		RuleID:   r.ID,
-		Message:  message + " to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		RuleID:     r.ID,
+		Message:    message + " to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 
@@ -128,7 +147,7 @@ func (r *UnnecessaryIntoRule) Check(node *reader.RichNode, context map[string]in
 		xformForm = fmt.Sprintf("(%s)", operation)
 	}
 	source := node.Children[2].Children[len(node.Children[2].Children)-1]
-	return intoFinding(r, node, filepath, operation, xformForm, !hasKnownReductionProtocol(source))
+	return intoFinding(r, node, filepath, operation, xformForm, !hasKnownReductionProtocol(source, context))
 }
 
 func init() {

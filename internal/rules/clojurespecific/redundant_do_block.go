@@ -100,6 +100,29 @@ func (r *RedundantDoBlockRule) containsUnquoteSplice(node *reader.RichNode) bool
 	return false
 }
 
+// isCaseResultIndex reports whether index holds a result expression in
+// `(case expr test result ... default?)`. Even indices from 2 are test
+// constants, except the trailing default of an odd-length form.
+func isCaseResultIndex(parent *reader.RichNode, index int) bool {
+	if index < 3 {
+		return false
+	}
+	if index%2 == 1 {
+		return true
+	}
+	return len(parent.Children)%2 == 1 && index == len(parent.Children)-1
+}
+
+// isSingleValuePosition reports whether the parent form takes exactly one
+// expression at the position of the `do`, so an empty `do` stands for `nil`.
+func isSingleValuePosition(parentFormName string) bool {
+	switch parentFormName {
+	case "if", "if-not", "if-let", "if-some", "cond", "condp", "case":
+		return true
+	}
+	return false
+}
+
 func (r *RedundantDoBlockRule) hasMultipleExpressions(doNode *reader.RichNode) bool {
 	if doNode == nil || doNode.Type != reader.NodeList || len(doNode.Children) <= 1 {
 		return false
@@ -137,7 +160,7 @@ func (r *RedundantDoBlockRule) isInValidRefactoredContext(doNode *reader.RichNod
 				return true
 			}
 		case "case":
-			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+			if isCaseResultIndex(parent, doNodeIndex) {
 				return true
 			}
 		}
@@ -156,6 +179,12 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 	if firstElement.Type != reader.NodeSymbol || firstElement.Value != "do" {
 		return nil
 	}
+	// Arguments of an unknown macro, such as kibit's (defrules ...) patterns,
+	// may be data rather than code.
+	if execution := rules.CurrentExecutionContext(context); execution == rules.ExecutionNonEvaluated ||
+		execution == rules.ExecutionUnknown {
+		return nil
+	}
 
 	var parent *reader.RichNode
 	if pVal, ok := context["parent"]; ok {
@@ -166,6 +195,14 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 
 	if r.containsUnquoteSplice(node) {
 		return nil
+	}
+	// A reader conditional may read as zero forms on a platform without a
+	// matching branch (e.g. :cljr), so the `do` can be what keeps the parent's
+	// argument positions intact. The catalog contract excludes these.
+	for _, child := range node.Children[1:] {
+		if child != nil && (child.Type == reader.NodeReaderCond || child.Type == reader.NodeReaderCondSplice) {
+			return nil
+		}
 	}
 
 	if parent == nil || parent.Type != reader.NodeList || len(parent.Children) == 0 {
@@ -226,7 +263,7 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 				return nil
 			}
 		case "case":
-			if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
+			if isCaseResultIndex(parent, doNodeIndex) {
 				return nil
 			}
 		}
@@ -243,14 +280,18 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		}
 
 	case "doto":
-		if doNodeIndex >= 2 {
+		// Only interop calls inside the do show broken chaining: in
+		// (doto obj (do (.add x))) the developer expected (.add obj x).
+		// (doto obj (do (side-effect!))) deliberately discards obj.
+		if doNodeIndex >= 2 && doContainsInteropCall(node) {
 			message := "Invalid `do` block within `doto`. `doto` injects its first argument into subsequent forms. Using `do` here breaks Java Interop chaining."
 			return &rules.Finding{
-				RuleID:   r.Meta().ID,
-				Message:  message,
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Meta().Severity,
+				RuleID:     r.Meta().ID,
+				Message:    message,
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   r.Meta().Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 
@@ -258,11 +299,12 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		if doNodeIndex >= 1 {
 			message := fmt.Sprintf("Redundant `do` block found within threading macro `%s`. This interrupts the data transformation pipeline and is usually a mistake.", parentSymbol)
 			return &rules.Finding{
-				RuleID:   r.Meta().ID,
-				Message:  message,
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Meta().Severity,
+				RuleID:     r.Meta().ID,
+				Message:    message,
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   r.Meta().Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 
@@ -354,9 +396,9 @@ func (r *RedundantDoBlockRule) Check(node *reader.RichNode, context map[string]i
 		}
 
 	case "case":
-
-		if doNodeIndex >= 2 && doNodeIndex%2 == 0 {
-
+		// Test constants are not evaluated: `(do)` there is the literal symbol
+		// `do`, so only result expressions can hold a redundant block.
+		if isCaseResultIndex(parent, doNodeIndex) {
 			isRedundant = true
 		}
 	}
@@ -372,22 +414,39 @@ func (r *RedundantDoBlockRule) createFinding(doNode, parentNode *reader.RichNode
 	numDoChildren := len(doNode.Children) - 1
 
 	message := fmt.Sprintf("Redundant `do` block found. The surrounding `%s` form already provides an implicit `do` for its body expressions.", parentFormName)
-	if numDoChildren == 0 {
+	if numDoChildren == 0 && isSingleValuePosition(parentFormName) {
+		message = fmt.Sprintf("Redundant empty `do` block found within `%s`. Replace it with `nil`; removing it would shift the remaining clauses.", parentFormName)
+	} else if numDoChildren == 0 {
 		message = fmt.Sprintf("Redundant empty `do` block found within `%s`. Consider removing it completely.", parentFormName)
 	} else if numDoChildren == 1 {
 		message = fmt.Sprintf("Redundant `do` block with a single expression found within `%s`. The `do` wrapper is unnecessary here.", parentFormName)
 	}
 
 	return &rules.Finding{
-		RuleID:   r.Meta().ID,
-		Message:  message,
-		Filepath: filepath,
-		Location: doNode.Location,
-		Severity: r.Meta().Severity,
+		RuleID:     r.Meta().ID,
+		Message:    message,
+		Filepath:   filepath,
+		Location:   doNode.Location,
+		Severity:   r.Meta().Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 
 func init() {
 	rule := &RedundantDoBlockRule{}
 	rules.RegisterRule(rule)
+}
+
+func doContainsInteropCall(doNode *reader.RichNode) bool {
+	if doNode == nil {
+		return false
+	}
+	for _, child := range doNode.Children[1:] {
+		if child != nil && child.Type == reader.NodeList && len(child.Children) > 0 &&
+			child.Children[0] != nil && child.Children[0].Type == reader.NodeSymbol &&
+			len(child.Children[0].Value) > 1 && strings.HasPrefix(child.Children[0].Value, ".") {
+			return true
+		}
+	}
+	return false
 }

@@ -48,3 +48,13 @@
 ;; Shadowing core atom must not be interpreted as reference creation.
 (defn shadowed-atom [atom]
   (atom {:value (atom 1)}))
+
+;; Options after the initial value are not part of the reference's state.
+(def with-meta-atom (atom {} :meta {:listeners (atom {})}))
+(def with-meta-agent (agent nil :meta {:config (atom nil)}))
+
+;; A volatile stored in itself as a first-call sentinel is not nested state.
+(defn sentinel-xf [rf]
+  (let [prev (volatile! nil)]
+    (vreset! prev prev)
+    (fn [acc x] (if (identical? @prev prev) (do (vreset! prev x) acc) (rf acc x)))))

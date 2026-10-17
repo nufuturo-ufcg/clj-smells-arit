@@ -3,6 +3,7 @@ package suite
 import (
 	"testing"
 
+	"github.com/thlaurentino/arit/internal/rules"
 	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
@@ -11,10 +12,10 @@ func TestMisusedThreading(t *testing.T) {
 		FileToAnalyze: "misused_threading.clj",
 		RuleID:        "misused-threading",
 		ExpectedFindings: []framework.ExpectedFinding{
-			{Message: "3 resolved pipeline steps consistently", StartLine: 6},
-			{Message: "2 resolved pipeline steps consistently", StartLine: 12},
-			{Message: "2 resolved pipeline steps consistently", StartLine: 17},
-			{Message: "2 resolved pipeline steps consistently", StartLine: 22},
+			{Message: "3 resolved pipeline steps consistently", StartLine: 6, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "2 resolved pipeline steps consistently", StartLine: 12, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "2 resolved pipeline steps consistently", StartLine: 17, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "2 resolved pipeline steps consistently", StartLine: 22, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 28},

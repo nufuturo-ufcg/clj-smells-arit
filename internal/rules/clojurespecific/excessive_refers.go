@@ -16,95 +16,90 @@ func (r *ExcessiveRefersRule) Meta() rules.Rule {
 	return r.Rule
 }
 
-func (r *ExcessiveRefersRule) countExplicitReferences(nodes []*reader.RichNode) int {
-	total := 0
-
-	for i, child := range nodes {
-		if child == nil {
-			continue
+// referredByPlatform collects the distinct names referred by :refer and :only,
+// keeping common references ("*") separate from reader-conditional platforms.
+// A name is counted once per platform even when it is repeated, and a
+// conditional element inside a refer vector belongs only to its platform.
+func referredByPlatform(nodes []*reader.RichNode, platform string, sets map[string]map[string]bool) {
+	add := func(platform, name string) {
+		if sets[platform] == nil {
+			sets[platform] = map[string]bool{}
 		}
-		if child.Type == reader.NodeReaderDiscard {
-			continue
-		}
-		if child.Type == reader.NodeReaderCond || child.Type == reader.NodeReaderCondSplice {
-			branchMax := 0
-			for branch := 1; branch < len(child.Children); branch += 2 {
-				count := r.countExplicitReferences([]*reader.RichNode{child.Children[branch]})
-				if count > branchMax {
-					branchMax = count
+		sets[platform][name] = true
+	}
+	var addVector func(vector *reader.RichNode, platform string)
+	addVector = func(vector *reader.RichNode, platform string) {
+		for _, element := range vector.Children {
+			switch {
+			case element == nil:
+			case element.Type == reader.NodeSymbol:
+				add(platform, element.Value)
+			case element.Type == reader.NodeReaderCond || element.Type == reader.NodeReaderCondSplice:
+				for branch := 1; branch < len(element.Children); branch += 2 {
+					branchPlatform := conditionalPlatform(element.Children[branch-1], platform)
+					value := element.Children[branch]
+					if value != nil && value.Type == reader.NodeSymbol {
+						add(branchPlatform, value.Value)
+					} else if value != nil && value.Type == reader.NodeVector {
+						addVector(value, branchPlatform)
+					}
 				}
 			}
-			if branchMax == 0 {
-				branchMax = r.countExplicitReferences(child.Children)
-			}
-			total += branchMax
-			continue
-		}
-		isExplicitImport := child.Type == reader.NodeKeyword &&
-			(child.Value == ":refer" || child.Value == ":only")
-		if isExplicitImport && i+1 < len(nodes) {
-			nextNode := nodes[i+1]
-			if nextNode.Type == reader.NodeVector {
-				total += len(nextNode.Children)
-			}
-		}
-		if len(child.Children) > 0 {
-			total += r.countExplicitReferences(child.Children)
 		}
 	}
-	return total
-}
-
-// countExplicitReferencesByPlatform keeps common references separate from
-// reader-conditional alternatives. A namespace with two independent
-// #?(:clj ... :cljs ...) forms must be evaluated per platform; summing the
-// largest branch of each conditional can combine mutually exclusive code.
-func (r *ExcessiveRefersRule) countExplicitReferencesByPlatform(nodes []*reader.RichNode) map[string]int {
-	counts := map[string]int{"*": 0}
 	for i, child := range nodes {
 		if child == nil || child.Type == reader.NodeReaderDiscard {
 			continue
 		}
 		if child.Type == reader.NodeReaderCond || child.Type == reader.NodeReaderCondSplice {
 			for branch := 1; branch < len(child.Children); branch += 2 {
-				platform := "*"
-				if key := child.Children[branch-1]; key != nil && key.Type == reader.NodeKeyword {
-					platform = key.Value
-				}
-				branchCounts := r.countExplicitReferencesByPlatform([]*reader.RichNode{child.Children[branch]})
-				branchMax := 0
-				for _, count := range branchCounts {
-					if count > branchMax {
-						branchMax = count
-					}
-				}
-				counts[platform] += branchMax
+				referredByPlatform([]*reader.RichNode{child.Children[branch]}, conditionalPlatform(child.Children[branch-1], platform), sets)
 			}
 			continue
 		}
-		if child.Type == reader.NodeKeyword &&
-			(child.Value == ":refer" || child.Value == ":only") && i+1 < len(nodes) &&
-			nodes[i+1] != nil && nodes[i+1].Type == reader.NodeVector {
-			counts["*"] += len(nodes[i+1].Children)
+		if child.Type == reader.NodeKeyword && (child.Value == ":refer" || child.Value == ":only") &&
+			i+1 < len(nodes) && nodes[i+1] != nil && nodes[i+1].Type == reader.NodeVector {
+			addVector(nodes[i+1], platform)
+			continue
+		}
+		if child.Type == reader.NodeVector && i > 0 && nodes[i-1] != nil && nodes[i-1].Type == reader.NodeKeyword &&
+			(nodes[i-1].Value == ":refer" || nodes[i-1].Value == ":only") {
+			continue
 		}
 		if len(child.Children) > 0 {
-			for platform, count := range r.countExplicitReferencesByPlatform(child.Children) {
-				counts[platform] += count
-			}
+			referredByPlatform(child.Children, platform, sets)
 		}
 	}
-	return counts
 }
 
-func maxPlatformReferenceCount(counts map[string]int) int {
-	common := counts["*"]
-	maximum := common
-	for platform, count := range counts {
+// conditionalPlatform names a reader-conditional branch; a branch nested in
+// another platform's branch stays in that platform.
+func conditionalPlatform(key *reader.RichNode, outer string) string {
+	if outer != "*" {
+		return outer
+	}
+	if key != nil && key.Type == reader.NodeKeyword {
+		return key.Value
+	}
+	return "*"
+}
+
+// maxPlatformReferenceCount is the largest number of distinct names any one
+// platform refers: the common names plus that platform's own.
+func maxPlatformReferenceCount(sets map[string]map[string]bool) int {
+	maximum := len(sets["*"])
+	for platform, names := range sets {
 		if platform == "*" {
 			continue
 		}
-		if common+count > maximum {
-			maximum = common + count
+		union := len(sets["*"])
+		for name := range names {
+			if !sets["*"][name] {
+				union++
+			}
+		}
+		if union > maximum {
+			maximum = union
 		}
 	}
 	return maximum
@@ -128,7 +123,9 @@ func (r *ExcessiveRefersRule) Check(node *reader.RichNode, _ map[string]interfac
 	}
 
 	if node.Children[0].Value == "ns" {
-		totalExplicitRefers := maxPlatformReferenceCount(r.countExplicitReferencesByPlatform(node.Children[1:]))
+		sets := map[string]map[string]bool{}
+		referredByPlatform(node.Children[1:], "*", sets)
+		totalExplicitRefers := maxPlatformReferenceCount(sets)
 
 		if totalExplicitRefers >= r.MaxExplicitRefers {
 			return &rules.Finding{
@@ -137,9 +134,10 @@ func (r *ExcessiveRefersRule) Check(node *reader.RichNode, _ map[string]interfac
 					"Namespace `%s` explicitly refers %d Vars, meeting the configured threshold of %d. The default threshold (24) was calibrated as the mean plus two standard deviations across 800 important repositories. This is a proven excessive-refers outlier under the calibrated rule.",
 					namespaceDeclaredName(node), totalExplicitRefers, r.MaxExplicitRefers,
 				),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}

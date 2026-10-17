@@ -34,6 +34,7 @@ func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interf
 		return nil
 	}
 
+
 	var message string
 	switch candidate.subtype {
 	case "nested-let-flattening":
@@ -56,11 +57,12 @@ func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interf
 	}
 
 	return &rules.Finding{
-		RuleID:   r.ID,
-		Message:  message,
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		RuleID:     r.ID,
+		Message:    message,
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 

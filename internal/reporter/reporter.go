@@ -48,6 +48,16 @@ func FilterContextualFindings(findings []*rules.Finding, include bool) []*rules.
 	return filtered
 }
 
+func FilterContextualOnly(findings []*rules.Finding) []*rules.Finding {
+	filtered := make([]*rules.Finding, 0, len(findings))
+	for _, finding := range findings {
+		if rules.IsContextualFinding(finding) {
+			filtered = append(filtered, finding)
+		}
+	}
+	return filtered
+}
+
 func getContextualSummary(findings []*rules.Finding) []ContextualSummaryItem {
 	counts := make(map[string]*ContextualSummaryItem)
 	for _, finding := range findings {

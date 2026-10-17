@@ -110,7 +110,7 @@ func nestedPipeline(node *reader.RichNode) (pipeline, bool) {
 			break
 		}
 		dataIndex, ok := dataArgumentIndex(spec, current)
-		if !ok {
+		if !ok || hasLargeLiteralArgument(current, dataIndex) || combinesComputedBranches(current, dataIndex) {
 			break
 		}
 		depth++
@@ -255,4 +255,42 @@ func init() {
 		MinNestingDepth: 3,
 		MinLetChain:     2,
 	})
+}
+
+// hasLargeLiteralArgument stops a pipeline at a step that also receives a
+// structured collection literal: (vec (concat [... many entries ...] (mapv f xs)))
+// would only move the literal into the middle of a threading form.
+func hasLargeLiteralArgument(call *reader.RichNode, dataIndex int) bool {
+	for index, child := range call.Children[1:] {
+		if index+1 == dataIndex || child == nil {
+			continue
+		}
+		switch child.Type {
+		case reader.NodeVector, reader.NodeMap, reader.NodeSet:
+			// A structured data literal (non-empty maps as entries, e.g. method
+			// descriptors or metric events). Keyword sets, number vectors and
+			// empty accumulators such as [[] #{}] do not block threading.
+			for _, entry := range child.Children {
+				if entry != nil && entry.Type == reader.NodeMap && len(entry.Children) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// combinesComputedBranches stops a pipeline at a concat-like step that also
+// receives another computed collection: (concat (map f xs) (keep g ys)) joins
+// sibling branches, so no single value flows through a threading form.
+func combinesComputedBranches(call *reader.RichNode, dataIndex int) bool {
+	if !rules.CallResolvesTo(call, "clojure.core/concat", "clojure.core/lazy-cat", "clojure.core/interleave") {
+		return false
+	}
+	for index, child := range call.Children[1:] {
+		if index+1 != dataIndex && child != nil && child.Type == reader.NodeList {
+			return true
+		}
+	}
+	return false
 }

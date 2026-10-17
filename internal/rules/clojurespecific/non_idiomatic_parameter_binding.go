@@ -86,13 +86,25 @@ func hasRestDestructuring(paramVec *reader.RichNode) (bool, int, string) {
 			next := children[i+1]
 			// The problematic pattern: & [x] or & [x y z] — destructured rest vector
 			if next.Type == reader.NodeVector {
+				// & [x :as args] keeps the whole rest sequence under a name: the
+				// function is genuinely variadic, not simulating optionals.
+				for _, el := range next.Children {
+					if el != nil && el.Type == reader.NodeKeyword && el.Value == ":as" {
+						return false, 0, ""
+					}
+				}
 				elemCount := 0
 				names := []string{}
+				// The description keeps a nested & so that & [x & more] is not
+				// misreported as two fixed optionals.
 				for _, el := range next.Children {
-					if el.Type == reader.NodeSymbol && el.Value != "&" {
-						elemCount++
-						names = append(names, el.Value)
+					if el.Type != reader.NodeSymbol {
+						continue
 					}
+					if el.Value != "&" {
+						elemCount++
+					}
+					names = append(names, el.Value)
 				}
 				if elemCount > 0 {
 					descr := "["

@@ -55,9 +55,13 @@ func (r *MisuseOfDynamicScopeRule) Check(node *reader.RichNode, context map[stri
 	allowedVars := rules.RuleSettingStringSlice(context, r.Meta().ID, "allowed_vars")
 	if node.Type == reader.NodeSymbol {
 		name := node.Value
+		lazyBoundary := hasLazyDynamicBoundary(context) && lazyBoundaryDefersRead(context)
 		if !isKnownDynamicName(name, context) || rules.MatchesConfiguredName(name, allowedVars) ||
-			(node.Resolution != nil && node.Resolution.Kind == reader.ResolutionLocal) ||
-			(!hasAsyncBoundary(context) && !hasLazyDynamicBoundary(context)) || dynamicDefinitionNode(node, context) ||
+			dynamicReadInSyntaxQuoteTemplate(context) ||
+			// A lexical binding shadows the var; a file-level def is the var.
+			(node.Resolution != nil && node.Resolution.Kind == reader.ResolutionLocal && node.Resolution.Lexical) ||
+			(!hasAsyncBoundary(context) && !lazyBoundary && !readInsideBindingWithinGo(context)) ||
+			(!lazyBoundary && argumentEvaluatedEagerly(node, context)) || dynamicDefinitionNode(node, context) ||
 			dynamicBindingNameNode(node, context) || dynamicLexicalBindingNameNode(node, context) {
 			return nil
 		}
@@ -82,7 +86,7 @@ func (r *MisuseOfDynamicScopeRule) Check(node *reader.RichNode, context map[stri
 			registerDynamicVar(context, name)
 		}
 	}
-	if !hasAsyncBoundary(context) {
+	if !hasWorkerBoundary(context) {
 		return nil
 	}
 
@@ -190,6 +194,9 @@ func isDeclaredDynamicVar(node, definition *reader.RichNode) bool {
 	if definition == nil {
 		return false
 	}
+	if metadataContainsMarker(definition.Metadata, ":dynamic") || metadataContainsMarker(definition.Metadata, "dynamic") {
+		return true
+	}
 	for _, child := range node.Children {
 		if child == definition {
 			break
@@ -270,15 +277,35 @@ func dynamicLexicalBindingNameNode(node *reader.RichNode, context map[string]int
 func hasLazyDynamicBoundary(context map[string]interface{}) bool {
 	enclosing, _ := context["enclosingForms"].([]string)
 	hasBinding := false
+	realizedInside := false
 	for _, form := range enclosing {
 		form = strings.TrimPrefix(form, "clojure.core/")
 		if form == "binding" {
 			hasBinding = true
+			realizedInside = false
+			continue
+		}
+		if hasBinding && isEagerConsumerForm(form) {
+			// A sequência preguiçosa é realizada dentro do binding.
+			realizedInside = true
+			continue
 		}
 		switch form {
 		case "map", "mapcat", "filter", "remove", "keep", "map-indexed", "filterv", "for", "lazy-seq", "sequence":
-			return hasBinding
+			if hasBinding && !realizedInside {
+				return true
+			}
 		}
+	}
+	return false
+}
+
+func isEagerConsumerForm(form string) bool {
+	switch form {
+	case "into", "vec", "set", "doall", "dorun", "mapv", "filterv", "reduce", "transduce", "run!",
+		"apply", "count", "frequencies", "group-by", "sort", "sort-by", "doseq", "str/join",
+		"clojure.string/join", "zipmap", "every?", "some", "reduce-kv", "into-array", "to-array":
+		return true
 	}
 	return false
 }
@@ -286,6 +313,56 @@ func hasLazyDynamicBoundary(context map[string]interface{}) bool {
 func hasAsyncBoundary(context map[string]interface{}) bool {
 	enclosing, _ := context["enclosingForms"].([]string)
 	for _, form := range enclosing {
+		if isAsyncBoundaryForm(form) {
+			return true
+		}
+	}
+	return false
+}
+
+// isAsyncBoundaryForm recognizes forms that run code on another thread
+// WITHOUT conveying dynamic bindings. future, future-call, pmap, send,
+// send-off, agent actions, core.async go/go-loop and thread all convey the
+// caller's bindings (binding-conveyor-fn), so a read inside them sees the
+// binding that was active at creation; reporting them produced false positives.
+// Raw executors and threads do not convey bindings.
+func isAsyncBoundaryForm(form string) bool {
+	switch form {
+	case ".submit", ".execute", ".start", "ExecutorService/submit", "ExecutorService/execute",
+		"Thread.", "java.lang.Thread.", "new Thread":
+		return true
+	}
+	return false
+}
+
+// argumentEvaluatedEagerly indica que o símbolo é argumento direto de uma forma
+// cujos argumentos são avaliados na thread atual (send, send-off, pmap, agent,
+// future-call, .submit, .execute); só a função passada roda do outro lado.
+func argumentEvaluatedEagerly(node *reader.RichNode, context map[string]interface{}) bool {
+	parent, _ := context["parent"].(*reader.RichNode)
+	if parent == nil || parent.Type != reader.NodeList || len(parent.Children) < 2 ||
+		parent.Children[0] == nil || parent.Children[0].Type != reader.NodeSymbol || parent.Children[0] == node {
+		return false
+	}
+	head := strings.TrimPrefix(parent.Children[0].Value, "clojure.core/")
+	switch {
+	case head == "send", head == "send-off", head == "agent", head == ".submit", head == ".execute",
+		head == "pmap" || strings.HasSuffix(head, "/pmap"),
+		head == "future-call" || strings.HasSuffix(head, "/future-call"):
+		return true
+	}
+	return false
+}
+
+// hasWorkerBoundary keeps the broad list of worker forms for the definition
+// and binding checks (a def or a binding created inside a worker), which are
+// independent of binding conveyance.
+func hasWorkerBoundary(context map[string]interface{}) bool {
+	enclosing, _ := context["enclosingForms"].([]string)
+	for _, form := range enclosing {
+		if isAsyncBoundaryForm(form) {
+			return true
+		}
 		form = strings.TrimPrefix(form, "clojure.core/")
 		switch {
 		case form == "go" || strings.HasSuffix(form, "/go"),
@@ -293,12 +370,26 @@ func hasAsyncBoundary(context map[string]interface{}) bool {
 			form == "thread" || strings.HasSuffix(form, "/thread"),
 			form == "future" || strings.HasSuffix(form, "/future"),
 			form == "future-call" || strings.HasSuffix(form, "/future-call"),
-			form == "agent" || strings.HasSuffix(form, "/agent"),
-			form == "send" || strings.HasSuffix(form, "/send"),
-			form == "send-off" || strings.HasSuffix(form, "/send-off"),
 			form == "pmap" || strings.HasSuffix(form, "/pmap"),
-			form == ".submit" || form == ".execute" || form == ".start" ||
-				form == "ExecutorService/submit" || form == "ExecutorService/execute":
+			form == "send", form == "send-off", form == "agent":
+			return true
+		}
+	}
+	return false
+}
+
+// readInsideBindingWithinGo: a binding established inside a go block can be
+// lost at a park point, so reads under it are still reported.
+func readInsideBindingWithinGo(context map[string]interface{}) bool {
+	enclosing, _ := context["enclosingForms"].([]string)
+	inGo := false
+	for _, form := range enclosing {
+		form = strings.TrimPrefix(form, "clojure.core/")
+		if form == "go" || form == "go-loop" || strings.HasSuffix(form, "/go") || strings.HasSuffix(form, "/go-loop") {
+			inGo = true
+			continue
+		}
+		if inGo && form == "binding" {
 			return true
 		}
 	}
@@ -327,4 +418,96 @@ func init() {
 		},
 	}
 	rules.RegisterRule(defaultRule)
+}
+
+// dynamicReadInSyntaxQuoteTemplate reports a read inside a syntax-quote
+// template (not under an unquote): it is generated code, evaluated wherever
+// the expansion lands, not at this point.
+func dynamicReadInSyntaxQuoteTemplate(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for index := len(ancestors) - 1; index >= 0; index-- {
+		if ancestor := ancestors[index]; ancestor != nil {
+			switch ancestor.Type {
+			case reader.NodeUnquote, reader.NodeUnquoteSplice:
+				return false
+			case reader.NodeSyntaxQuote:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// lazyBoundaryDefersRead requires that some lazy sequence operation really
+// defers the read: map/mapcat/filter... evaluate their arguments eagerly and
+// only delay the body of the function they receive, so a read in an argument
+// such as (mapcat (if *v* f identity) xs) happens right away. A lazy step
+// realized by a later eager step of the same threading form (->> ... vec) is
+// realized where it is created.
+func lazyBoundaryDefersRead(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	insideFn := false
+	for index := len(ancestors) - 1; index >= 0; index-- {
+		ancestor := ancestors[index]
+		if ancestor == nil {
+			continue
+		}
+		if ancestor.Type == reader.NodeFnLiteral {
+			insideFn = true
+			continue
+		}
+		if ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 || ancestor.Children[0] == nil ||
+			ancestor.Children[0].Type != reader.NodeSymbol {
+			continue
+		}
+		head := strings.TrimPrefix(ancestor.Children[0].Value, "clojure.core/")
+		switch head {
+		case "fn", "fn*", "letfn":
+			insideFn = true
+		case "for", "lazy-seq", "lazy-cat":
+			if !lazyStepRealizedByThreading(ancestors, index) {
+				return true
+			}
+		case "map", "mapcat", "filter", "remove", "keep", "map-indexed", "keep-indexed", "sequence":
+			if insideFn && !lazyStepRealizedByThreading(ancestors, index) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func lazyStepRealizedByThreading(ancestors []*reader.RichNode, index int) bool {
+	if index == 0 {
+		return false
+	}
+	step, thread := ancestors[index], ancestors[index-1]
+	if thread == nil || thread.Type != reader.NodeList || len(thread.Children) < 3 || thread.Children[0] == nil {
+		return false
+	}
+	switch strings.TrimPrefix(thread.Children[0].Value, "clojure.core/") {
+	case "->", "->>":
+	default:
+		return false
+	}
+	seen := false
+	for _, child := range thread.Children[2:] {
+		if child == step {
+			seen = true
+			continue
+		}
+		if !seen {
+			continue
+		}
+		name := ""
+		if child != nil && child.Type == reader.NodeSymbol {
+			name = child.Value
+		} else if child != nil && child.Type == reader.NodeList && len(child.Children) > 0 && child.Children[0] != nil {
+			name = child.Children[0].Value
+		}
+		if isEagerConsumerForm(strings.TrimPrefix(name, "clojure.core/")) {
+			return true
+		}
+	}
+	return false
 }
