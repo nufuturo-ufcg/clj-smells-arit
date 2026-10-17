@@ -139,7 +139,7 @@ func isFunctionLike(node *reader.RichNode) bool {
 	}
 	for _, candidate := range []string{
 		"inc", "dec", "identity", "even?", "odd?", "neg?", "pos?", "some?", "nil?", "string?", "number?", "true?", "false?",
-		"seq", "reverse", "file", "clojure.java.io/file",
+		"seq", "reverse", "first", "file", "clojure.java.io/file",
 	} {
 		if name == candidate || name == "clojure.core/"+candidate {
 			return true

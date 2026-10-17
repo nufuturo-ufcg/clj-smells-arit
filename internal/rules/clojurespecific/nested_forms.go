@@ -34,6 +34,7 @@ func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interf
 		return nil
 	}
 
+
 	var message string
 	switch candidate.subtype {
 	case "nested-let-flattening":

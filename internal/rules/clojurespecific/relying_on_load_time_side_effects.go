@@ -114,10 +114,10 @@ func (r *RelyingOnLoadTimeSideEffectsRule) Check(node *reader.RichNode, context 
 		!loadTimeEffectOperation(node, context) {
 		return nil
 	}
-	if !r.IsInside(context, "def", "defonce") || r.IsInside(context, "ns") {
+	if isStaticClasspathResourceRead(node) {
 		return nil
 	}
-	if isStaticClasspathResourceRead(node) {
+	if !r.IsInside(context, "def", "defonce") || r.IsInside(context, "ns") {
 		return nil
 	}
 	finding := &rules.Finding{

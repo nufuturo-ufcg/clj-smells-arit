@@ -15,7 +15,7 @@ var coreSymbols = map[string]SymbolType{
 	"take-while": TypeCoreFunction, "drop-while": TypeCoreFunction, "distinct": TypeCoreFunction, "dedupe": TypeCoreFunction,
 	"vector": TypeCoreFunction, "list": TypeCoreFunction, "hash-map": TypeCoreFunction, "set": TypeCoreFunction,
 
-	"str": TypeCoreFunction, "println": TypeCoreFunction, "get": TypeCoreFunction, "assoc": TypeCoreFunction,
+	"str": TypeCoreFunction, "println": TypeCoreFunction, "get": TypeCoreFunction, "assoc": TypeCoreFunction, "assoc-in": TypeCoreFunction, "update": TypeCoreFunction, "update-in": TypeCoreFunction,
 	"dissoc": TypeCoreFunction, "get-in": TypeCoreFunction, "inc": TypeCoreFunction, "dec": TypeCoreFunction,
 
 	"range": TypeCoreFunction, "count": TypeCoreFunction, "first": TypeCoreFunction, "rest": TypeCoreFunction,

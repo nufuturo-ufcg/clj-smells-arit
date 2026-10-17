@@ -26,6 +26,11 @@ func (r *NonIdiomaticRecordConstructionRule) isRecordSymbol(name string, recordF
 }
 
 func (r *NonIdiomaticRecordConstructionRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
+	if node != nil && node.Type == reader.NodeFnLiteral && len(node.Children) > 0 &&
+		node.Children[0] != nil && node.Children[0].Type == reader.NodeSymbol {
+		synthetic := &reader.RichNode{Type: reader.NodeList, Children: node.Children, Location: node.Location}
+		return r.Check(synthetic, context, filepath)
+	}
 	if r.IsInside(context, "__non-evaluated__", "comment") ||
 		nonIdiomaticRecordIsInsideMacroDefinition(context) {
 		return nil

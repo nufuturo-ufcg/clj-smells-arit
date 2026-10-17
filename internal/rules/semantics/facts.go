@@ -580,7 +580,11 @@ func enrichCallFacts(facts Facts, node *reader.RichNode, context map[string]inte
 		}
 	}
 	switch name {
-	case "clojure.core/map", "clojure.core/filter", "clojure.core/remove", "clojure.core/keep", "clojure.core/for":
+	case "clojure.core/map", "clojure.core/filter", "clojure.core/remove", "clojure.core/keep", "clojure.core/for",
+		"clojure.core/take", "clojure.core/drop", "clojure.core/take-while", "clojure.core/drop-while",
+		"clojure.core/distinct", "clojure.core/dedupe", "clojure.core/concat", "clojure.core/partition",
+		"clojure.core/partition-all", "clojure.core/mapcat", "clojure.core/map-indexed",
+		"clojure.core/keep-indexed":
 		facts.Laziness = Lazy
 		facts.Type = TypeList
 	case "clojure.core/mapv", "clojure.core/filterv", "clojure.core/keepv", "clojure.core/into", "clojure.core/vec", "clojure.core/doall":
