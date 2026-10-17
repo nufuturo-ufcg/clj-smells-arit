@@ -334,7 +334,7 @@ func (r *ImmutabilityViolationRule) Check(node *reader.RichNode, context map[str
 	}
 
 	if isProvenArrayMutation(node, context) {
-		finding := &rules.Finding{
+			finding := &rules.Finding{
 			RuleID:     r.ID,
 			Message:    "Found direct mutation of a type-hinted Java array inside a local scope. Prefer returning a new value or document the required mutable boundary.",
 			Filepath:   filepath,
