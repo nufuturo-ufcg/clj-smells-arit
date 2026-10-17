@@ -68,10 +68,10 @@ test_if_let.clj
 # Relatórios, Scratch e Skills gerados pelo experimento
 *.md
 !README.md
-!CONTEXTUAL_FINDINGS_POLICY.md
+CONTEXTUAL_FINDINGS_POLICY.md
 skills/
 reports/
 scratch/
 tarefas/
 /output/
-/tools/
+tools/
