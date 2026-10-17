@@ -83,7 +83,11 @@ func isResolvedSafeCollectionProducer(node *reader.RichNode, facts semantics.Fac
 	case "clojure.core/hash-map", "clojure.core/keys", "clojure.core/list",
 		"clojure.core/set", "clojure.core/sort", "clojure.core/sort-by",
 		"clojure.core/str", "clojure.core/vals", "clojure.core/vector",
-		"clojure.core/vec":
+		"clojure.core/vec", "clojure.core/into":
+		if canonicalName == "clojure.core/into" {
+			return len(node.Children) >= 3 && node.Children[2] != nil &&
+				(node.Children[2].Type == reader.NodeVector || node.Children[2].Type == reader.NodeMap || node.Children[2].Type == reader.NodeSet)
+		}
 		return true
 	default:
 		return false
@@ -113,7 +117,7 @@ func isInvalidResolvedCollectionProducer(node *reader.RichNode, context map[stri
 	case "clojure.core/hash-map", "clojure.core/keys", "clojure.core/vals",
 		"clojure.core/list", "clojure.core/set", "clojure.core/sort",
 		"clojure.core/sort-by", "clojure.core/str", "clojure.core/vector",
-		"clojure.core/vec":
+		"clojure.core/vec", "clojure.core/into":
 		return !validSafeCollectionProducerArity(node, semantics.CallName(node))
 	default:
 		return false
