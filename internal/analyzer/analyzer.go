@@ -64,11 +64,12 @@ type AnalysisResult struct {
 }
 
 type Scope struct {
-	parent          *Scope
-	symbols         map[string]*SymbolInfo
-	aliases         map[string]*NamespaceAlias
-	referredSymbols map[string]*ReferredSymbol
-	coreReferral    *coreReferral
+	parent             *Scope
+	symbols            map[string]*SymbolInfo
+	aliases            map[string]*NamespaceAlias
+	referredSymbols    map[string]*ReferredSymbol
+	requiredNamespaces map[string]bool
+	coreReferral       *coreReferral
 
 	lookupCache map[string]*SymbolInfo
 	cacheValid  bool
@@ -142,12 +143,13 @@ type ReferredSymbol struct {
 
 func NewScope(parent *Scope) *Scope {
 	return &Scope{
-		parent:          parent,
-		symbols:         make(map[string]*SymbolInfo),
-		aliases:         make(map[string]*NamespaceAlias),
-		referredSymbols: make(map[string]*ReferredSymbol),
-		lookupCache:     make(map[string]*SymbolInfo),
-		cacheValid:      true,
+		parent:             parent,
+		symbols:            make(map[string]*SymbolInfo),
+		aliases:            make(map[string]*NamespaceAlias),
+		referredSymbols:    make(map[string]*ReferredSymbol),
+		requiredNamespaces: make(map[string]bool),
+		lookupCache:        make(map[string]*SymbolInfo),
+		cacheValid:         true,
 	}
 }
 
@@ -189,6 +191,16 @@ func (s *Scope) DefineReferredSymbol(ref ReferredSymbol) {
 		s.referredSymbols = make(map[string]*ReferredSymbol)
 	}
 	s.referredSymbols[ref.SymbolName] = &ref
+}
+
+func (s *Scope) DefineRequiredNamespace(ns string) {
+	if s == nil || ns == "" {
+		return
+	}
+	if s.requiredNamespaces == nil {
+		s.requiredNamespaces = make(map[string]bool)
+	}
+	s.requiredNamespaces[ns] = true
 }
 
 func (s *Scope) invalidateCache() {
@@ -1255,6 +1267,11 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 						required[referred.OriginalNamespace] = true
 					}
 				}
+				for ns := range globalScope.requiredNamespaces {
+					if ns != "" {
+						required[ns] = true
+					}
+				}
 			}
 			return required
 		}(),
@@ -1757,6 +1774,7 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 type namespaceItems struct {
 	aliases  []NamespaceAlias
 	referred []ReferredSymbol
+	required []string
 }
 
 func parseNamespaceClause(clauseNode *reader.RichNode) namespaceItems {
@@ -1771,7 +1789,14 @@ func parseNamespaceClause(clauseNode *reader.RichNode) namespaceItems {
 	case "require", "require-macros":
 		for j := 1; j < len(clauseNode.Children); j++ {
 			specNode := clauseNode.Children[j]
-			if specNode == nil || specNode.Type != reader.NodeVector || len(specNode.Children) == 0 || specNode.Children[0] == nil || specNode.Children[0].Type != reader.NodeSymbol {
+			if specNode == nil {
+				continue
+			}
+			if specNode.Type == reader.NodeSymbol {
+				items.required = append(items.required, specNode.Value)
+				continue
+			}
+			if specNode.Type != reader.NodeVector || len(specNode.Children) == 0 || specNode.Children[0] == nil || specNode.Children[0].Type != reader.NodeSymbol {
 				continue
 			}
 			fullNs := specNode.Children[0].Value
@@ -1805,6 +1830,7 @@ func parseNamespaceClause(clauseNode *reader.RichNode) namespaceItems {
 			for _, referSym := range refers {
 				items.referred = append(items.referred, ReferredSymbol{SymbolName: referSym, OriginalNamespace: fullNs, DefinitionNode: specNode})
 			}
+			items.required = append(items.required, fullNs)
 		}
 	case "import":
 		for j := 1; j < len(clauseNode.Children); j++ {
@@ -1835,6 +1861,7 @@ func parseNamespaceClause(clauseNode *reader.RichNode) namespaceItems {
 func mergeNamespaceItems(dst *namespaceItems, src namespaceItems) {
 	dst.aliases = append(dst.aliases, src.aliases...)
 	dst.referred = append(dst.referred, src.referred...)
+	dst.required = append(dst.required, src.required...)
 }
 
 func commonNamespaceItems(branches []namespaceItems) namespaceItems {
@@ -1878,6 +1905,24 @@ func commonNamespaceItems(branches []namespaceItems) namespaceItems {
 			common.referred = append(common.referred, candidate)
 		}
 	}
+	for _, candidate := range branches[0].required {
+		matchesEveryBranch := true
+		for _, branch := range branches[1:] {
+			matches := 0
+			for _, req := range branch.required {
+				if req == candidate {
+					matches++
+				}
+			}
+			if matches != 1 {
+				matchesEveryBranch = false
+				break
+			}
+		}
+		if matchesEveryBranch {
+			common.required = append(common.required, candidate)
+		}
+	}
 	return common
 }
 
@@ -1894,14 +1939,15 @@ func collectNamespaceConditional(node *reader.RichNode) namespaceItems {
 	return commonNamespaceItems(branches)
 }
 
-func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []ReferredSymbol, error) {
+func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []ReferredSymbol, []string, error) {
 	if nsNode == nil || nsNode.Type != reader.NodeList || len(nsNode.Children) == 0 || nsNode.Children[0].Value != "ns" {
-		return "", nil, nil, fmt.Errorf("node is not a valid ns form")
+		return "", nil, nil, nil, fmt.Errorf("node is not a valid ns form")
 	}
 
 	var namespaceName string
 	var aliases []NamespaceAlias
 	var referredSymbols []ReferredSymbol
+	var requiredNamespaces []string
 	nameIndex := -1
 	for i := 1; i < len(nsNode.Children); i++ {
 		if nsNode.Children[i] != nil && nsNode.Children[i].Type == reader.NodeSymbol {
@@ -1924,21 +1970,24 @@ func parseNamespaceForm(nsNode *reader.RichNode) (string, []NamespaceAlias, []Re
 			items := collectNamespaceConditional(clauseNode)
 			aliases = append(aliases, items.aliases...)
 			referredSymbols = append(referredSymbols, items.referred...)
+			requiredNamespaces = append(requiredNamespaces, items.required...)
 			continue
 		}
 		items := parseNamespaceClause(clauseNode)
 		aliases = append(aliases, items.aliases...)
 		referredSymbols = append(referredSymbols, items.referred...)
+		requiredNamespaces = append(requiredNamespaces, items.required...)
 	}
-	return namespaceName, aliases, referredSymbols, nil
+	return namespaceName, aliases, referredSymbols, requiredNamespaces, nil
 }
 
 // collectTopLevelRequires supports the traditional `(require '[ns :as x])`
 // form. It is still common in scripts and in the synthetic catalog even
 // though modern namespaces normally place the same libspec in ns.
-func collectTopLevelRequires(roots []*reader.RichNode) ([]NamespaceAlias, []ReferredSymbol) {
+func collectTopLevelRequires(roots []*reader.RichNode) ([]NamespaceAlias, []ReferredSymbol, []string) {
 	var aliases []NamespaceAlias
 	var referred []ReferredSymbol
+	var required []string
 	for _, root := range roots {
 		if root == nil || root.Type != reader.NodeList || len(root.Children) < 2 ||
 			root.Children[0].Type != reader.NodeSymbol || root.Children[0].Value != "require" {
@@ -1953,6 +2002,7 @@ func collectTopLevelRequires(roots []*reader.RichNode) ([]NamespaceAlias, []Refe
 				continue
 			}
 			fullNamespace := argument.Children[0].Value
+			required = append(required, fullNamespace)
 			for i := 1; i+1 < len(argument.Children); i++ {
 				option, value := argument.Children[i], argument.Children[i+1]
 				if option.Type != reader.NodeKeyword {
@@ -1980,7 +2030,7 @@ func collectTopLevelRequires(roots []*reader.RichNode) ([]NamespaceAlias, []Refe
 			}
 		}
 	}
-	return aliases, referred
+	return aliases, referred, required
 }
 
 var (
@@ -2057,6 +2107,7 @@ func (a *Analyzer) AnalyzeFileWithProjectIndex(filepath string, projectIndex *se
 	var namespaceName string
 	var aliases []NamespaceAlias
 	var referredSymbols []ReferredSymbol
+	var requiredNamespaces []string
 	var nsNode *reader.RichNode
 
 	for _, root := range richRoots {
@@ -2068,14 +2119,15 @@ func (a *Analyzer) AnalyzeFileWithProjectIndex(filepath string, projectIndex *se
 
 	if nsNode != nil {
 		var nsParseErr error
-		namespaceName, aliases, referredSymbols, nsParseErr = parseNamespaceForm(nsNode)
+		namespaceName, aliases, referredSymbols, requiredNamespaces, nsParseErr = parseNamespaceForm(nsNode)
 		if nsParseErr != nil {
 
 		}
 	}
-	legacyAliases, legacyRefers := collectTopLevelRequires(richRoots)
+	legacyAliases, legacyRefers, legacyRequired := collectTopLevelRequires(richRoots)
 	aliases = append(aliases, legacyAliases...)
 	referredSymbols = append(referredSymbols, legacyRefers...)
+	requiredNamespaces = append(requiredNamespaces, legacyRequired...)
 
 	globalScope := NewScope(nil)
 	globalScope.coreReferral = collectCoreReferral(nsNode, richRoots)
@@ -2099,6 +2151,10 @@ func (a *Analyzer) AnalyzeFileWithProjectIndex(filepath string, projectIndex *se
 			refSymInfo.Type = TypeJava
 		}
 		globalScope.Define(refSymInfo)
+	}
+
+	for _, requiredNamespace := range requiredNamespaces {
+		globalScope.DefineRequiredNamespace(requiredNamespace)
 	}
 
 	CollectDefinitions(richRoots, globalScope)

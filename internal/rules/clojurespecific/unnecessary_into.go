@@ -73,16 +73,22 @@ func shortCanonicalName(canonical string) string {
 	return canonical
 }
 
-func hasKnownReductionProtocol(node *reader.RichNode) bool {
+func hasKnownReductionProtocol(node *reader.RichNode, context map[string]interface{}) bool {
 	if node == nil {
 		return false
 	}
 	switch node.Type {
 	case reader.NodeVector, reader.NodeMap, reader.NodeSet:
 		return true
-	default:
-		return false
 	}
+	// clojure.core/range returns a reducible collection, so fusing its
+	// transducer into mapv/filterv preserves the eager vector result.
+	facts := rules.FactsForNode(node, context)
+	if facts != nil && facts.ResolutionKnown && facts.Resolution != nil &&
+		facts.Resolution.CanonicalName == "clojure.core/range" {
+		return true
+	}
+	return false
 }
 
 func intoFinding(r *UnnecessaryIntoRule, node *reader.RichNode, filepath, operation, xformForm string, contextual bool) *rules.Finding {
@@ -129,7 +135,7 @@ func (r *UnnecessaryIntoRule) Check(node *reader.RichNode, context map[string]in
 		xformForm = fmt.Sprintf("(%s)", operation)
 	}
 	source := node.Children[2].Children[len(node.Children[2].Children)-1]
-	return intoFinding(r, node, filepath, operation, xformForm, !hasKnownReductionProtocol(source))
+	return intoFinding(r, node, filepath, operation, xformForm, !hasKnownReductionProtocol(source, context))
 }
 
 func init() {
