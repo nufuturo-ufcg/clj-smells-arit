@@ -65,7 +65,6 @@ tmp/
 internal-tools/
 teste.md
 test_if_let.clj
-
 # Relatórios, Scratch e Skills gerados pelo experimento
 *.md
 !README.md
