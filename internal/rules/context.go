@@ -8,21 +8,22 @@ import (
 )
 
 // MarkContextualFinding normalizes contextuality for findings created by
-// hand-written rules. Tags are kept for compatibility with existing reports,
-// while the explicit field lets reporters filter without guessing from the
-// severity (HINT is not synonymous with contextual).
-func MarkContextualFinding(finding *Finding) {
+// hand-written rules and enforces the Absolute Precision Policy.
+// Returns true if the finding has an explicit classification (proven or contextual).
+// Returns false if the finding has no explicit confidence, suppressing its emission.
+func MarkContextualFinding(finding *Finding) bool {
 	if finding == nil {
-		return
+		return false
 	}
-	if finding.Contextual {
+	if finding.Contextual || finding.Confidence == ConfidenceContextual {
+		finding.Contextual = true
 		finding.Confidence = ConfidenceContextual
 		if finding.ContextualReason == "" {
 			finding.ContextualReason = "The classification depends on the file context or the code contract."
 		}
 		ensureMissingEvidence(finding)
 		appendContextualTag(finding)
-		return
+		return true
 	}
 	for _, tag := range finding.Tags {
 		switch tag {
@@ -34,12 +35,18 @@ func MarkContextualFinding(finding *Finding) {
 			}
 			ensureMissingEvidence(finding)
 			appendContextualTag(finding)
-			return
+			return true
 		}
 	}
-	if finding.Confidence == "" {
-		finding.Confidence = ConfidenceProven
+	if finding.Confidence == ConfidenceProven {
+		return true
 	}
+
+	// Under Absolute Precision Policy:
+	// A finding without an explicit confidence classification is considered a diagnostic
+	// defect in the detector implementation. It must never be silently promoted to proven,
+	// nor blindly fallen back to contextual. It is suppressed from emission.
+	return false
 }
 
 // SetContextualFinding marks one occurrence as a review candidate without

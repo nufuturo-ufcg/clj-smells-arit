@@ -14,10 +14,10 @@ func TestImproperEmptinessCheck(t *testing.T) {
 		ExpectedFindings: []framework.ExpectedFinding{
 			{Message: "(empty? xs)", StartLine: 4, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "(seq xs)", StartLine: 7, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
-			{Message: "(seq xs)", StartLine: 12},
-			{Message: "(seq xs)", StartLine: 15, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "(seq xs)", StartLine: 12, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "(seq xs)", StartLine: 15, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "return contract is unknown", StartLine: 21, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
-			{Message: "(when (seq xs)", StartLine: 24, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "(when (seq xs)", StartLine: 24, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "(empty? [...])", StartLine: 32, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 			{Message: "(seq [...])", StartLine: 35, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 			{Message: "(seq (keys ...))", StartLine: 39, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
@@ -25,6 +25,8 @@ func TestImproperEmptinessCheck(t *testing.T) {
 			{Message: "(seq (map ...))", StartLine: 47, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "(seq (external-items ...))", StartLine: 51, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "(seq nil)", StartLine: 81, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "(when (seq [...])", StartLine: 86, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "(when (seq acc)", StartLine: 91, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 28},
@@ -41,9 +43,22 @@ func TestImproperEmptinessCheck(t *testing.T) {
 		FileToAnalyze: "improper_emptiness_check.cljs",
 		RuleID:        "improper-emptiness-check",
 		ExpectedFindings: []framework.ExpectedFinding{
-			{Message: "(when (seq (.-value ...))", StartLine: 6, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "(when (seq (.-value ...))", StartLine: 6, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "return contract is unknown", StartLine: 11, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "(seq (.-value ...))", StartLine: 16, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+		},
+	})
+
+	// count realizes a lazy source completely; seq realizes one chunk.
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze: "improper_emptiness_lazy_count.clj",
+		RuleID:        "improper-emptiness-check",
+		ExpectedFindings: []framework.ExpectedFinding{
+			{Message: "using `>` with `count`", StartLine: 8, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "`(pos? (count mapped))`", StartLine: 9, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "using `=` with `count`", StartLine: 10, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "using `>` with `count`", StartLine: 15, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "`(when-not (empty? kept))`", StartLine: 20, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 		},
 	})
 }

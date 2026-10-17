@@ -194,6 +194,9 @@ func (r *LinearCollectionScanRule) Check(node *reader.RichNode, context map[stri
 		finding = r.checkRedundant(node, filepath)
 	}
 
+	if finding != nil && finding.Confidence == "" {
+		finding.Confidence = rules.ConfidenceProven
+	}
 	return finding
 }
 

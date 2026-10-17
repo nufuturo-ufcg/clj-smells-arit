@@ -11,7 +11,7 @@ func TestSingleSegmentNamespace(t *testing.T) {
 		{
 			FileToAnalyze:     "single_segment_namespace.clj",
 			RuleID:            "single-segment-namespace",
-			ExpectedFindings:  []framework.ExpectedFinding{{StartLine: 16, Severity: rules.SeverityHint}},
+			ExpectedFindings:  []framework.ExpectedFinding{{StartLine: 16, Severity: rules.SeverityHint, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true}},
 			ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 11}, {StartLine: 14}},
 		},
 	}

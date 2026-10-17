@@ -27,3 +27,7 @@
 (let [defn (fn [& _] nil)]
   (defn shadowed [required & [optional]]
     [required optional]))
+
+;; & [x & more] hides an optional first parameter in front of the rest.
+(defn open-tail [& [head & more]]
+  (apply vector head more))

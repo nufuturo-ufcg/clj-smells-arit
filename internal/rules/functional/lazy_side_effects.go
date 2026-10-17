@@ -278,11 +278,12 @@ func (r *LazySideEffectsRule) createFinding(node *reader.RichNode, lazyFuncName,
 		messageSuffix += " (Note: If this lazy call is ultimately consumed by an eager function like 'into' or 'run!', this warning might be a false positive)."
 	}
 	return &rules.Finding{
-		RuleID:   meta.ID,
-		Message:  fmt.Sprintf("Function/symbol %s passed to lazy function '%s' may contain side effects.%s", funcSource, lazyFuncName, messageSuffix),
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: meta.Severity,
+		RuleID:     meta.ID,
+		Message:    fmt.Sprintf("Function/symbol %s passed to lazy function '%s' may contain side effects.%s", funcSource, lazyFuncName, messageSuffix),
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   meta.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 

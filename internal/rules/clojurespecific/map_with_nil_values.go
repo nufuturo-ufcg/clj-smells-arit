@@ -20,7 +20,8 @@ func (r *MapWithNilValuesRule) Check(node *reader.RichNode, context map[string]i
 	}
 	if node == nil || rules.CurrentExecutionContext(context) == rules.ExecutionNonEvaluated ||
 		rules.CurrentExecutionContext(context) == rules.ExecutionUnknown ||
-		mapIsInsideMacroDefinition(context) || r.IsInside(context, "__non-evaluated__", "comment") {
+		mapIsInsideMacroDefinition(context) || r.IsInside(context, "__non-evaluated__", "comment") ||
+		mapIsInCaseConstant(context) {
 		return nil
 	}
 	strict := rules.RuleSettingBool(context, r.Meta().ID, "strict", true)
@@ -35,15 +36,13 @@ func (r *MapWithNilValuesRule) Check(node *reader.RichNode, context map[string]i
 				if !strict {
 					severity = rules.ContextualSeverity(context, r.Severity)
 				}
-				return &rules.Finding{
-					RuleID:          r.ID,
-					Message:         "Explicit 'nil' value associated with a key in a map literal. Prefer omitting the key to represent absence of data.",
-					Filepath:        filepath,
-					Location:        valNode.Location,
-					Severity:        severity,
-					MissingEvidence: []string{"nil-value-contract", "fixed-shape-contract", "serialization-contract"},
-					Tags:            append(rules.ContextualTags(context), "contract-dependent"),
-				}
+				return rules.SetContextualFindingWithEvidence(&rules.Finding{
+					RuleID:   r.ID,
+					Message:  "Explicit 'nil' value associated with a key in a map literal. Prefer omitting the key to represent absence of data.",
+					Filepath: filepath,
+					Location: valNode.Location,
+					Severity: severity,
+				}, "Explicit nil values in map literals may depend on external contracts, schemas, or serialization requirements.", "nil-value-contract", "fixed-shape-contract", "serialization-contract")
 			}
 		}
 	}
@@ -61,15 +60,13 @@ func (r *MapWithNilValuesRule) Check(node *reader.RichNode, context map[string]i
 			for i := 0; i < len(args)-1; i += 2 {
 				valNode := args[i+1]
 				if r.isNilOrImplicitNil(valNode) {
-					return &rules.Finding{
-						RuleID:          r.ID,
-						Message:         "Explicit 'nil' value associated with a key using 'assoc'. Prefer using 'cond->' or 'dissoc' instead of explicitly setting 'nil'.",
-						Filepath:        filepath,
-						Location:        valNode.Location,
-						Severity:        rules.SeverityHint,
-						MissingEvidence: []string{"nil-value-contract", "update-contract"},
-						Tags:            append(rules.ContextualTags(context), "low-confidence", "contract-dependent"),
-					}
+					return rules.SetContextualFindingWithEvidence(&rules.Finding{
+						RuleID:   r.ID,
+						Message:  "Explicit 'nil' value associated with a key using 'assoc'. Prefer using 'cond->' or 'dissoc' instead of explicitly setting 'nil'.",
+						Filepath: filepath,
+						Location: valNode.Location,
+						Severity: rules.SeverityHint,
+					}, "Explicit nil values via assoc may depend on external contracts or map update protocols.", "nil-value-contract", "update-contract")
 				}
 			}
 		}
@@ -137,6 +134,13 @@ func validAssocArity(node *reader.RichNode) bool {
 		return false
 	}
 	return (len(node.Children)-2)%2 == 0
+}
+
+// mapIsInCaseConstant reports a case test constant: unevaluated literal data,
+// like a quoted form. `(case x {:a nil} ...)` matches a map, it builds none.
+func mapIsInCaseConstant(context map[string]interface{}) bool {
+	value, _ := context["isInCaseConstantPosition"].(bool)
+	return value
 }
 
 func mapIsInsideMacroDefinition(context map[string]interface{}) bool {

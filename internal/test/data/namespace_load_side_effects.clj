@@ -121,3 +121,28 @@
 (defn load-dependency []
   (clojure.core/require '[clojure.set :as set]))
 (def local-load-dependency (load-dependency))
+
+;; Feature-flag guards make the load optional: contextual, not proven.
+(def feature-enabled? (boolean (System/getenv "FEATURE")))
+(when feature-enabled?
+  (clojure.core/require '[clojure.inspector :as inspector]))
+
+;; Compatibility selection between two namespaces.
+(if (find-ns 'clojure.core.async.impl.runtime)
+  (clojure.core/require '[clojure.core.async.impl.runtime :as runtime])
+  (clojure.core/require '[clojure.core.async.impl.ioc-macros :as runtime]))
+
+;; Build-time guard.
+(when (and (not *compile-files*) feature-enabled?)
+  (clojure.core/require '[clojure.repl :as repl]))
+
+;; A require in the guard itself runs unconditionally and stays proven.
+(when (clojure.core/require '[clojure.edn :as edn])
+  :loaded)
+
+;; A local probe that loads inside try/catch checks an optional dependency.
+(defn- optional-dependency? []
+  (try (clojure.core/require 'clojure.reflect) true
+       (catch Throwable _ false)))
+(when (optional-dependency?)
+  :optional-loaded)

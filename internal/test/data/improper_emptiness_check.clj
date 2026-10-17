@@ -80,3 +80,13 @@
 (defn nil-count-condition []
   (when (> (count nil) 0)
     :present))
+
+;; A literal collection proves seq accepts the argument.
+(defn literal-when-not []
+  (when-not (empty? [1 2])
+    :present))
+
+;; acc may be a transient: Clojure 1.12+ empty? counts it, seq throws.
+(defn transient-accumulator [acc]
+  (when-not (empty? acc)
+    (persistent! acc)))

@@ -31,6 +31,8 @@ type Finding struct {
 	Generated        bool             `json:"generated,omitempty"`
 	OriginLocation   *reader.Location `json:"origin_location,omitempty"`
 	ASTFingerprint   string           `json:"ast_fingerprint,omitempty"`
+	Anchor           string           `json:"anchor,omitempty"`
+	Namespace        string           `json:"namespace,omitempty"`
 	Tags             []string         `json:"tags,omitempty"`
 	SourceRole       string           `json:"source_role,omitempty"`
 	Contextual       bool             `json:"contextual,omitempty"`

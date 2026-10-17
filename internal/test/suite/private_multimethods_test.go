@@ -24,6 +24,7 @@ func TestPrivateMultimethods(t *testing.T) {
 			ForbiddenFindings: []framework.ExpectedFinding{
 				{StartLine: 78},
 				{StartLine: 81},
+				{StartLine: 170},
 			},
 		},
 	}

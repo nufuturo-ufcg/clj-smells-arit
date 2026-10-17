@@ -93,3 +93,28 @@
 ;; Invalid integral-call arities must not establish a numeric operand.
 (defn invalid-compare-arity [x]
   (= 0 (compare x)))
+
+;; Strict comparisons with literal 0 and (+/- x 1) preserve value, result
+;; class, and exception class for every operand on the JVM.
+(defn strict-zero-any-operand [x]
+  [(> x 0) (< 0 x) (< x 0) (> 0 x) (- x 1) (+ x 1)])
+
+;; Non-integer literals are not the definitional forms.
+(defn decimal-literals [x]
+  [(> x 0.0) (+ x 1.0)])
+
+;; Constant folding is not a verbose check.
+(defn constant-folding []
+  [(+ 1 0) (- 5 1)])
+
+;; An unresolved head may be a DSL macro that reads its argument as data.
+(defn symbolic-dsl [x]
+  (ex (> x 0)))
+
+;; A boxed hint admits nil: (= 0 nil) is false, (zero? nil) throws.
+(defn boxed-hint [^Integer n]
+  [(= 0 n) (>= n 0)])
+
+;; A primitive hint cannot hold nil.
+(defn primitive-hint [^long n]
+  (= 0 n))

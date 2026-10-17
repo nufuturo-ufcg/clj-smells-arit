@@ -81,9 +81,10 @@ func (r *ProductionDoallRule) Check(node *reader.RichNode, context map[string]in
 					"Redundant `doall` around `%s`: %s. Remove only the `doall` wrapper; the value, type, order, exceptions, and producer evaluation count are preserved.",
 					producer, eagerProducerExplanation(producer),
 				),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}
@@ -94,6 +95,7 @@ func (r *ProductionDoallRule) Check(node *reader.RichNode, context map[string]in
 		Filepath:         filepath,
 		Location:         node.Location,
 		Severity:         r.Severity,
+		Confidence:       rules.ConfidenceContextual,
 		Contextual:       true,
 		ContextualReason: "The need to realize and retain the sequence depends on the producer's lifecycle, cardinality, and effects.",
 		MissingEvidence:  []string{"lifecycle", "cardinality", "producer-effects", "ownership"},

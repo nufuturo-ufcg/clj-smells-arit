@@ -76,11 +76,12 @@ func (r *LongFunctionRule) Check(node *reader.RichNode, _ map[string]interface{}
 
 		if actualLines > r.MaxLines {
 			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Function %q is too long: %d lines (max %d). Consider breaking it into smaller functions.", funcName, actualLines, r.MaxLines),
-				Filepath: filepath,
-				Location: node.Location,
-				Severity: r.Severity,
+				RuleID:     r.ID,
+				Message:    fmt.Sprintf("Function %q is too long: %d lines (max %d). Consider breaking it into smaller functions.", funcName, actualLines, r.MaxLines),
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}

@@ -59,7 +59,9 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 	}
 
 	if oppositeSteps < 2 || provableOppositeSteps < 2 || matchingSteps != 0 {
-		return nil
+		// No positional contradiction: check the catalog definition
+		// (heterogeneous value kinds across the pipeline).
+		return r.heterogeneousPipeline(node, context, filepath)
 	}
 
 	return &rules.Finding{
@@ -68,9 +70,10 @@ func (r *MisusedThreadingRule) Check(node *reader.RichNode, context map[string]i
 			"Threading macro `%s` inserts the value in the %s argument, but %d resolved pipeline steps consistently use functions whose primary data argument is the %s. Use explicit positioning or review whether `%s` expresses this pipeline more accurately.",
 			direction, threadPosition(direction), oppositeSteps, threadPosition(opposite), opposite,
 		),
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 
@@ -183,7 +186,7 @@ func init() {
 		Rule: rules.Rule{
 			ID:          "misused-threading",
 			Name:        "Misused Threading",
-			Description: "Detects threading pipelines only when resolved call semantics consistently contradict the macro's argument position.",
+			Description: "Detects threading pipelines whose resolved call semantics consistently contradict the macro's argument position (proven) or whose value changes kind across steps while crossing a File/URI/I-O/parse boundary (contextual, catalog definition).",
 			Severity:    rules.SeverityWarning,
 		},
 	})

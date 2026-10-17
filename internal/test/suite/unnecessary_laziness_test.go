@@ -12,10 +12,20 @@ func TestUnnecessaryLaziness(t *testing.T) {
 		FileToAnalyze: "unnecessary_laziness.clj",
 		RuleID:        "unnecessary-laziness",
 		ExpectedFindings: []framework.ExpectedFinding{
-			{Message: "Proven redundant laziness", StartLine: 4, RequireConfidence: rules.ConfidenceProven},
-			{Message: "immediately materialized by `vec`", StartLine: 7},
-			{Message: "immediately materialized by `vec`", StartLine: 10},
-			{Message: "immediately materialized by `vec`", StartLine: 13},
+			{Message: "Proven redundant laziness", StartLine: 4, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 7, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 10, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 13, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "Proven redundant laziness", StartLine: 58, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "Proven redundant laziness", StartLine: 59, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "Proven redundant laziness", StartLine: 60, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "Proven redundant laziness", StartLine: 61, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 65, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 66, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 67, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 68, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 72, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "immediately materialized by `vec`", StartLine: 76, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 		},
 		ForbiddenFindings: []framework.ExpectedFinding{
 			{StartLine: 16},
@@ -31,7 +41,6 @@ func TestUnnecessaryLaziness(t *testing.T) {
 			{StartLine: 49},
 			{StartLine: 52},
 			{StartLine: 55},
-			{StartLine: 58},
 		},
 	})
 

@@ -36,15 +36,18 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 
 	first := node.Children[0]
 
-	if first.Type == reader.NodeKeyword && first.Value == ":use" {
+	// Dependency clauses exist only directly inside ns; elsewhere (:use m)
+	// is a keyword lookup. The ns macro also accepts the colon-less spelling.
+	inNs := implicitParentIsNs(context)
+	if inNs && (first.Type == reader.NodeKeyword || first.Type == reader.NodeSymbol) && strings.TrimPrefix(first.Value, ":") == "use" {
 		return r.checkUseDirective(node, context, filepath)
 	}
 
-	if first.Type == reader.NodeSymbol && first.Value == "use" {
+	if !inNs && first.Type == reader.NodeSymbol && first.Value == "use" {
 		return r.checkStandaloneUse(node, context, filepath)
 	}
 
-	if first.Type == reader.NodeKeyword && first.Value == ":require" {
+	if inNs && (first.Type == reader.NodeKeyword || first.Type == reader.NodeSymbol) && strings.TrimPrefix(first.Value, ":") == "require" {
 		return r.checkRequireForReferAll(node, context, filepath)
 	}
 
@@ -53,6 +56,27 @@ func (r *ImplicitNamespaceDependenciesRule) Check(node *reader.RichNode, context
 	}
 
 	return nil
+}
+
+func implicitParentIsNs(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	if len(ancestors) == 0 {
+		return false
+	}
+	// #?(:clj (:use ...)) and #?@(:clj [(:use ...)]) are clauses of the
+	// enclosing ns.
+	index := len(ancestors) - 1
+	isReaderCond := func(node *reader.RichNode) bool {
+		return node != nil && (node.Type == reader.NodeReaderCond || node.Type == reader.NodeReaderCondSplice)
+	}
+	for index > 0 && (isReaderCond(ancestors[index]) ||
+		(ancestors[index] != nil && ancestors[index].Type == reader.NodeVector && isReaderCond(ancestors[index-1]))) {
+		index--
+	}
+	parent := ancestors[index]
+	return parent != nil && parent.Type == reader.NodeList && len(parent.Children) > 0 &&
+		parent.Children[0].Type == reader.NodeSymbol &&
+		(parent.Children[0].Value == "ns" || parent.Children[0].Value == "clojure.core/ns")
 }
 
 func (r *ImplicitNamespaceDependenciesRule) checkQualifiedDependency(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
@@ -115,14 +139,18 @@ func (r *ImplicitNamespaceDependenciesRule) checkStandaloneUse(node *reader.Rich
 	if isInteropMethodCall(context) {
 		return nil
 	}
-	if r.standaloneUseHasExplicitOnly(node) {
+	// Only quoted arguments are known at analysis time; an evaluated argument
+	// may carry :only.
+	var implicit []string
+	for _, child := range node.Children[1:] {
+		if child.Type == reader.NodeQuote && len(child.Children) > 0 {
+			implicit = append(implicit, r.implicitNamespacesOfUseSpec(child.Children[0], "")...)
+		}
+	}
+	if len(implicit) == 0 {
 		return nil
 	}
-
-	namespaceName := r.extractNameFromStandaloneArg(node)
-	if namespaceName == "" {
-		namespaceName = "unknown namespace"
-	}
+	namespaceName := strings.Join(implicit, ", ")
 
 	return rules.SetContextualFindingWithEvidence(&rules.Finding{
 		RuleID: r.ID,
@@ -218,22 +246,42 @@ func (r *ImplicitNamespaceDependenciesRule) vectorContainsReferAll(v *reader.Ric
 func (r *ImplicitNamespaceDependenciesRule) extractImplicitNamespacesFromUseDirective(node *reader.RichNode) []string {
 	var implicit []string
 	for i := 1; i < len(node.Children); i++ {
-		child := node.Children[i]
-		switch child.Type {
-		case reader.NodeSymbol:
-			implicit = append(implicit, child.Value)
-		case reader.NodeVector:
-			if r.useSpecHasExplicitOnly(child) {
-				continue
-			}
-			if len(child.Children) > 0 && child.Children[0].Type == reader.NodeSymbol {
-				implicit = append(implicit, child.Children[0].Value)
-			} else {
-				implicit = append(implicit, "unknown")
-			}
-		}
+		implicit = append(implicit, r.implicitNamespacesOfUseSpec(node.Children[i], "")...)
 	}
 	return implicit
+}
+
+// implicitNamespacesOfUseSpec returns the namespaces a use argument imports
+// without :only. An argument is a lib symbol, a libspec [lib & options], or a
+// prefix list [prefix lib-or-libspec ...] whose entries name prefix.lib.
+func (r *ImplicitNamespaceDependenciesRule) implicitNamespacesOfUseSpec(spec *reader.RichNode, prefix string) []string {
+	qualify := func(name string) string {
+		if prefix == "" {
+			return name
+		}
+		return prefix + "." + name
+	}
+	switch spec.Type {
+	case reader.NodeSymbol:
+		return []string{qualify(spec.Value)}
+	case reader.NodeVector, reader.NodeList:
+		if len(spec.Children) == 0 || spec.Children[0].Type != reader.NodeSymbol {
+			return nil
+		}
+		if prefix == "" && len(spec.Children) > 1 &&
+			(spec.Children[1].Type == reader.NodeSymbol || spec.Children[1].Type == reader.NodeVector || spec.Children[1].Type == reader.NodeList) {
+			var implicit []string
+			for _, entry := range spec.Children[1:] {
+				implicit = append(implicit, r.implicitNamespacesOfUseSpec(entry, spec.Children[0].Value)...)
+			}
+			return implicit
+		}
+		if r.useSpecHasExplicitOnly(spec) {
+			return nil
+		}
+		return []string{qualify(spec.Children[0].Value)}
+	}
+	return nil
 }
 
 func (r *ImplicitNamespaceDependenciesRule) useSpecHasExplicitOnly(spec *reader.RichNode) bool {
@@ -250,41 +298,6 @@ func (r *ImplicitNamespaceDependenciesRule) useSpecHasExplicitOnly(spec *reader.
 		}
 	}
 	return false
-}
-
-func (r *ImplicitNamespaceDependenciesRule) standaloneUseHasExplicitOnly(node *reader.RichNode) bool {
-	for i := 1; i < len(node.Children); i++ {
-		child := node.Children[i]
-		if child.Type != reader.NodeQuote || len(child.Children) == 0 {
-			continue
-		}
-		inner := child.Children[0]
-		if inner.Type == reader.NodeVector && r.useSpecHasExplicitOnly(inner) {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *ImplicitNamespaceDependenciesRule) extractNameFromStandaloneArg(node *reader.RichNode) string {
-	for i := 1; i < len(node.Children); i++ {
-		child := node.Children[i]
-		switch child.Type {
-		case reader.NodeSymbol:
-			return child.Value
-		case reader.NodeQuote:
-			if len(child.Children) > 0 {
-				inner := child.Children[0]
-				if inner.Type == reader.NodeSymbol {
-					return inner.Value
-				}
-				if inner.Type == reader.NodeVector && len(inner.Children) > 0 && inner.Children[0].Type == reader.NodeSymbol {
-					return inner.Children[0].Value
-				}
-			}
-		}
-	}
-	return ""
 }
 
 func isCommonOrCoreNamespace(prefix string) bool {

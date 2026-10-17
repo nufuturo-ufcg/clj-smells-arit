@@ -100,11 +100,12 @@ func intoFinding(r *UnnecessaryIntoRule, node *reader.RichNode, filepath, operat
 			"source-type", "source-reduction-protocol")
 	}
 	return &rules.Finding{
-		RuleID:   r.ID,
-		Message:  message + " to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		RuleID:     r.ID,
+		Message:    message + " to remove only the intermediate lazy sequence while preserving the vector target, order, cardinality, and single evaluation.",
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 

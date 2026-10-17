@@ -88,6 +88,90 @@ func provenEagerMap(node *reader.RichNode, context map[string]interface{}) (stri
 	return mapper.Resolution.CanonicalName, true
 }
 
+// lazinessStandardProducers are core functions whose result is always a core
+// collection or lazy sequence, whatever their inputs. Producers that return
+// their argument's own type or seq (into, conj, assoc, merge, seq, rest,
+// next) are excluded: that type could be a custom reducible.
+var lazinessStandardProducers = map[string]bool{
+	"range": true, "vec": true, "vector": true, "set": true, "hash-set": true, "hash-map": true,
+	"sorted-set": true, "sorted-map": true, "keys": true, "vals": true, "sort": true, "sort-by": true,
+	"distinct": true, "concat": true, "map": true, "filter": true, "remove": true, "keep": true,
+	"take": true, "drop": true, "reverse": true, "mapv": true, "filterv": true, "partition": true,
+	"partition-all": true, "frequencies": true, "group-by": true, "zipmap": true, "interleave": true,
+	"interpose": true, "list": true, "re-seq": true, "subvec": true, "mapcat": true, "take-while": true,
+	"drop-while": true, "map-indexed": true, "keep-indexed": true, "dedupe": true, "str": true,
+}
+
+var lazinessStandardLibraryProducers = map[string]bool{
+	"clojure.string/split": true, "clojure.string/split-lines": true,
+}
+
+// lazinessSourceHasStandardType proves that a source is a literal or the
+// result of a standard producer. For such sources `reduce` (used by mapv and
+// filterv) and `seq` (used by map and filter) traverse the same elements in
+// the same order, so the rewrite preserves value, effect order, and partial
+// effects before an exception (evidence:
+// docs/output/audits/clojure-specific/corrections/evidence/lazy_eager_equivalence.clj).
+// Only a custom IReduceInit whose reduce disagrees with its seq differs.
+func lazinessSourceHasStandardType(node *reader.RichNode, context map[string]interface{}) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Type {
+	case reader.NodeVector, reader.NodeSet, reader.NodeMap, reader.NodeString, reader.NodeNil:
+		return true
+	case reader.NodeQuote:
+		return len(node.Children) == 1 && node.Children[0] != nil && node.Children[0].Type == reader.NodeList
+	case reader.NodeList:
+		if len(node.Children) == 0 || node.Children[0] == nil || node.Children[0].Type != reader.NodeSymbol {
+			return false
+		}
+		head := node.Children[0]
+		if resolution := head.Resolution; resolution != nil {
+			switch resolution.Kind {
+			case reader.ResolutionClojureCore:
+				return lazinessStandardProducers[strings.TrimPrefix(resolution.CanonicalName, "clojure.core/")]
+			case reader.ResolutionNamespaceVar:
+				return lazinessStandardLibraryProducers[resolution.CanonicalName]
+			case reader.ResolutionUnresolved:
+				return lazinessStandardProducers[head.Value] && nsReferCoreNameUnambiguously(context, head.Value)
+			}
+		}
+	}
+	return false
+}
+
+// provenEagerRewrite promotes vec over map/filter when every source has a
+// standard type and the eager replacement is available.
+func provenEagerRewrite(node *reader.RichNode, context map[string]interface{}) (string, bool) {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) != 2 ||
+		!rules.CallResolvesTo(node, "clojure.core/vec") {
+		return "", false
+	}
+	child := node.Children[1]
+	if child == nil || child.Type != reader.NodeList {
+		return "", false
+	}
+	var eager string
+	switch {
+	case rules.CallResolvesTo(child, "clojure.core/map") && len(child.Children) >= 3:
+		eager = "mapv"
+	case rules.CallResolvesTo(child, "clojure.core/filter") && len(child.Children) == 3:
+		eager = "filterv"
+	default:
+		return "", false
+	}
+	if !isCoreReplacementAvailable(context, eager) || !ancestorsEvaluateNormally(context) {
+		return "", false
+	}
+	for _, source := range child.Children[2:] {
+		if !lazinessSourceHasStandardType(source, context) {
+			return "", false
+		}
+	}
+	return eager, true
+}
+
 func (r *UnnecessaryLazinessRule) insideNonEvaluatedContext(context map[string]interface{}) bool {
 	return rules.CurrentExecutionContext(context) == rules.ExecutionNonEvaluated ||
 		r.IsInside(context, "__non-evaluated__", "comment")
@@ -105,12 +189,27 @@ func (r *UnnecessaryLazinessRule) Check(node *reader.RichNode, context map[strin
 	if !ok {
 		return nil
 	}
+	if eager, proven := provenEagerRewrite(node, context); proven {
+		if _, pureLiteral := provenEagerMap(node, context); !pureLiteral {
+			return &rules.Finding{
+				RuleID:     r.ID,
+				Filepath:   filepath,
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
+				Message: fmt.Sprintf(
+					"Proven redundant laziness: `%s` over a source of standard collection type is immediately materialized by `vec`; `%s` returns the same vector with the same element order and effect order.",
+					operation, eager),
+			}
+		}
+	}
 	if mapper, proven := provenEagerMap(node, context); proven {
 		return &rules.Finding{
-			RuleID:   r.ID,
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: r.Severity,
+			RuleID:     r.ID,
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   r.Severity,
+			Confidence: rules.ConfidenceProven,
 			Message: fmt.Sprintf(
 				"Proven redundant laziness: `map` with pure `%s` over a finite vector is immediately materialized by `vec`; use `mapv` to preserve the vector result without the intermediate lazy sequence.",
 				mapper[strings.LastIndex(mapper, "/")+1:],
@@ -118,7 +217,11 @@ func (r *UnnecessaryLazinessRule) Check(node *reader.RichNode, context map[strin
 		}
 	}
 	return &rules.Finding{
-		RuleID: r.ID, Filepath: filepath, Location: node.Location, Severity: r.Severity,
+		RuleID:           r.ID,
+		Filepath:         filepath,
+		Location:         node.Location,
+		Severity:         r.Severity,
+		Confidence:       rules.ConfidenceContextual,
 		Contextual:       true,
 		ContextualReason: "Equivalence depends on the collection's type contract, cardinality, effects, and protocol.",
 		MissingEvidence:  []string{"collection-type", "cardinality", "effects", "protocol"},

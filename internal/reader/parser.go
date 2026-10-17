@@ -23,6 +23,7 @@ func BuildRichTree(tree *parse.Tree) ([]*RichNode, []*RichNode) {
 	richRoots := make([]*RichNode, 0, len(tree.Roots))
 	discardNext := false
 
+	var pendingMeta []*parse.MetadataNode
 	for _, rootNode := range tree.Roots {
 		if rootNode != nil {
 			if discard, ok := rootNode.(*parse.ReaderDiscardNode); ok {
@@ -47,10 +48,19 @@ func BuildRichTree(tree *parse.Tree) ([]*RichNode, []*RichNode) {
 				discardNext = false
 				continue
 			}
+			if meta, ok := rootNode.(*parse.MetadataNode); ok {
+				pendingMeta = append(pendingMeta, meta)
+				continue
+			}
+			if isLayoutNode(rootNode) {
+				continue
+			}
 			richNode := buildRichNode(rootNode, true)
 			if richNode != nil {
+				attachMetadata(richNode, pendingMeta, true)
 				richRoots = append(richRoots, richNode)
 			}
+			pendingMeta = nil
 		}
 	}
 
@@ -75,6 +85,18 @@ func collectCommentsOptimized(tree *parse.Tree, estimatedSize int) []*RichNode {
 				comments = append(comments, richComment)
 			}
 			return
+		}
+		// clj-kondo's own suppression syntax is a discarded form:
+		// #_:clj-kondo/ignore or #_{:clj-kondo/ignore [...]}. Expose it as a
+		// directive at the discard position so inline suppression honors it.
+		if discard, ok := node.(*parse.ReaderDiscardNode); ok {
+			if isKondoIgnoreDirective(discard.Node) {
+				comments = append(comments, &RichNode{
+					Type:     NodeComment,
+					Value:    ";; clj-kondo/ignore",
+					Location: extractLocation(discard),
+				})
+			}
 		}
 
 		if children := node.Children(); len(children) > 0 {
@@ -347,8 +369,54 @@ func buildRichNode(node parse.Node, ignoreComments bool) *RichNode {
 
 func buildRichChildren(nodes []parse.Node, ignoreComments bool) []*RichNode {
 	richChildren := make([]*RichNode, 0, len(nodes))
+	var pendingMeta []*parse.MetadataNode
+	discardNext := false
 	for i := 0; i < len(nodes); i++ {
 		childNode := nodes[i]
+		// As in BuildRichTree, a discard followed by a newline or comment is
+		// emitted as the marker plus the discarded form as the next sibling;
+		// drop that form so code inside `#_` is never analyzed.
+		if discard, ok := childNode.(*parse.ReaderDiscardNode); ok {
+			switch discard.Node.(type) {
+			case nil, *parse.CommentNode, *parse.NewlineNode:
+				discardNext = true
+				continue
+			}
+		}
+		if discardNext {
+			switch childNode.(type) {
+			case *parse.CommentNode, *parse.NewlineNode:
+				continue
+			}
+			discardNext = false
+			continue
+		}
+		// goclj emits `^meta form` as a MetadataNode holding only the meta
+		// value, followed by the form as the next sibling. Attach the meta to
+		// that form instead of emitting the meta value as a separate child,
+		// which would turn `(defn ^boolean f ...)` into `(defn boolean f ...)`.
+		if meta, ok := childNode.(*parse.MetadataNode); ok {
+			pendingMeta = append(pendingMeta, meta)
+			continue
+		}
+		if len(pendingMeta) > 0 && isLayoutNode(childNode) {
+			continue
+		}
+		if len(pendingMeta) > 0 {
+			target := buildRichNode(childNode, ignoreComments)
+			if _, ok := childNode.(*parse.TagNode); ok && i+1 < len(nodes) {
+				if value := buildRichNode(nodes[i+1], ignoreComments); target != nil && value != nil {
+					target.Children = []*RichNode{value}
+					i++
+				}
+			}
+			if target != nil {
+				attachMetadata(target, pendingMeta, ignoreComments)
+				richChildren = append(richChildren, target)
+			}
+			pendingMeta = nil
+			continue
+		}
 		// goclj represents a tagged literal as two sibling nodes: the tag and
 		// the tagged form. Keep them together so rules that consume forms in
 		// pairs (notably `case`) do not mistake the tagged value for another
@@ -438,4 +506,78 @@ func ApplyTypeHints(nodes []*RichNode) {
 	for _, node := range nodes {
 		apply(node)
 	}
+}
+
+func isLayoutNode(node parse.Node) bool {
+	switch node.(type) {
+	case *parse.CommentNode, *parse.NewlineNode:
+		return true
+	}
+	return false
+}
+
+// attachMetadata records reader metadata on the form it annotates. Stacked
+// metadata (^:private ^long f) is chained through each meta node's Metadata
+// field so no marker is lost; a symbol, string, or {:tag T} value provides
+// the type hint.
+func attachMetadata(target *RichNode, metas []*parse.MetadataNode, ignoreComments bool) {
+	tail := target
+	for tail.Metadata != nil {
+		tail = tail.Metadata
+	}
+	for _, meta := range metas {
+		if meta == nil || meta.Node == nil {
+			continue
+		}
+		built := buildRichNode(meta.Node, ignoreComments)
+		if built == nil {
+			continue
+		}
+		tail.Metadata = built
+		for tail.Metadata != nil {
+			tail = tail.Metadata
+		}
+		if hint := metadataTypeHint(meta.Node); hint != "" {
+			target.TypeHint = hint
+		}
+	}
+}
+
+func metadataTypeHint(node parse.Node) string {
+	switch meta := node.(type) {
+	case *parse.SymbolNode:
+		return meta.Val
+	case *parse.StringNode:
+		return meta.Val
+	case *parse.MapNode:
+		for i := 0; i+1 < len(meta.Nodes); i += 2 {
+			if key, ok := meta.Nodes[i].(*parse.KeywordNode); ok && key.Val == ":tag" {
+				if value, ok := meta.Nodes[i+1].(*parse.SymbolNode); ok {
+					return value.Val
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isKondoIgnoreDirective(node parse.Node) bool {
+	switch directive := node.(type) {
+	case *parse.KeywordNode:
+		return directive.Val == ":clj-kondo/ignore"
+	case *parse.MapNode:
+		// {:clj-kondo/ignore [:linter ...]} silences only the listed clj-kondo
+		// linters, which do not correspond to ARIT rules; only a value that
+		// is not a linter list ignores everything.
+		for i := 0; i+1 < len(directive.Nodes); i += 2 {
+			if key, ok := directive.Nodes[i].(*parse.KeywordNode); ok && key.Val == ":clj-kondo/ignore" {
+				switch directive.Nodes[i+1].(type) {
+				case *parse.VectorNode, *parse.ListNode, *parse.SetNode:
+					return false
+				}
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -56,11 +56,12 @@ func (r *NestedFormsRule) Check(node *reader.RichNode, context map[string]interf
 	}
 
 	return &rules.Finding{
-		RuleID:   r.ID,
-		Message:  message,
-		Filepath: filepath,
-		Location: node.Location,
-		Severity: r.Severity,
+		RuleID:     r.ID,
+		Message:    message,
+		Filepath:   filepath,
+		Location:   node.Location,
+		Severity:   r.Severity,
+		Confidence: rules.ConfidenceProven,
 	}
 }
 

@@ -32,4 +32,19 @@ func TestCaseWithNonLiteralTestValues(t *testing.T) {
 			{StartLine: 24},
 		},
 	})
+	// ClojureScript's case dispatches on the value of a ^:const var.
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze:     "case_const_var.cljs",
+		RuleID:            "case-with-non-literal-test-values",
+		ExpectedFindings:  []framework.ExpectedFinding{},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 4}},
+	})
+	// Clojure JVM's case still matches the literal symbol.
+	framework.RunRuleTest(t, framework.RuleTestCase{
+		FileToAnalyze: "case_const_var.clj",
+		RuleID:        "case-with-non-literal-test-values",
+		ExpectedFindings: []framework.ExpectedFinding{
+			{Message: "local var `FILL`", StartLine: 4, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+		},
+	})
 }

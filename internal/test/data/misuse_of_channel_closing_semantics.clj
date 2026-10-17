@@ -75,3 +75,7 @@
     (loop []
       (when-not (= :done (first (a/alts!! (vec channels) :default :done)))
         (recur)))))
+
+;; my-chan also carries ordinary data, so it is a data channel and its
+;; sentinel puts above are misuses (zero-FP policy: control-only channels are silent).
+(a/go (a/put! my-chan {:event 1}))

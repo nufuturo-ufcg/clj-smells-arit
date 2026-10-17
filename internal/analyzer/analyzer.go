@@ -68,6 +68,7 @@ type Scope struct {
 	symbols         map[string]*SymbolInfo
 	aliases         map[string]*NamespaceAlias
 	referredSymbols map[string]*ReferredSymbol
+	coreReferral    *coreReferral
 
 	lookupCache map[string]*SymbolInfo
 	cacheValid  bool
@@ -493,11 +494,8 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 						case reader.NodeVector:
 							defineParams(paramsNode, newFnScope, nil)
 						case reader.NodeList:
-							for _, arityForm := range paramsNode.Children {
-								if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
-									defineParams(arityForm.Children[0], newFnScope, nil)
-								}
-							}
+							// Multi-arity: every remaining child is an arity list.
+							defineArityParams(node.Children[paramIndex:], newFnScope)
 						}
 					}
 					nextScope = newFnScope
@@ -515,11 +513,7 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 					case reader.NodeVector:
 						defineParams(paramsNode, newFnScope, nil)
 					case reader.NodeList:
-						for _, arityForm := range paramsNode.Children {
-							if arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 && arityForm.Children[0].Type == reader.NodeVector {
-								defineParams(arityForm.Children[0], newFnScope, nil)
-							}
-						}
+						defineArityParams(node.Children[paramIndex:], newFnScope)
 					}
 				}
 				nextScope = newFnScope
@@ -567,8 +561,50 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 			node.Resolution = resolveSymbolIdentity(node, currentScope)
 		}
 
+		var methodImpls map[*reader.RichNode]bool
+		if host := methodImplHost(node); host != "" {
+			// Method implementations name an interface or protocol method, not
+			// the core function that may share its name, and bind their
+			// parameters (and a deftype's fields) lexically.
+			methodScope := currentScope
+			if (host == "deftype" || host == "defrecord") && len(node.Children) > 2 && node.Children[2].Type == reader.NodeVector {
+				methodScope = NewScope(currentScope)
+				defineParams(node.Children[2], methodScope, nil)
+			}
+			methodImpls = make(map[*reader.RichNode]bool)
+			for _, impl := range node.Children[1:] {
+				if !isMethodImplForm(impl) {
+					continue
+				}
+				methodImpls[impl] = true
+				head := impl.Children[0]
+				head.Resolution = &reader.SymbolResolution{Kind: reader.ResolutionJavaMethod, Name: head.Value}
+				arities := impl.Children[1:]
+				if impl.Children[1].Type == reader.NodeVector {
+					arities = []*reader.RichNode{impl}
+				}
+				for _, arity := range arities {
+					offset := 1
+					if arity == impl {
+						offset = 2
+					}
+					if arity.Type != reader.NodeList || len(arity.Children) < offset {
+						continue
+					}
+					arityScope := NewScope(methodScope)
+					defineParams(arity.Children[offset-1], arityScope, nil)
+					for _, form := range arity.Children[offset:] {
+						visit(form, arityScope)
+					}
+				}
+			}
+		}
+
 		for idx, child := range node.Children {
 			currentChildScope := nextScope
+			if methodImpls[child] {
+				continue
+			}
 
 			if node.Type == reader.NodeList && len(node.Children) > 0 && isBindingScopeForm(node.Children[0].Value) {
 				if idx == 1 && child.Type == reader.NodeVector {
@@ -591,6 +627,30 @@ func ResolveSymbols(nodes []*reader.RichNode, globalScope *Scope) {
 	for _, rootNode := range nodes {
 		visit(rootNode, globalScope)
 	}
+}
+
+// methodImplHost returns the head of a form whose list children implement
+// interface or protocol methods: (name [params] body...) or, for proxy and
+// the extension forms, (name ([params] body...) ...).
+func methodImplHost(node *reader.RichNode) string {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) == 0 || node.Children[0].Type != reader.NodeSymbol {
+		return ""
+	}
+	switch head := strings.TrimPrefix(node.Children[0].Value, "clojure.core/"); head {
+	case "reify", "proxy", "deftype", "defrecord", "extend-type", "extend-protocol",
+		"definterface", "defprotocol", "specify", "specify!":
+		return head
+	}
+	return ""
+}
+
+func isMethodImplForm(node *reader.RichNode) bool {
+	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 || node.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	second := node.Children[1]
+	return second.Type == reader.NodeVector ||
+		(second.Type == reader.NodeList && len(second.Children) > 0 && second.Children[0].Type == reader.NodeVector)
 }
 
 func javaClassName(name string, scope *Scope) (string, bool) {
@@ -684,7 +744,7 @@ func resolveSymbolIdentity(node *reader.RichNode, scope *Scope) *reader.SymbolRe
 		// to shadow a clojure.core symbol used earlier in the file.
 		if info.Definition != nil && info.Definition.Location != nil && node.Location != nil &&
 			info.Definition.Location.StartLine > node.Location.StartLine {
-			if _, core := coreSymbols[symbol]; core {
+			if _, core := coreSymbols[symbol]; core && !scope.coreNameRemoved(symbol) {
 				resolution.Kind = reader.ResolutionClojureCore
 				resolution.CanonicalName = "clojure.core/" + symbol
 				resolution.Namespace = "clojure.core"
@@ -932,13 +992,24 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		previousSemanticFacts := currentContext["semantic-facts"]
 		currentContext["semantic-facts"] = &semanticFacts
 
+		// Quoted, commented, and discarded forms are data: no rule may report
+		// them (catalog contracts). Syntax quote is not included because macro
+		// templates are generated code that several rules analyze on purpose.
+		rulesApply := !insideNonEvaluatedData(currentContext)
 		for _, rule := range a.Rules {
+			if !rulesApply {
+				break
+			}
 			if finding := rule.Check(node, currentContext, filepath); finding != nil {
 				finding.Generated = node.Generated
 				if node.Origin != nil {
 					finding.OriginLocation = node.Origin
 				}
-				rules.MarkContextualFinding(finding)
+				demoteWhenCoreNamesAmbiguous(finding, scope)
+				if !rules.MarkContextualFinding(finding) {
+					diagnostics.RecordUnclassifiedFinding(finding)
+					continue
+				}
 				diagnostics.RecordFinding(finding)
 				finding.SourceRole = rules.FileRole(currentContext)
 				// Inject fingerprint centrally: covers both DSL rules (via builder)
@@ -946,6 +1017,9 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				if finding.ASTFingerprint == "" {
 					finding.ASTFingerprint = rules.ComputeFingerprint(node)
 				}
+				finding.Namespace = namespaceName
+				ancestors, _ := currentContext["ancestorNodes"].([]*reader.RichNode)
+				finding.Anchor = rules.ComputeAnchor(node, ancestors)
 				findingsMutex.Lock()
 				allFindings = append(allFindings, finding)
 				findingsMutex.Unlock()
@@ -1074,7 +1148,11 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 			childIsInsideWithOpen := parentIsInsideWithOpen || (currentNodeDefinesWithOpen && idx > 0)
 			childIsInCaseConstant := parentIsInCaseConstant
 			if node.Type == reader.NodeList && len(node.Children) > 0 && node.Children[0].Type == reader.NodeSymbol &&
-				node.Children[0].Value == "case" && idx >= 2 && idx%2 == 0 {
+				node.Children[0].Value == "case" && idx >= 2 && idx%2 == 0 &&
+				// The trailing default of an odd-length case is evaluated, and so
+				// is an unquoted form that generates a template's clauses.
+				!(len(node.Children)%2 == 1 && idx == len(node.Children)-1) &&
+				child.Type != reader.NodeUnquote && child.Type != reader.NodeUnquoteSplice {
 				childIsInCaseConstant = true
 			}
 
@@ -1186,6 +1264,18 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 		summaryStart = time.Now()
 	}
 	initialContext["function-summaries"] = semantics.BuildFunctionSummaries(richRootNodes, namespaceName)
+	// Read-only access to the whole file for rules that need file-scope facts
+	// (e.g. whether a top-level channel also carries ordinary values).
+	initialContext["file-roots"] = richRootNodes
+	for _, rootNode := range richRootNodes {
+		if rootNode != nil && rootNode.Type == reader.NodeList && len(rootNode.Children) > 0 &&
+			rootNode.Children[0].Type == reader.NodeSymbol && rootNode.Children[0].Value == "ns" {
+			// Rules that must know how clojure.core is referred read the
+			// declaration instead of reconstructing it from scope data.
+			initialContext["ns-form"] = rootNode
+			break
+		}
+	}
 	if EnableTiming && timings != nil {
 		timings.FunctionSummaries += time.Since(summaryStart)
 		initialContext["semantic-facts-timing"] = &timings.SemanticFacts
@@ -1217,9 +1307,14 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 				if commentNode.Origin != nil {
 					finding.OriginLocation = commentNode.Origin
 				}
-				rules.MarkContextualFinding(finding)
+				if !rules.MarkContextualFinding(finding) {
+					diagnostics.RecordUnclassifiedFinding(finding)
+					continue
+				}
 				diagnostics.RecordFinding(finding)
 				finding.SourceRole = rules.FileRole(initialContext)
+				finding.Namespace = namespaceName
+				finding.Anchor = "file"
 				findingsMutex.Lock()
 				allFindings = append(allFindings, finding)
 				findingsMutex.Unlock()
@@ -1238,7 +1333,18 @@ func (a *Analyzer) Analyze(filepath string, richRootNodes []*reader.RichNode, co
 
 func shadowedCoreSymbols(scope *Scope) map[string]bool {
 	shadowed := make(map[string]bool)
+	if referral := rootCoreReferral(scope); referral != nil {
+		for name := range referral.excluded {
+			if !nonExcludableSpecialForms[name] {
+				shadowed[name] = true
+			}
+		}
+	}
 	for name := range coreSymbols {
+		if scope.coreNameRemoved(name) {
+			shadowed[name] = true
+			continue
+		}
 		info, found := scope.Lookup(name)
 		if !found || info == nil {
 			continue
@@ -1565,6 +1671,30 @@ func isBindingScopeForm(name string) bool {
 	}
 }
 
+// insideNonEvaluatedData reports whether the current node lies inside quoted
+// data, a (quote ...) or (comment ...) form, or a reader discard.
+func insideNonEvaluatedData(context map[string]interface{}) bool {
+	enclosing, _ := context["enclosingForms"].([]string)
+	for _, form := range enclosing {
+		switch form {
+		case "__non-evaluated__", "quote", "clojure.core/quote", "comment", "clojure.core/comment":
+			return true
+		}
+	}
+	return false
+}
+
+// defineArityParams defines the parameters of every arity list
+// ([params] body...) of a multi-arity fn/defn in the function scope.
+func defineArityParams(arities []*reader.RichNode, scope *Scope) {
+	for _, arityForm := range arities {
+		if arityForm != nil && arityForm.Type == reader.NodeList && len(arityForm.Children) > 0 &&
+			arityForm.Children[0] != nil && arityForm.Children[0].Type == reader.NodeVector {
+			defineParams(arityForm.Children[0], scope, nil)
+		}
+	}
+}
+
 func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex int) bool {
 	if parentNode.Type == reader.NodeList && len(parentNode.Children) > 0 && parentNode.Children[0].Type == reader.NodeSymbol {
 		funcName := parentNode.Children[0].Value
@@ -1586,7 +1716,9 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 			if childIndex < paramDefIndex {
 				return true
 			}
-			if childIndex == paramDefIndex {
+			// Only a params vector is skipped; in a multi-arity definition this
+			// position holds the first arity, whose body must be resolved.
+			if childIndex == paramDefIndex && childNode.Type == reader.NodeVector {
 				return true
 			}
 
@@ -1599,7 +1731,7 @@ func shouldSkipChildInPass1(parentNode, childNode *reader.RichNode, childIndex i
 				}
 				paramDefIndex++
 			}
-			if childIndex == paramDefIndex {
+			if childIndex == paramDefIndex && childNode.Type == reader.NodeVector {
 				return true
 			}
 
@@ -1634,7 +1766,9 @@ func parseNamespaceClause(clauseNode *reader.RichNode) namespaceItems {
 	}
 
 	switch strings.TrimPrefix(clauseNode.Children[0].Value, ":") {
-	case "require":
+	// ClojureScript :require-macros uses the same libspec syntax; without it,
+	// a referred macro such as `slurp` resolved to clojure.core.
+	case "require", "require-macros":
 		for j := 1; j < len(clauseNode.Children); j++ {
 			specNode := clauseNode.Children[j]
 			if specNode == nil || specNode.Type != reader.NodeVector || len(specNode.Children) == 0 || specNode.Children[0] == nil || specNode.Children[0].Type != reader.NodeSymbol {
@@ -1944,6 +2078,7 @@ func (a *Analyzer) AnalyzeFileWithProjectIndex(filepath string, projectIndex *se
 	referredSymbols = append(referredSymbols, legacyRefers...)
 
 	globalScope := NewScope(nil)
+	globalScope.coreReferral = collectCoreReferral(nsNode, richRoots)
 
 	for _, alias := range aliases {
 		globalScope.DefineAlias(alias)

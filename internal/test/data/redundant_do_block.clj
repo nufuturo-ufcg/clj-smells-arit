@@ -158,3 +158,26 @@
     (do
       (println value)
       2)))
+
+;; `case` test constants are literal data: `(do)` matches the symbol `do`.
+(defn case-constant-do [form]
+  (case (first form)
+    (do) :do-form
+    (let let*) :let-form
+    (do :other)))
+
+(defn case-result-do [x]
+  (case x
+    1 (do :one)
+    2 (do (println x) :two)
+    nil))
+
+(defn cond-empty-do [x]
+  (cond (= x 1) (do)
+        :else 2))
+
+;; A reader conditional can read as nothing on another platform.
+(defn platform-branch [x]
+  (if-let [v x]
+    (do #?(:clj (inc v) :cljs (dec v)))
+    0))

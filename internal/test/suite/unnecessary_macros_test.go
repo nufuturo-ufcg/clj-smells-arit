@@ -21,8 +21,11 @@ func TestUnnecessaryMacros(t *testing.T) {
 			{Message: "prefer a normal function", StartLine: 6, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "prefer a normal function", StartLine: 19, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 			{Message: "prefer a normal function", StartLine: 22, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "prefer a normal function", StartLine: 68, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			{Message: "prefer a normal function", StartLine: 71, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
 		},
-		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 9}, {StartLine: 12}, {StartLine: 16}, {StartLine: 25}, {StartLine: 28}, {StartLine: 33}, {StartLine: 37}},
+		ForbiddenFindings: []framework.ExpectedFinding{{StartLine: 9}, {StartLine: 12}, {StartLine: 16}, {StartLine: 25}, {StartLine: 28}, {StartLine: 33}, {StartLine: 37},
+			{StartLine: 41}, {StartLine: 44}, {StartLine: 47}, {StartLine: 50}, {StartLine: 53}, {StartLine: 56}, {StartLine: 59}, {StartLine: 62}},
 	})
 }
 
@@ -183,4 +186,42 @@ func findUnnecessaryMacroFinding(findings []rules.Finding) *rules.Finding {
 		}
 	}
 	return nil
+}
+
+// Names the analyzer cannot resolve are accepted as clojure.core functions
+// only when the ns declaration rules out every other source for them.
+func TestUnnecessaryMacrosCoreNameProvenance(t *testing.T) {
+	t.Run("unresolved core function with plain ns", func(t *testing.T) {
+		framework.RunProjectTest(t, framework.ProjectTestCase{
+			RuleID: "unnecessary-macros",
+			Files: map[string]string{
+				"plain.clj": "(ns plain\n  (:require [clojure.string :as str]))\n\n(defmacro m-aget [a b]\n  `(aget ~a ~b))\n\n(defmacro m-join [sep coll]\n  `(str/join ~sep ~coll))\n",
+			},
+			EntryPoint: "plain.clj",
+			ExpectedFindings: []framework.ExpectedFinding{
+				{Message: "prefer a normal function", StartLine: 4, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+				{Message: "prefer a normal function", StartLine: 7, RequireConfidence: rules.ConfidenceContextual, RequireContextual: true},
+			},
+		})
+	})
+	t.Run("core name replaced by a referred var", func(t *testing.T) {
+		framework.RunProjectTest(t, framework.ProjectTestCase{
+			RuleID: "unnecessary-macros",
+			Files: map[string]string{
+				"excluded.clj": "(ns excluded\n  (:refer-clojure :exclude [aget])\n  (:require [my.lib :refer [aget]]))\n\n(defmacro m-aget [a b]\n  `(aget ~a ~b))\n",
+			},
+			EntryPoint:       "excluded.clj",
+			AssertNoFindings: true,
+		})
+	})
+	t.Run("core name possibly supplied by :use", func(t *testing.T) {
+		framework.RunProjectTest(t, framework.ProjectTestCase{
+			RuleID: "unnecessary-macros",
+			Files: map[string]string{
+				"used.clj": "(ns used\n  (:use [my.lib]))\n\n(defmacro m-even [n]\n  `(even? ~n))\n",
+			},
+			EntryPoint:       "used.clj",
+			AssertNoFindings: true,
+		})
+	})
 }

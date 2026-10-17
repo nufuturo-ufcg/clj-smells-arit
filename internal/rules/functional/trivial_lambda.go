@@ -110,11 +110,12 @@ func (r *TrivialLambdaRule) Check(node *reader.RichNode, context map[string]inte
 
 			if argsMatch {
 				return &rules.Finding{
-					RuleID:   r.ID,
-					Message:  fmt.Sprintf("Trivial lambda/fn. Consider using function %q directly.", calledFuncSymbol.Value),
-					Filepath: filepath,
-					Location: node.Location,
-					Severity: r.Severity,
+					RuleID:     r.ID,
+					Message:    fmt.Sprintf("Trivial lambda/fn. Consider using function %q directly.", calledFuncSymbol.Value),
+					Filepath:   filepath,
+					Location:   node.Location,
+					Severity:   r.Severity,
+					Confidence: rules.ConfidenceProven,
 				}
 			}
 		}

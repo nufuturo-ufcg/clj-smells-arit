@@ -139,3 +139,24 @@
 ;; An explicit array type hint proves the mutation target.
 (defn mutate-typed-array [^{:tag ints} arr idx val]
   (aset-int arr idx val))
+
+;; Filling an array built in the same scope is local construction.
+(defn build-array [n]
+  (let [^objects arr (object-array n)]
+    (aset arr 0 :first)
+    arr))
+
+;; An array reached through another value may be shared: ownership unknown.
+(defn update-field-array [holder]
+  (let [^longs counts (:counts holder)]
+    (aset counts 0 1)))
+
+;; ^long hints a scalar, not an array.
+(defn scalar-hint [^long n arr]
+  (aset arr 0 n))
+
+;; A reduce accumulator over a locally built array: ownership not proven.
+(defn fill-table [pairs]
+  (reduce (fn [^objects t [i v]] (aset t i v) t)
+          (object-array 8)
+          pairs))

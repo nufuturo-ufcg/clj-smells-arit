@@ -529,11 +529,12 @@ func (r *InappropriateCollectionRule) Check(node *reader.RichNode, _ map[string]
 	if report {
 		meta := r.Meta()
 		return &rules.Finding{
-			RuleID:   meta.ID,
-			Message:  message,
-			Filepath: filepath,
-			Location: node.Location,
-			Severity: meta.Severity,
+			RuleID:     meta.ID,
+			Message:    message,
+			Filepath:   filepath,
+			Location:   node.Location,
+			Severity:   meta.Severity,
+			Confidence: rules.ConfidenceProven,
 		}
 	}
 

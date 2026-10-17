@@ -107,3 +107,43 @@ func ComputeFingerprint(node *reader.RichNode) string {
 	hash := sha256.Sum256([]byte(canonical))
 	return fmt.Sprintf("%x", hash[:8]) // First 8 bytes → 16 hex chars (sufficient for uniqueness)
 }
+
+// ComputeAnchor identifies the top-level form that contains a finding:
+// "ns:my.app", "defn:foo", "defmethod:area:<dispatch>", or "<head>:" for an
+// anonymous form. Unlike the AST fingerprint, the anchor does not
+// change when code inside the form is edited, so lifecycle tracking can
+// follow a smell across commits that touch the surrounding function.
+func ComputeAnchor(node *reader.RichNode, ancestors []*reader.RichNode) string {
+	top := node
+	if len(ancestors) > 0 {
+		top = ancestors[0]
+		// #?(:clj (defn f ...)): the platform branch is the real top form.
+		if top != nil && (top.Type == reader.NodeReaderCond || top.Type == reader.NodeReaderCondSplice) {
+			if len(ancestors) > 1 {
+				top = ancestors[1]
+			} else {
+				top = node
+			}
+		}
+	}
+	if top == nil {
+		return ""
+	}
+	if top.Type != reader.NodeList || len(top.Children) == 0 || top.Children[0] == nil ||
+		top.Children[0].Type != reader.NodeSymbol {
+		return fmt.Sprintf("%s:", top.Type)
+	}
+	head := strings.TrimPrefix(top.Children[0].Value, "clojure.core/")
+	if len(top.Children) > 1 && top.Children[1] != nil &&
+		(top.Children[1].Type == reader.NodeSymbol || top.Children[1].Type == reader.NodeKeyword) {
+		name := top.Children[1].Value
+		if head == "defmethod" && len(top.Children) > 2 && top.Children[2] != nil {
+			// Methods of one multimethod differ by dispatch value.
+			return fmt.Sprintf("%s:%s:%s", head, name, normalizeNode(top.Children[2], 1))
+		}
+		return fmt.Sprintf("%s:%s", head, name)
+	}
+	// Anonymous top-level form, e.g. (use ...) or (try ...): only its head.
+	// Occurrences under the same head are told apart by fingerprint and order.
+	return fmt.Sprintf("%s:", head)
+}

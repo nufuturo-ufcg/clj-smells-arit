@@ -39,3 +39,9 @@
   (let [chan (fn [_] nil)
         c (chan 1)]
     c))
+
+;; A transducer transforms what is put, so the channel is not a direct value.
+(defn incremented [v]
+  (let [c (a/chan 1 (map inc))]
+    (a/put! c v)
+    c))

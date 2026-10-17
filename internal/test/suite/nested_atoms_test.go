@@ -26,6 +26,8 @@ func TestNestedAtoms(t *testing.T) {
 				{StartLine: 31},
 				{StartLine: 46},
 				{StartLine: 50},
+				{StartLine: 53},
+				{StartLine: 54},
 			},
 		},
 		{

@@ -80,6 +80,11 @@ func coreAsyncCountSingleValuePuts(node *reader.RichNode, parent *reader.RichNod
 	count := 0
 	if coreAsyncIsOperation(node, "clojure.core.async/>!", "clojure.core.async/>!!", "clojure.core.async/put!") && len(node.Children) >= 3 &&
 		node.Children[1].Type == reader.NodeSymbol && node.Children[1].Value == channel {
+		// A literal keyword is a signal or token (e.g. a semaphore preloaded
+		// with :unlocked), not a computed result delivered once.
+		if node.Children[2] != nil && node.Children[2].Type == reader.NodeKeyword {
+			return count, true
+		}
 		count++
 	}
 	for _, child := range node.Children {
@@ -99,7 +104,9 @@ func coreAsyncSingleValueChannel(node *reader.RichNode) (*reader.RichNode, strin
 	bindings := node.Children[1]
 	for index := 0; index+1 < len(bindings.Children); index += 2 {
 		name, value := bindings.Children[index], bindings.Children[index+1]
-		if name.Type != reader.NodeSymbol || !coreAsyncIsOperation(value, "clojure.core.async/chan") {
+		// (chan buf xform) transforms what is put: the value read is not the
+		// value produced, so a direct value is no equivalent replacement.
+		if name.Type != reader.NodeSymbol || !coreAsyncIsOperation(value, "clojure.core.async/chan") || len(value.Children) > 2 {
 			continue
 		}
 		last := node.Children[len(node.Children)-1]

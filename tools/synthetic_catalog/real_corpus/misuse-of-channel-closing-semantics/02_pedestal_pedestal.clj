@@ -1,0 +1,104 @@
+(ns io.pedestal.service.websocket
+  "WebSocket support abstracted away from the Servlet API."
+  {:added "0.8.0"}
+  (:require [clojure.core.async :refer [go-loop thread chan <! put!]]
+            [io.pedestal.interceptor :refer [interceptor]]
+            [io.pedestal.log :as log]))
+
+(defprotocol WebSocketChannel
+
+  "Defines the behavior of an asynchronous WebSocket connection capable of sending and receiving messages."
+
+  (on-text [this callback]
+    "Sets up a callback for received text messages.
+
+    The callback receives the channel, the process object, and message.
+    The return value is ignored.
+
+    May only be called once. Returns nil.")
+
+  (on-binary [this format callback]
+    "Sets up a callback for received binary messages.
+
+    The format may be :bytes, :byte-buffer, or :input-stream.
+
+    The callback receives the channel, the process object, and the binary message (in the chosen format).
+    The return value is ignored.
+
+    May only be called once.  Returns nil.")
+
+  (send-text! [this ^String string]
+    "Sends the given string to the channel as a text frame.
+
+    Returns true on success, false if the channel has closed.")
+
+  (send-binary! [this data]
+    "Sends the given binary data to the channel as either a byte array or an InputStream.
+
+    Returns true on success, false if the channel has closed.")
+
+  (close! [this]
+    "Closes the channel, preventing further sends or receives.  Returns nil.")
+  
+  (id [this]
+    "Returns a unique identifier assigned to this session. The contents of the string are intentionally opaque
+    and defined by the underlying websocket implementation."))
+
+(defn- async-send!
+  [channel message]
+  (thread
+    (try
+      (let [result (if (string? message)
+                     (send-text! channel message)
+                     (send-binary! channel message))]
+        (if result
+          :success
+          :closed))
+      (catch Exception e
+        e))))
+
+(defn start-ws-connection
+  "Starts a simple WebSocket connection around a WebSocketChannel. The connection allows
+  the server to asyncronously send messages to the client.
+
+  Returns a core.async channel used to send messages to the client.
+
+  Closing the channel will close the WebSocketChannel.
+
+  Writing a value to the channel will send a message to the client.  A value is either the message
+  (as a String, ByteBuffer, InputStream, or byte array) or a tuple of the message and a response channel.
+
+  When the response channel is provided, the result of sending the message is written to it:
+  Either the keyword :success, :closed, or an Exception thrown when attempting to send the message.
+
+  Message delivery is sequential, not parallel.
+
+  Options:
+
+  :send-buffer-or-n
+  : Used to create the channel, defaults to 10
+  "
+  [ws-channel opts]
+  (let [{:keys [send-buffer-or-n]
+         :or   {send-buffer-or-n 10}} opts
+        send-ch (chan send-buffer-or-n)]
+    (go-loop []
+      (if-let [payload (<! send-ch)]
+        (let [[message resp-ch] (if (sequential? payload)
+                                  payload
+                                  [payload nil])
+              result (<! (async-send! ws-channel message))]
+          ;; If a resp-ch was provided, then convey the result (e.g., notify the caller
+          ;; that the payload was sent).  This result is either :success, :closed, or an exception.
+          (when resp-ch
+            (try
+              (put! resp-ch result)
+              (catch Exception ex
+                (log/error :msg "Invalid response channel"
+                           :exception ex))))
+          (when (not= :closed result)
+            (recur)))
+        ;; The session is closed when the channel is closed.
+        (close! ws-channel)))
+    ;; Return the channel used to send messages to the client
+    send-ch))

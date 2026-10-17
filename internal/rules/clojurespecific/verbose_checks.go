@@ -2,6 +2,7 @@ package clojurespecific
 
 import (
 	"fmt"
+	pathpkg "path/filepath"
 	"strings"
 	"sync"
 
@@ -20,7 +21,7 @@ func hasProvenCallShape(node *reader.RichNode, context map[string]interface{}) b
 
 func isCoreReplacementAvailable(context map[string]interface{}, name string) bool {
 	shadowed, _ := context["shadowed-core"].(map[string]bool)
-	if shadowed[name] {
+	if shadowed[name] || nsExcludesCoreName(context, name) {
 		return false
 	}
 	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
@@ -124,14 +125,32 @@ func bindingSymbolsContainName(node *reader.RichNode, name string) bool {
 	return false
 }
 
+// isTestAssertionHead recognizes clojure.test/cljs.test `is`, including a
+// referred `is` that the analyzer leaves unresolved (reader conditionals in
+// the ns form) or types as a Java static (referred cljs.test vars).
+func isTestAssertionHead(call *reader.RichNode, context map[string]interface{}) bool {
+	if rules.CallResolvesTo(call, "clojure.test/is") || rules.CallResolvesTo(call, "cljs.test/is") {
+		return true
+	}
+	if call == nil || call.Type != reader.NodeList || len(call.Children) == 0 || call.Children[0] == nil ||
+		call.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	head := call.Children[0]
+	name := head.Value
+	if slash := strings.LastIndex(name, "/"); slash >= 0 {
+		name = name[slash+1:]
+	}
+	return name == "is" && isTestFrameworkEvaluatingForm(head, context)
+}
+
 func isDirectTestAssertionComparison(node *reader.RichNode, context map[string]interface{}) bool {
 	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
 	if len(ancestors) == 0 {
 		return false
 	}
 	parent := ancestors[len(ancestors)-1]
-	if directChildIndex(parent, node) != 1 ||
-		(!rules.CallResolvesTo(parent, "clojure.test/is") && !rules.CallResolvesTo(parent, "cljs.test/is")) {
+	if directChildIndex(parent, node) != 1 || !isTestAssertionHead(parent, context) {
 		return false
 	}
 	for _, operator := range []string{"=", "==", "not=", ">", "<", ">=", "<=", "mod", "rem"} {
@@ -169,6 +188,24 @@ func isDefinitelyIntegral(node *reader.RichNode) bool {
 		}
 	}
 	return isCoreVerboseCall(node, "compare") && len(node.Children) == 3
+}
+
+// integralEvidenceFor applies isDefinitelyIntegral per operator. A boxed hint
+// (^Integer, ^Long, ...) still admits nil: (= 0 nil) is false while
+// (zero? nil) throws, so the `=` rewrite needs a non-nil integral operand.
+// For >=/<= both forms throw on nil, so boxed hints suffice there.
+func integralEvidenceFor(operator string, node *reader.RichNode) bool {
+	if !isDefinitelyIntegral(node) {
+		return false
+	}
+	if operator != "=" || node == nil || node.Type != reader.NodeSymbol {
+		return true
+	}
+	switch node.TypeHint {
+	case "Byte", "Short", "Integer", "Long", "java.lang.Byte", "java.lang.Short", "java.lang.Integer", "java.lang.Long":
+		return false
+	}
+	return true
 }
 
 func isKnownIntegralInteropCall(node *reader.RichNode) bool {
@@ -370,10 +407,11 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode, conte
 		}
 	}
 
-	// The replacements below are not equivalent for arbitrary Clojure values:
-	// comparisons can return false for nil or heterogeneous values while
-	// zero?/pos?/neg? throw. Require a statically evidenced numeric operand and
-	// avoid reporting constant folding as a style smell.
+	// `=` and the non-strict comparisons are not equivalent to their rewrites
+	// for arbitrary values (0.0, 0M, nil, and NaN differ), so they require a
+	// statically evidenced integral operand. Strict comparisons with the
+	// literal 0 are equivalent for every operand; see
+	// strictZeroComparisonIsDefinitional. Constant folding is not a smell.
 	if suggestion != "" && variableNode != nil && variableNode.Type != reader.NodeNumber {
 		if !isCoreReplacementAvailable(context, suggestedCoreName(suggestion)) {
 			return nil, false
@@ -386,12 +424,13 @@ func (r *VerboseChecksRule) detectNumericComparison(node *reader.RichNode, conte
 		}
 		originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
-			RuleID:   r.ID,
-			Message:  fmt.Sprintf("Verbose numeric comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
-			Filepath: "",
-			Location: node.Location,
-			Severity: r.Severity,
-		}, isDefinitelyIntegral(variableNode)
+			RuleID:     r.ID,
+			Message:    fmt.Sprintf("Verbose numeric comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
+			Filepath:   "",
+			Location:   node.Location,
+			Severity:   r.Severity,
+			Confidence: rules.ConfidenceProven,
+		}, integralEvidenceFor(operator, variableNode) || strictZeroComparisonIsDefinitional(operator, constantValue)
 	}
 
 	return nil, false
@@ -434,16 +473,52 @@ func (r *VerboseChecksRule) detectBooleanComparison(node *reader.RichNode, conte
 			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
 			originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Verbose boolean comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
-				Filepath: "",
-				Location: node.Location,
-				Severity: r.Severity,
+				RuleID:     r.ID,
+				Message:    fmt.Sprintf("Verbose boolean comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
+				Filepath:   "",
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}
 
 	return nil
+}
+
+var canonicalBooleanCoreFns = map[string]bool{
+	"not": true, "=": true, "not=": true, "==": true, "<": true, ">": true,
+	"<=": true, ">=": true, "boolean": true,
+}
+
+// booleanComparisonOperand returns the non-literal side of (= true x).
+func booleanComparisonOperand(node *reader.RichNode) *reader.RichNode {
+	if node.Children[1].Type == reader.NodeBool {
+		return node.Children[2]
+	}
+	return node.Children[1]
+}
+
+// canonicalBooleanRewriteProven reports whether rewriting a comparison with or
+// a branch on expr into true?/false?/boolean preserves its result.
+// ClojureScript compares booleans by identity in both forms. On the JVM the
+// operand must be a literal or a clojure.core predicate call, whose result is
+// always the canonical Boolean.TRUE or Boolean.FALSE.
+func canonicalBooleanRewriteProven(expr *reader.RichNode, filepath string) bool {
+	if strings.EqualFold(pathpkg.Ext(filepath), ".cljs") {
+		return true
+	}
+	if expr == nil {
+		return false
+	}
+	if expr.Type == reader.NodeBool {
+		return true
+	}
+	if expr.Type != reader.NodeList || len(expr.Children) == 0 || expr.Children[0].Resolution == nil {
+		return false
+	}
+	name, ok := strings.CutPrefix(expr.Children[0].Resolution.CanonicalName, "clojure.core/")
+	return ok && (strings.HasSuffix(name, "?") || canonicalBooleanCoreFns[name])
 }
 
 func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode, context map[string]interface{}) *rules.Finding {
@@ -497,15 +572,48 @@ func (r *VerboseChecksRule) detectNilComparison(node *reader.RichNode, context m
 		}
 		originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
-			RuleID:   r.ID,
-			Message:  fmt.Sprintf("Verbose nil comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
-			Filepath: "",
-			Location: node.Location,
-			Severity: r.Severity,
+			RuleID:     r.ID,
+			Message:    fmt.Sprintf("Verbose nil comparison: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
+			Filepath:   "",
+			Location:   node.Location,
+			Severity:   r.Severity,
+			Confidence: rules.ConfidenceProven,
 		}
 	}
 
 	return nil
+}
+
+// strictZeroComparisonIsDefinitional reports the strict comparisons with
+// the literal long 0 whose pos?/neg? rewrite preserves value, result class,
+// and thrown exception class for every operand. On the JVM this was checked
+// against longs, doubles (NaN, -0.0, infinities, MIN_VALUE), ratios, BigInt,
+// BigDecimal, other Number subclasses, nil, strings, characters, keywords,
+// and objects, in boxed, primitive, and unchecked-math paths. In
+// ClojureScript pos?/neg? are defined as (> x 0)/(< x 0), and JavaScript
+// evaluates a > b as b < a, so both argument orders are identical.
+func strictZeroComparisonIsDefinitional(operator, constant string) bool {
+	return constant == "0" && (operator == ">" || operator == "<")
+}
+
+// mathRewriteIsDefinitional reports whether an inc/dec rewrite preserves
+// value, result class, overflow, and exceptions for every operand. (+ x 1)
+// and (- x 1) are the definitions of inc/dec in ClojureScript and match
+// Clojure's Numbers.inc/dec, including unchecked math. (+ 1 x) is equivalent
+// only on the JVM: JavaScript `+` concatenates strings and objects in operand
+// order, so it is not promoted in .cljs or .cljc files.
+func mathRewriteIsDefinitional(node *reader.RichNode, filepath string) bool {
+	if node == nil || len(node.Children) != 3 {
+		return false
+	}
+	arg1, arg2 := node.Children[1], node.Children[2]
+	if arg2 != nil && arg2.Type == reader.NodeNumber && arg2.Value == "1" {
+		return true
+	}
+	if node.Children[0].Value == "+" && arg1 != nil && arg1.Type == reader.NodeNumber && arg1.Value == "1" {
+		return strings.EqualFold(pathpkg.Ext(filepath), ".clj")
+	}
+	return false
 }
 
 func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode, context map[string]interface{}) *rules.Finding {
@@ -536,22 +644,31 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode, context m
 	arg2 := node.Children[2]
 
 	var constantValue, variableExpr string
+	var variableNode *reader.RichNode
 	var suggestion string
 
 	if operator == "+" {
 		if arg1.Type == reader.NodeNumber && arg1.Value == "1" {
 			constantValue = arg1.Value
 			variableExpr = getVerboseNodeText(arg2)
+			variableNode = arg2
 		} else if arg2.Type == reader.NodeNumber && arg2.Value == "1" {
 			constantValue = arg2.Value
 			variableExpr = getVerboseNodeText(arg1)
+			variableNode = arg1
 		}
 	} else if operator == "-" {
 
 		if arg2.Type == reader.NodeNumber && arg2.Value == "1" {
 			constantValue = arg2.Value
 			variableExpr = getVerboseNodeText(arg1)
+			variableNode = arg1
 		}
+	}
+	// Constant folding such as (+ 1 0) is not a verbose check, matching the
+	// comparison path.
+	if variableNode != nil && (variableNode.Type == reader.NodeNumber || rules.FactsForNode(variableNode, context).Constant) {
+		return nil
 	}
 
 	if constantValue != "" {
@@ -562,11 +679,12 @@ func (r *VerboseChecksRule) detectMathOperation(node *reader.RichNode, context m
 			suggestion = fmt.Sprintf("(%s %s)", idiomaticFunc, variableExpr)
 			originalExpr := fmt.Sprintf("(%s %s %s)", operator, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Verbose math operation: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
-				Filepath: "",
-				Location: node.Location,
-				Severity: r.Severity,
+				RuleID:     r.ID,
+				Message:    fmt.Sprintf("Verbose math operation: `%s`. Consider using the more idiomatic `%s`.", originalExpr, suggestion),
+				Filepath:   "",
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}
@@ -597,10 +715,11 @@ func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode, context map[s
 			suggestion := fmt.Sprintf("(boolean %s)", getVerboseNodeText(cond))
 			originalExpr := fmt.Sprintf("(if %s true false)", getVerboseNodeText(cond))
 			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Verbose boolean if: `%s`. Consider using `%s`.", originalExpr, suggestion),
-				Location: node.Location,
-				Severity: r.Severity,
+				RuleID:     r.ID,
+				Message:    fmt.Sprintf("Verbose boolean if: `%s`. Consider using `%s`.", originalExpr, suggestion),
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 		if thenBranch.Value == "false" && elseBranch.Value == "true" {
@@ -610,10 +729,11 @@ func (r *VerboseChecksRule) detectVerboseIf(node *reader.RichNode, context map[s
 			suggestion := fmt.Sprintf("(not %s)", getVerboseNodeText(cond))
 			originalExpr := fmt.Sprintf("(if %s false true)", getVerboseNodeText(cond))
 			return &rules.Finding{
-				RuleID:   r.ID,
-				Message:  fmt.Sprintf("Verbose boolean if: `%s`. Consider using `%s`.", originalExpr, suggestion),
-				Location: node.Location,
-				Severity: r.Severity,
+				RuleID:     r.ID,
+				Message:    fmt.Sprintf("Verbose boolean if: `%s`. Consider using `%s`.", originalExpr, suggestion),
+				Location:   node.Location,
+				Severity:   r.Severity,
+				Confidence: rules.ConfidenceProven,
 			}
 		}
 	}
@@ -670,10 +790,11 @@ func (r *VerboseChecksRule) detectModComparison(node *reader.RichNode, context m
 		}
 		originalExpr := fmt.Sprintf("(%s %s %s)", opNode.Value, getVerboseNodeText(arg1), getVerboseNodeText(arg2))
 		return &rules.Finding{
-			RuleID:   r.ID,
-			Message:  fmt.Sprintf("Verbose parity check: `%s`. Consider using `%s`.", originalExpr, suggestion),
-			Location: node.Location,
-			Severity: r.Severity,
+			RuleID:     r.ID,
+			Message:    fmt.Sprintf("Verbose parity check: `%s`. Consider using `%s`.", originalExpr, suggestion),
+			Location:   node.Location,
+			Severity:   r.Severity,
+			Confidence: rules.ConfidenceProven,
 		}, isDefinitelyIntegral(modArgNode)
 	}
 	return nil, false
@@ -703,6 +824,204 @@ func getVerboseNodeText(node *reader.RichNode) string {
 	}
 }
 
+// verboseNonEvaluatingCoreForms are core forms whose arguments are data
+// rather than evaluated expressions.
+var verboseNonEvaluatingCoreForms = map[string]bool{
+	"comment": true, "quote": true, "declare": true, "ns": true,
+}
+
+// ancestorsEvaluateNormally proves that the checked expression is ordinary
+// code: every enclosing list must be headed by a form whose arguments are
+// evaluated (a clojure.core form other than a data-taking one, or a proven
+// function such as a local defn or Java interop). An unresolved or
+// third-party head may be a DSL macro that reads its arguments as data, e.g.
+// a symbolic-math `(ex (+ 1 x))`, so the rewrite cannot be proven there.
+func ancestorsEvaluateNormally(context map[string]interface{}) bool {
+	ancestors, _ := context["ancestorNodes"].([]*reader.RichNode)
+	for i, ancestor := range ancestors {
+		if ancestor == nil || ancestor.Type != reader.NodeList || len(ancestor.Children) == 0 {
+			continue
+		}
+		var parent *reader.RichNode
+		if i > 0 {
+			parent = ancestors[i-1]
+		}
+		// Method implementations of reify, deftype, proxy, and the extension
+		// forms, and the arity bodies of functions and methods, are ordinary
+		// evaluated code.
+		if isMethodImplementation(ancestor, parent) || isArityBody(ancestor, parent) {
+			continue
+		}
+		head := ancestor.Children[0]
+		if head == nil || head.Type != reader.NodeSymbol {
+			if head != nil && head.Type == reader.NodeKeyword {
+				continue
+			}
+			// A computed operator, e.g. ((f) x), still evaluates arguments.
+			if head != nil && head.Type == reader.NodeList {
+				continue
+			}
+			return false
+		}
+		if resolution := head.Resolution; resolution != nil && resolution.Kind == reader.ResolutionClojureCore {
+			if verboseNonEvaluatingCoreForms[strings.TrimPrefix(resolution.CanonicalName, "clojure.core/")] {
+				return false
+			}
+			continue
+		}
+		if macroTemplateHeadIsKnownFunction(head, context) || isTestFrameworkEvaluatingForm(head, context) {
+			continue
+		}
+		if (head.Resolution == nil || head.Resolution.Kind == reader.ResolutionUnresolved) &&
+			verboseEvaluatingCoreForms[head.Value] && !nsExcludesCoreName(context, head.Value) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+var methodImplementationHosts = map[string]bool{
+	"reify": true, "proxy": true, "deftype": true, "defrecord": true,
+	"extend-type": true, "extend-protocol": true, "specify": true, "specify!": true,
+}
+
+func isMethodImplementation(form, parent *reader.RichNode) bool {
+	if parent == nil || parent.Type != reader.NodeList || len(parent.Children) == 0 ||
+		parent.Children[0].Type != reader.NodeSymbol ||
+		!methodImplementationHosts[strings.TrimPrefix(parent.Children[0].Value, "clojure.core/")] {
+		return false
+	}
+	head := form.Children[0]
+	return head.Type == reader.NodeSymbol && head.Resolution != nil &&
+		head.Resolution.Kind == reader.ResolutionJavaMethod && len(form.Children) > 1 &&
+		(form.Children[1].Type == reader.NodeVector || form.Children[1].Type == reader.NodeList)
+}
+
+// isArityBody reports ([params] body...) directly inside a fn, defn, or
+// method implementation.
+func isArityBody(form, parent *reader.RichNode) bool {
+	if form.Children[0].Type != reader.NodeVector || parent == nil || parent.Type != reader.NodeList ||
+		len(parent.Children) == 0 || parent.Children[0].Type != reader.NodeSymbol {
+		return false
+	}
+	head := parent.Children[0]
+	switch strings.TrimPrefix(head.Value, "clojure.core/") {
+	case "fn", "fn*", "defn", "defn-", "defmacro", "defmethod":
+		return head.Resolution == nil || head.Resolution.Kind != reader.ResolutionLocal
+	}
+	return head.Resolution != nil && head.Resolution.Kind == reader.ResolutionJavaMethod
+}
+
+// verboseEvaluatingCoreForms are clojure.core special forms and macros whose
+// body or branch positions are ordinary evaluated code. The analyzer does not
+// always annotate their heads with a resolution.
+var verboseEvaluatingCoreForms = map[string]bool{
+	"def": true, "defn": true, "defn-": true, "defonce": true, "defmethod": true, "fn": true, "fn*": true,
+	"let": true, "let*": true, "letfn": true, "loop": true, "loop*": true, "if": true, "if-not": true,
+	"if-let": true, "if-some": true, "when": true, "when-not": true, "when-let": true, "when-some": true,
+	"when-first": true, "cond": true, "condp": true, "case": true, "and": true, "or": true, "do": true,
+	"->": true, "->>": true, "as->": true, "cond->": true, "cond->>": true, "some->": true, "some->>": true,
+	"doto": true, "doseq": true, "dotimes": true, "for": true, "while": true, "try": true, "catch": true,
+	"finally": true, "binding": true, "with-open": true, "locking": true, "recur": true, "throw": true,
+	"deftype": true, "defrecord": true, "reify": true, "proxy": true, "extend-type": true,
+	"extend-protocol": true, "delay": true, "future": true, "lazy-seq": true, "assert": true,
+	// A macro body runs at expansion time and its template is code after
+	// expansion; both are evaluated.
+	"defmacro": true,
+}
+
+// verboseTestFrameworkForms are clojure.test/cljs.test macros that evaluate
+// their body forms as ordinary code.
+var verboseTestFrameworkForms = map[string]bool{"deftest": true, "testing": true, "is": true}
+
+// isTestFrameworkEvaluatingForm accepts deftest/testing/is from clojure.test
+// or cljs.test. The analyzer leaves `:refer :all` names unresolved and types
+// referred cljs.test vars as Java statics, so the ns form must require one of
+// the two test namespaces for an unqualified name to be accepted.
+func isTestFrameworkEvaluatingForm(head *reader.RichNode, context map[string]interface{}) bool {
+	name := head.Value
+	if slash := strings.LastIndex(name, "/"); slash >= 0 {
+		name = name[slash+1:]
+	}
+	if !verboseTestFrameworkForms[name] {
+		return false
+	}
+	if resolution := head.Resolution; resolution != nil {
+		canonical := resolution.CanonicalName
+		if canonical == "clojure.test/"+name || canonical == "cljs.test/"+name {
+			return true
+		}
+		if resolution.Kind == reader.ResolutionJavaStatic && (canonical == "clojure.test" || canonical == "cljs.test") {
+			return true
+		}
+		if resolution.Kind != reader.ResolutionUnresolved {
+			return false
+		}
+	}
+	if strings.Contains(head.Value, "/") {
+		return false
+	}
+	return nsRequiresNamespace(context, "clojure.test") || nsRequiresNamespace(context, "cljs.test")
+}
+
+func nsRequiresNamespace(context map[string]interface{}, namespace string) bool {
+	nsForm, _ := context["ns-form"].(*reader.RichNode)
+	found := false
+	var visit func(*reader.RichNode)
+	visit = func(node *reader.RichNode) {
+		if node == nil || found {
+			return
+		}
+		if node.Type == reader.NodeSymbol && node.Value == namespace {
+			found = true
+			return
+		}
+		for _, child := range node.Children {
+			visit(child)
+		}
+	}
+	visit(nsForm)
+	return found
+}
+
+// nsExcludesCoreName reports whether the ns form stops referring
+// clojure.core/name through :refer-clojure :exclude, :only, or :rename.
+func nsExcludesCoreName(context map[string]interface{}, name string) bool {
+	nsForm, _ := context["ns-form"].(*reader.RichNode)
+	if nsForm == nil {
+		return false
+	}
+	for _, clause := range nsForm.Children[1:] {
+		if clause == nil || clause.Type != reader.NodeList || len(clause.Children) == 0 || clause.Children[0].Value != ":refer-clojure" {
+			continue
+		}
+		for index := 1; index+1 < len(clause.Children); index += 2 {
+			option, value := clause.Children[index], clause.Children[index+1]
+			if option == nil || value == nil {
+				continue
+			}
+			mentions := false
+			for _, item := range value.Children {
+				if item != nil && item.Type == reader.NodeSymbol && item.Value == name {
+					mentions = true
+				}
+			}
+			switch option.Value {
+			case ":exclude", ":rename":
+				if mentions {
+					return true
+				}
+			case ":only":
+				if !mentions {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 
 	if node.Type != reader.NodeList || len(node.Children) < 3 {
@@ -711,6 +1030,14 @@ func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]inte
 	if isDirectTestAssertionComparison(node, context) {
 		return nil
 	}
+	finding := r.check(node, context, filepath)
+	if finding != nil && finding.Confidence == rules.ConfidenceProven && !finding.Contextual && !ancestorsEvaluateNormally(context) {
+		return rules.SetContextualFindingWithEvidence(finding, "An enclosing form is not proven to evaluate its arguments; it may be a macro that reads this expression as data.", "enclosing-macro-semantics")
+	}
+	return finding
+}
+
+func (r *VerboseChecksRule) check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 
 	if r.CheckNumericComparisons {
 		if finding, proven := r.detectNumericComparison(node, context); finding != nil {
@@ -725,9 +1052,10 @@ func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]inte
 	if r.CheckBooleanComparisons {
 		if finding := r.detectBooleanComparison(node, context); finding != nil {
 			finding.Filepath = filepath
-			// Equality with the literal true/false is equivalent to true?/false?
-			// for every Clojure value; no external contract is required.
-			return finding
+			if canonicalBooleanRewriteProven(booleanComparisonOperand(node), filepath) {
+				return finding
+			}
+			return rules.SetContextualFindingWithEvidence(finding, "On the JVM `=` compares a java.lang.Boolean by value while true?/false? test identity with the canonical Boolean; a non-canonical Boolean instance (deserialization, JDBC, (Boolean. x)) makes the rewrite differ.", "boolean-identity", "return-contract")
 		}
 	}
 
@@ -741,14 +1069,22 @@ func (r *VerboseChecksRule) Check(node *reader.RichNode, context map[string]inte
 	if r.CheckMathOperations {
 		if finding := r.detectMathOperation(node, context); finding != nil {
 			finding.Filepath = filepath
-			return rules.SetContextualFindingWithEvidence(finding, "The arithmetic simplification may depend on numeric type and overflow.", "numeric-type", "overflow")
+			if mathRewriteIsDefinitional(node, filepath) {
+				return finding
+			}
+			return rules.SetContextualFindingWithEvidence(finding, "In ClojureScript (+ 1 x) concatenates non-numeric operands in a different order than (inc x); the numeric operand domain is not proven.", "numeric-type", "platform-semantics")
 		}
 	}
 
 	if finding := r.detectVerboseIf(node, context); finding != nil {
 		finding.Filepath = filepath
-		// Both forms return a boolean and preserve Clojure truthiness exactly.
-		return finding
+		// (if x false true) is the definition of not. (if x true false) and
+		// (boolean x) disagree on the JVM for a non-canonical false Boolean,
+		// which if treats as truthy and boolean unboxes to false.
+		if node.Children[2].Value == "false" || canonicalBooleanRewriteProven(node.Children[1], filepath) {
+			return finding
+		}
+		return rules.SetContextualFindingWithEvidence(finding, "On the JVM `if` treats a non-canonical false java.lang.Boolean as truthy while `boolean` unboxes it to false; the condition is not proven to yield a canonical Boolean or a non-Boolean value.", "boolean-identity", "return-contract")
 	}
 
 	if finding, proven := r.detectModComparison(node, context); finding != nil {

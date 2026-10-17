@@ -18,11 +18,39 @@ import (
 )
 
 type Expectation struct {
-	Status           string   `yaml:"status"`
-	NoFindingReason  string   `yaml:"no-finding-reason"`
-	ExpectedFindings []string `yaml:"expected-findings"`
-	Classification   string   `yaml:"classification"`
-	NextAction       string   `yaml:"next-action"`
+	Status             string   `yaml:"status"`
+	Role               string   `yaml:"role,omitempty"`
+	ExpectedConfidence string   `yaml:"expected-confidence,omitempty"`
+	MissingEvidence    []string `yaml:"missing-evidence,omitempty"`
+	NoFindingReason    string   `yaml:"no-finding-reason"`
+	ExpectedFindings   []string `yaml:"expected-findings"`
+	Classification     string   `yaml:"classification"`
+	NextAction         string   `yaml:"next-action"`
+	// Rule scopes the expectation to one rule: only its findings count for the
+	// status, confidence, evidence, and count checks. Findings of other rules
+	// in the file are ignored by the gate.
+	Rule string `yaml:"rule,omitempty"`
+	// ExpectedCount, when set, is the exact number of in-scope findings; more
+	// is reported as over-reporting (false positives), fewer as a false negative.
+	ExpectedCount *int `yaml:"expected-count,omitempty"`
+}
+
+func (e Expectation) EffectiveRole(path string) string {
+	if e.Role != "" {
+		return e.Role
+	}
+	norm := filepath.ToSlash(path)
+	if strings.Contains(norm, "/real_samples/") || strings.HasSuffix(norm, "/real_samples") {
+		return "exploratory"
+	}
+	switch e.Status {
+	case "must-find", "must-not-find":
+		return "gate"
+	case "may-find":
+		return "exploratory"
+	default:
+		return "exploratory"
+	}
 }
 
 type DirectoryExpectation struct {
@@ -48,12 +76,16 @@ type Options struct {
 }
 
 type FileReport struct {
-	Path        string      `json:"path"`
-	Expectation Expectation `json:"expectation"`
-	Findings    int         `json:"findings"`
-	Proven      int         `json:"proven"`
-	Contextual  int         `json:"contextual"`
-	NoFinding   bool        `json:"no_finding"`
+	Path            string      `json:"path"`
+	Expectation     Expectation `json:"expectation"`
+	Role            string      `json:"role"`
+	Findings        int         `json:"findings"`
+	Proven          int         `json:"proven"`
+	Contextual      int         `json:"contextual"`
+	NoFinding       bool        `json:"no_finding"`
+	MissingEvidence []string    `json:"missing_evidence,omitempty"`
+	// OtherRuleFindings counts findings outside a rule-scoped expectation.
+	OtherRuleFindings int `json:"other_rule_findings,omitempty"`
 }
 
 type Report struct {
@@ -63,6 +95,12 @@ type Report struct {
 	Findings                int          `json:"findings"`
 	Proven                  int          `json:"proven"`
 	Contextual              int          `json:"contextual"`
+	GateFiles               int          `json:"gate_files"`
+	ExploratoryFiles        int          `json:"exploratory_files"`
+	TruePositives           int          `json:"true_positives"`
+	TrueNegatives           int          `json:"true_negatives"`
+	FalsePositives          int          `json:"false_positives"`
+	FalseNegatives          int          `json:"false_negatives"`
 	NoFindingFiles          []FileReport `json:"no_finding_files"`
 	ContextualWithoutReason []string     `json:"contextual_without_reason"`
 	Violations              []string     `json:"violations"`
@@ -86,7 +124,8 @@ func LoadManifest(path string) (Manifest, error) {
 func (manifest Manifest) ExpectationFor(path string) Expectation {
 	normalized := filepath.ToSlash(path)
 	for _, entry := range manifest.Files {
-		if filepath.ToSlash(entry.Path) == normalized {
+		entryNorm := filepath.ToSlash(entry.Path)
+		if entryNorm == normalized || strings.HasSuffix(normalized, "/"+entryNorm) || strings.TrimPrefix(normalized, "./") == strings.TrimPrefix(entryNorm, "./") {
 			return entry.Expectation
 		}
 	}
@@ -94,7 +133,7 @@ func (manifest Manifest) ExpectationFor(path string) Expectation {
 	selected := manifest.Defaults
 	for _, entry := range manifest.Directories {
 		directory := strings.TrimSuffix(filepath.ToSlash(entry.Path), "/")
-		if normalized == directory || strings.HasPrefix(normalized, directory+"/") {
+		if normalized == directory || strings.HasPrefix(normalized, directory+"/") || strings.Contains(normalized, "/"+directory+"/") || strings.HasSuffix(normalized, "/"+directory) {
 			if len(directory) > bestLength {
 				bestLength = len(directory)
 				selected = entry.Expectation
@@ -148,21 +187,43 @@ func Audit(root, manifestPath string, options Options) (Report, error) {
 			return Report{}, fmt.Errorf("analyze %s: %w", path, analyzeErr)
 		}
 		expectation := manifest.ExpectationFor(path)
-		fileReport := FileReport{Path: path, Expectation: expectation, Findings: len(result.Findings)}
+		fileReport := FileReport{
+			Path:        path,
+			Expectation: expectation,
+			Role:        expectation.EffectiveRole(path),
+		}
+		evidenceSet := make(map[string]bool)
 		for _, finding := range result.Findings {
 			report.Findings++
+			inScope := expectation.Rule == "" || finding.RuleID == expectation.Rule
+			if inScope {
+				fileReport.Findings++
+				for _, ev := range finding.MissingEvidence {
+					evidenceSet[ev] = true
+				}
+			} else {
+				fileReport.OtherRuleFindings++
+			}
 			if finding.Confidence == rules.ConfidenceContextual {
 				report.Contextual++
-				fileReport.Contextual++
+				if inScope {
+					fileReport.Contextual++
+				}
 				if len(finding.MissingEvidence) == 0 && finding.ContextualReason == "" {
 					report.ContextualWithoutReason = append(report.ContextualWithoutReason, fmt.Sprintf("%s:%s", path, finding.RuleID))
 				}
 			} else {
 				report.Proven++
-				fileReport.Proven++
+				if inScope {
+					fileReport.Proven++
+				}
 			}
 		}
-		fileReport.NoFinding = len(result.Findings) == 0
+		for ev := range evidenceSet {
+			fileReport.MissingEvidence = append(fileReport.MissingEvidence, ev)
+		}
+		sort.Strings(fileReport.MissingEvidence)
+		fileReport.NoFinding = fileReport.Findings == 0
 		if fileReport.NoFinding {
 			report.NoFindingFiles = append(report.NoFindingFiles, fileReport)
 		}
@@ -175,19 +236,77 @@ func Audit(root, manifestPath string, options Options) (Report, error) {
 }
 
 func validateExpectation(report *Report, file FileReport) {
+	// 1. Role accounting and gate evaluation
+	if file.Role == "gate" {
+		report.GateFiles++
+		switch file.Expectation.Status {
+		case "must-not-find":
+			if file.Findings == 0 {
+				report.TrueNegatives++
+			} else {
+				report.FalsePositives++
+				report.Violations = append(report.Violations, fmt.Sprintf("%s: expected no findings (true negative), got %d findings", file.Path, file.Findings))
+			}
+		case "must-find":
+			if file.Findings > 0 {
+				report.TruePositives++
+				if count := file.Expectation.ExpectedCount; count != nil && file.Findings > *count {
+					report.FalsePositives++
+					report.Violations = append(report.Violations, fmt.Sprintf("%s: expected %d finding(s) of the scoped rule, got %d (over-reporting)", file.Path, *count, file.Findings))
+				} else if count != nil && file.Findings < *count {
+					report.FalseNegatives++
+					report.Violations = append(report.Violations, fmt.Sprintf("%s: expected %d finding(s) of the scoped rule, got %d", file.Path, *count, file.Findings))
+				}
+			} else {
+				report.FalseNegatives++
+				reason := file.Expectation.NoFindingReason
+				if reason == "" {
+					reason = "unexplained omission"
+				}
+				report.Violations = append(report.Violations, fmt.Sprintf("%s: expected at least one finding (true positive) but found none (%s)", file.Path, reason))
+			}
+		}
+	} else {
+		report.ExploratoryFiles++
+	}
+
+	// 2. Status validation
 	switch file.Expectation.Status {
-	case "must-find":
-		if file.Findings == 0 {
-			report.Violations = append(report.Violations, fmt.Sprintf("%s: expected at least one finding (%s)", file.Path, file.Expectation.NoFindingReason))
-		}
-	case "must-not-find":
-		if file.Findings != 0 {
-			report.Violations = append(report.Violations, fmt.Sprintf("%s: expected no findings", file.Path))
-		}
-	case "may-find", "":
-		// This status is intentionally permissive for catalog entries awaiting a precise contract.
+	case "must-find", "must-not-find", "may-find", "":
+		// Handled or permissive
 	default:
 		report.Violations = append(report.Violations, fmt.Sprintf("%s: unsupported manifest status %q", file.Path, file.Expectation.Status))
+	}
+
+	// 3. ExpectedConfidence validation
+	if file.Expectation.ExpectedConfidence != "" && file.Findings > 0 {
+		switch file.Expectation.ExpectedConfidence {
+		case "proven":
+			if file.Proven == 0 {
+				report.Violations = append(report.Violations, fmt.Sprintf("%s: expected proven finding, but got %d contextual finding(s)", file.Path, file.Contextual))
+			} else if file.Contextual > 0 {
+				report.Violations = append(report.Violations, fmt.Sprintf("%s: expected exclusively proven findings, but got %d contextual finding(s)", file.Path, file.Contextual))
+			}
+		case "contextual":
+			if file.Contextual == 0 {
+				report.Violations = append(report.Violations, fmt.Sprintf("%s: expected contextual finding, but got %d proven finding(s)", file.Path, file.Proven))
+			}
+		default:
+			report.Violations = append(report.Violations, fmt.Sprintf("%s: invalid expected-confidence %q (must be 'proven' or 'contextual')", file.Path, file.Expectation.ExpectedConfidence))
+		}
+	}
+
+	// 4. MissingEvidence validation
+	if len(file.Expectation.MissingEvidence) > 0 {
+		actualEvMap := make(map[string]bool)
+		for _, ev := range file.MissingEvidence {
+			actualEvMap[ev] = true
+		}
+		for _, requiredEv := range file.Expectation.MissingEvidence {
+			if !actualEvMap[requiredEv] {
+				report.Violations = append(report.Violations, fmt.Sprintf("%s: expected missing-evidence token %q was not emitted; actual missing evidence: %v", file.Path, requiredEv, file.MissingEvidence))
+			}
+		}
 	}
 }
 

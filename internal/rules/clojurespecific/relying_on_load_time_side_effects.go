@@ -122,8 +122,10 @@ func (r *RelyingOnLoadTimeSideEffectsRule) Check(node *reader.RichNode, context 
 	}
 	finding := &rules.Finding{
 		RuleID: r.ID, Filepath: filepath, Location: node.Location,
-		Severity: rules.ContextualSeverity(context, r.Severity), Tags: rules.ContextualTags(context),
-		Message: fmt.Sprintf("Side-effecting operation %q runs while the namespace is loaded; defer it to application startup.", node.Children[0].Value),
+		Severity:   rules.ContextualSeverity(context, r.Severity),
+		Confidence: rules.ConfidenceProven,
+		Tags:       rules.ContextualTags(context),
+		Message:    fmt.Sprintf("Side-effecting operation %q runs while the namespace is loaded; defer it to application startup.", node.Children[0].Value),
 	}
 	if hasProvenLocalLoadTimeEffect(node, context) {
 		return finding

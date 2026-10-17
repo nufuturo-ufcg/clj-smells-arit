@@ -50,6 +50,7 @@ func (r *DSLRule) Check(node *reader.RichNode, context map[string]interface{}, f
 	if r.contextualReason != "" {
 		return SetContextualFindingWithEvidence(finding, r.contextualReason, r.contextualEvidence...)
 	}
+	finding.Confidence = ConfidenceProven
 	return finding
 }
 

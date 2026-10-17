@@ -1,8 +1,10 @@
 package suite
 
 import (
-	"github.com/thlaurentino/arit/internal/test/framework"
 	"testing"
+
+	"github.com/thlaurentino/arit/internal/rules"
+	"github.com/thlaurentino/arit/internal/test/framework"
 )
 
 func TestNestedForms(t *testing.T) {
@@ -11,9 +13,9 @@ func TestNestedForms(t *testing.T) {
 			FileToAnalyze: "nested_forms.clj",
 			RuleID:        "nested-forms",
 			ExpectedFindings: []framework.ExpectedFinding{
-				{Message: "Safe nested let flattening detected (3 consecutive forms)", StartLine: 4},
-				{Message: "Safe nested doseq flattening detected (2 consecutive forms)", StartLine: 10},
-				{Message: "Safe nested doseq flattening detected (2 consecutive forms)", StartLine: 15},
+				{Message: "Safe nested let flattening detected (3 consecutive forms)", StartLine: 4, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+				{Message: "Safe nested doseq flattening detected (2 consecutive forms)", StartLine: 10, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
+				{Message: "Safe nested doseq flattening detected (2 consecutive forms)", StartLine: 15, RequireConfidence: rules.ConfidenceProven, RequireNonContextual: true},
 			},
 		},
 		{

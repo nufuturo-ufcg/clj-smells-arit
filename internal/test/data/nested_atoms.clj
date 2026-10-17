@@ -48,3 +48,7 @@
 ;; Shadowing core atom must not be interpreted as reference creation.
 (defn shadowed-atom [atom]
   (atom {:value (atom 1)}))
+
+;; Options after the initial value are not part of the reference's state.
+(def with-meta-atom (atom {} :meta {:listeners (atom {})}))
+(def with-meta-agent (agent nil :meta {:config (atom nil)}))

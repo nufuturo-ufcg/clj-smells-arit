@@ -16,7 +16,16 @@ func (r *PrivateMultimethodsRule) Meta() rules.Rule {
 
 func (r *PrivateMultimethodsRule) Check(node *reader.RichNode, context map[string]interface{}, filepath string) *rules.Finding {
 	if node == nil || node.Type != reader.NodeList || len(node.Children) < 2 ||
-		!isPrivateContextForm(node) || !r.hasDefMulti(node) {
+		!isPrivateContextForm(node) {
+		return nil
+	}
+	// Only the functions bound by letfn are private; its body runs in the
+	// enclosing scope, so a defmethod there registers an ordinary method.
+	scope := node
+	if node.Children[0].Value == "letfn" {
+		scope = node.Children[1]
+	}
+	if !r.hasDefMulti(scope) {
 		return nil
 	}
 

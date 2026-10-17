@@ -164,3 +164,8 @@
 ;; Example 19: higher-order function instead of multimethod
 (defn make-processor [f]
   (fn [x] (f x)))
+
+;; letfn body: the helper is private, the registered method is not.
+(defmulti shared-dispatch :kind)
+(letfn [(helper [x] (inc x))]
+  (defmethod shared-dispatch :a [m] (helper (:n m))))

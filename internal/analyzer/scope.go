@@ -35,48 +35,54 @@ var coreSymbols = map[string]SymbolType{
 	"false": TypeVariable,
 	"nil":   TypeVariable,
 
-	"swap!":          TypeCoreFunction,
-	"reset!":         TypeCoreFunction,
-	"atom":           TypeCoreFunction,
-	"agent":          TypeCoreFunction,
-	"ref":            TypeCoreFunction,
-	"volatile!":      TypeCoreFunction,
-	"send":           TypeCoreFunction,
-	"send-off":       TypeCoreFunction,
-	"alter":          TypeCoreFunction,
-	"commute":        TypeCoreFunction,
-	"ref-set":        TypeCoreFunction,
-	"alter-var-root": TypeCoreFunction,
-	"vreset!":        TypeCoreFunction,
-	"vswap!":         TypeCoreFunction,
-	"set!":           TypeCoreFunction,
-	"aset":           TypeCoreFunction,
-	"aset-boolean":   TypeCoreFunction,
-	"aset-byte":      TypeCoreFunction,
-	"aset-char":      TypeCoreFunction,
-	"aset-double":    TypeCoreFunction,
-	"aset-float":     TypeCoreFunction,
-	"aset-int":       TypeCoreFunction,
-	"aset-long":      TypeCoreFunction,
-	"aset-short":     TypeCoreFunction,
-	"alter-meta!":    TypeCoreFunction,
-	"reset-meta!":    TypeCoreFunction,
-	"empty?":         TypeCoreFunction,
-	"zero?":          TypeCoreFunction,
-	"pos?":           TypeCoreFunction,
-	"neg?":           TypeCoreFunction,
-	"not":            TypeCoreFunction,
-	"not=":           TypeCoreFunction,
-	"==":             TypeCoreFunction,
-	"mod":            TypeCoreFunction,
-	"rem":            TypeCoreFunction,
-	"boolean":        TypeCoreFunction,
-	"defprotocol":    TypeCoreFunction,
-	"future":         TypeCoreFunction,
-	"delay":          TypeCoreFunction,
-	"lazy-seq":       TypeCoreFunction,
-	"letfn":          TypeCoreSpecialForm,
-	"dosync":         TypeCoreSpecialForm,
+	"swap!":            TypeCoreFunction,
+	"reset!":           TypeCoreFunction,
+	"swap-vals!":       TypeCoreFunction,
+	"reset-vals!":      TypeCoreFunction,
+	"compare-and-set!": TypeCoreFunction,
+	"add-watch":        TypeCoreFunction,
+	"remove-watch":     TypeCoreFunction,
+	"set-validator!":   TypeCoreFunction,
+	"atom":             TypeCoreFunction,
+	"agent":            TypeCoreFunction,
+	"ref":              TypeCoreFunction,
+	"volatile!":        TypeCoreFunction,
+	"send":             TypeCoreFunction,
+	"send-off":         TypeCoreFunction,
+	"alter":            TypeCoreFunction,
+	"commute":          TypeCoreFunction,
+	"ref-set":          TypeCoreFunction,
+	"alter-var-root":   TypeCoreFunction,
+	"vreset!":          TypeCoreFunction,
+	"vswap!":           TypeCoreFunction,
+	"set!":             TypeCoreFunction,
+	"aset":             TypeCoreFunction,
+	"aset-boolean":     TypeCoreFunction,
+	"aset-byte":        TypeCoreFunction,
+	"aset-char":        TypeCoreFunction,
+	"aset-double":      TypeCoreFunction,
+	"aset-float":       TypeCoreFunction,
+	"aset-int":         TypeCoreFunction,
+	"aset-long":        TypeCoreFunction,
+	"aset-short":       TypeCoreFunction,
+	"alter-meta!":      TypeCoreFunction,
+	"reset-meta!":      TypeCoreFunction,
+	"empty?":           TypeCoreFunction,
+	"zero?":            TypeCoreFunction,
+	"pos?":             TypeCoreFunction,
+	"neg?":             TypeCoreFunction,
+	"not":              TypeCoreFunction,
+	"not=":             TypeCoreFunction,
+	"==":               TypeCoreFunction,
+	"mod":              TypeCoreFunction,
+	"rem":              TypeCoreFunction,
+	"boolean":          TypeCoreFunction,
+	"defprotocol":      TypeCoreFunction,
+	"future":           TypeCoreFunction,
+	"delay":            TypeCoreFunction,
+	"lazy-seq":         TypeCoreFunction,
+	"letfn":            TypeCoreSpecialForm,
+	"dosync":           TypeCoreSpecialForm,
 
 	"for":           TypeCoreSpecialForm,
 	"mapcat":        TypeCoreFunction,
@@ -179,7 +185,7 @@ func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
 		}
 	}
 
-	if !strings.Contains(name, "/") {
+	if !strings.Contains(name, "/") && !globalScope.coreNameRemoved(name) {
 		if coreType, found := coreSymbols[name]; found {
 			synthInfo := &SymbolInfo{
 				Name:            name,
@@ -193,4 +199,24 @@ func (s *Scope) Lookup(name string) (*SymbolInfo, bool) {
 	}
 
 	return nil, false
+}
+
+// coreNameRemoved reports whether the ns declaration stops referring
+// clojure.core/name (:refer-clojure :exclude, :only, or :rename).
+func (s *Scope) coreNameRemoved(name string) bool {
+	root := s
+	for root != nil && root.parent != nil {
+		root = root.parent
+	}
+	return root != nil && root.coreReferral.removes(name)
+}
+
+// CoreNamesAmbiguous reports whether a whole namespace is referred, so an
+// unqualified clojure.core name may have been replaced by that namespace.
+func (s *Scope) CoreNamesAmbiguous() bool {
+	root := s
+	for root != nil && root.parent != nil {
+		root = root.parent
+	}
+	return root != nil && root.coreReferral != nil && root.coreReferral.ambiguous
 }

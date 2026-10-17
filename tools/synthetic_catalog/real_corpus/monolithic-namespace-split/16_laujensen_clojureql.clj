@@ -1,0 +1,1 @@
+(in-ns 'clojureql.core)

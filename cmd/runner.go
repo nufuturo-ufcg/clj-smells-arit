@@ -218,9 +218,13 @@ func runAnalysisPipeline(filesToAnalyze []string, cfg *config.Config, discoveryD
 			timingTotals.Postprocess,
 		)
 	}
+	filteredFindings := make([]*rules.Finding, 0, len(allFindings))
 	for _, finding := range allFindings {
-		rules.MarkContextualFinding(finding)
+		if rules.MarkContextualFinding(finding) {
+			filteredFindings = append(filteredFindings, finding)
+		}
 	}
+	allFindings = filteredFindings
 
 	sort.Slice(allFindings, func(i, j int) bool {
 		if allFindings[i].Filepath != allFindings[j].Filepath {
